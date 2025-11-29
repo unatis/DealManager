@@ -1,32 +1,40 @@
-﻿internal class Program
+﻿using Microsoft.AspNetCore.HttpOverrides;
+
+internal class Program
 {
     private static void Main(string[] args)
     {
-        WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+        var builder = WebApplication.CreateBuilder(args);
 
-        // Add services to the container.
-
+        // Add services
         builder.Services.AddControllers();
-        // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
 
+        // Bind to Render's port
+        var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+        builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
+        // Configure forwarded headers to respect X-Forwarded-Proto/X-Forwarded-For
+        builder.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+            // Optional: tighten security by specifying known proxies or networks, e.g.:
+            // options.KnownProxies.Add(IPAddress.Parse("1.2.3.4"));
+        });
+
         var app = builder.Build();
 
-        // Разрешаем отдавать статические файлы
-        app.UseStaticFiles();
+        // Must run before UseHttpsRedirection() and anything that depends on scheme
+        app.UseForwardedHeaders();
 
-        // По желанию: можно сделать index.html доступным по корню
-        app.UseDefaultFiles(); // ищет index.html по умолчанию
-
-        // Configure the HTTP request pipeline.
-        if (app.Environment.IsDevelopment())
-        {
-            app.UseSwagger();
-            app.UseSwaggerUI();
-        }
-
+        // Enable HTTPS redirection (now correctly detects original scheme)
         app.UseHttpsRedirection();
+
+        // Static files: default files must be registered before static files
+        app.UseDefaultFiles();
+        app.UseStaticFiles();
 
         app.UseAuthorization();
 
