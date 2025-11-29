@@ -180,7 +180,7 @@
         }
 
         .card {
-            width: 880px;
+            width: 80%;
             max-width: 95%;
             background: var(--card);
             padding: 18px;
@@ -190,7 +190,7 @@
 
         form {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 10px;
             align-items: start
         }
@@ -198,7 +198,7 @@
         label {
             display: flex;
             flex-direction: column;
-            font-size: 13px;
+            font-size: 16px;
             color: #0b1724
         }
 
@@ -296,97 +296,204 @@
             </div>
 
             <form id="dealForm">
-                <label>date<input type="date" name="date" required></label>
-                <label>stock name<input type="text" name="stock" required placeholder="AAPL"></label>
+                <label>Deal date<input type="date" name="date" required></label>
+                <label>Share name<input type="text" name="stock" required placeholder="AAPL"></label>
                 <label>
                     Is this stock from your collection?
-                    <select name="inCollection"><option value="no">No</option><option value="yes">Yes</option></select>
+                    <select name="inCollection">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label>
-                    what is volatility type
-                    <select name="volatility"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+                <label required>
+                    What is volatility type
+                    <select name="volatility" required>
+                        <option value="" selected disabled></option>
+                        <option value="1">Small &lt; (around 50M per week)</option>
+                        <option value="2">Average &lt; (around 100M per week)</option>
+                        <option value="3">Big (around 200M per week)</option>
+                    </select>
                 </label>
-                <label>
-                    stock speed type
-                    <select name="speed"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+                <label required>
+                    Stock speed type
+                    <select name="share_speed" required>
+                        <option value="" selected disabled></option>
+                        <option value="1">Slow &lt; (+/- 2%)</option>
+                        <option value="2">Average &lt; (+/- 5%)</option>
+                        <option value="3">Fast (+/- 10%)</option>
+                    </select>
                 </label>
-                <label>
-                    You're afraid you won't make it in time?
-                    <select name="fear_time"><option value="no">No</option><option value="yes">Yes</option></select>
-                </label>
-                <label>
+                <label required>
                     You're afraid it will be too late?
-                    <select name="fear_too_late"><option value="no">No</option><option value="yes">Yes</option></select>
+                    <select name="fear_too_late">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label>
-                    You want to get even quickly?
-                    <select name="get_even"><option value="no">No</option><option value="yes">Yes</option></select>
+                <label required>
+                    You want earn big money quickly?
+                    <select name="get_even">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label>
+                <label required>
                     Is this deal idea you got from other people?
-                    <select name="from_others"><option value="no">No</option><option value="yes">Yes</option></select>
+                    <select name="from_others">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label class="full">What will you do if you make a mistake?<textarea name="mistake_action"></textarea></label>
-                <label>What is your take profit?<input type="text" name="take_profit" placeholder="e.g. 12% or 185.5"></label>
-                <label>What is your stop loss?<input type="text" name="stop_loss" placeholder="e.g. -6% or 172"></label>
-                <label>
-                    Is S&P500 in an upper trend?
-                    <select name="sp500_up"><option value="no">No</option><option value="yes">Yes</option></select>
+                <label required class="full">What will you do if you see the deal was a mistake?<textarea name="mistake_action"></textarea></label>
+                <label required>What is share parice?<input type="text" name="share_price" placeholder=""></label>
+                <label required>What is your take profit price?<input type="text" name="take_profit" placeholder=""></label>
+                <label required>What is your take profit in %?<input type="text" name="take_profit_prcnt" placeholder=""></label>
+                <label required>What is your stop loss price?<input type="text" name="stop_loss_prcnt" placeholder=""></label>
+                <label required>What is your stop loss in %?<input type="text" name="stop_loss" placeholder=""></label>
+                <label required>
+                    Is S&P500 in an upper trend right now?
+                    <select name="sp500_up">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label>
-                    Is your stock synchronized with S&P500?
-                    <select name="sync_sp500"><option value="no">No</option><option value="yes">Yes</option></select>
+                <label required>
+                    Is share movement synchronized with S&P500?
+                    <select name="sync_sp500">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label>
-                    Is it a reversal pattern?
-                    <select name="reversal"><option value="no">No</option><option value="yes">Yes</option></select>
+                <label required>
+                    The share is in a reversal pattern?
+                    <select name="reversal">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label>
-                    Is the price lower than even?
-                    <select name="lower_than_even"><option value="no">No</option><option value="yes">Yes</option></select>
+                <label required>
+                    The share is in a flat pattern?
+                    <select name="flatpattern">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
                 </label>
-                <label>
+                <label required>
+                    What is the current price range position according all share history
+                    <select name="price_range_pos">
+                        <option value="" selected disabled></option>
+                        <option value="1">Bottom</option>
+                        <option value="2">Middle</option>
+                        <option value="3">Highest</option>
+                    </select>
+                </label>
+                <label required>
+                    Is price stands on support line?
+                    <select name="supportline">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </label>
+                <label required>
+                    Is price stands near resistance line?
+                    <select name="resistanceline">
+                        <option value="" selected disabled></option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </label>
+                <label required>Support price on week timeline<input type="text" name="support_price" placeholder=""></label>
+                <label required>Resistance price on week timeline<input type="text" name="resist_price" placeholder=""></label>
+                <label required>
                     What is the timeframe you make decision
-                    <select name="timeframe"><option>1m</option><option>5m</option><option>15m</option><option>1h</option><option>4h</option><option>daily</option><option>weekly</option><option>monthly</option></select>
+                    <select name="timeframe">
+                        <option value="" selected disabled></option>                   
+                        <option>Daily</option>
+                        <option>Weekly</option>
+                        <option>Monthly</option>
+                    </select>
                 </label>
-                <label>
-                    Is monthly looks down or up?
-                    <select name="monthly_dir"><option>down</option><option>up</option></select>
+                <label required>
+                    Is monthly timeframe trand down or up?
+                    <select name="monthly_dir">
+                        <option value="" selected disabled></option>
+                        <option>Down</option>
+                        <option>Up</option>
+                        <option>Flat</option>
+                    </select>
                 </label>
-                <label>
+                <label required>
                     Does weekly look down or up?
-                    <select name="weekly_dir"><option>down</option><option>up</option></select>
+                    <select name="weekly_dir">
+                        <option value="" selected disabled></option>
+                        <option>Down</option>
+                        <option>Up</option>
+                        <option>Flat</option>
+                    </select>
                 </label>
-                <label>What is the best price to buy ?<input type="text" name="best_price"></label>
-                <label>
-                    Is this monthly upper trend and you buy on weekly corrections?
-                    <select name="monthly_buy"><option>no</option><option>yes</option></select>
+                <label required>What is the best price to buy the share?<input type="text" name="best_price"></label>
+                <label required>
+                    Do you buy on corrections trand?
+                    <select name="correction_trand">
+                        <option value="" selected disabled></option>
+                        <option>No</option>
+                        <option>Yes</option>
+                    </select>
                 </label>
-                <label>
-                    Do you do counter trend deal?
-                    <select name="counter_trend"><option>no</option><option>yes</option></select>
+                <label required>
+                    Is you deal is counter trend?
+                    <select name="counter_trend">
+                        <option value="" selected disabled></option>
+                        <option>No</option>
+                        <option>Yes</option>
+                    </select>
                 </label>
-                <label class="full">Define the best price to buy.<textarea name="define_best_price"></textarea></label>
-                <label>
-                    Do you buy in green and sell in red?
-                    <select name="buy_green_sell_red"><option>no</option><option>yes</option></select>
+                <label required class="full">Define the best price to buy.<textarea name="define_best_price"></textarea></label>
+                <label required>
+                    Do you buy on green or red candle?
+                    <select name="buy_green_sell_red">
+                        <option value="" selected disabled></option>
+                        <option>Red</option>
+                        <option>Green</option>
+                    </select>
                 </label>
-                <label>
-                    is the stock in flat position before up trend?
-                    <select name="flat_before_up"><option>no</option><option>yes</option></select>
+                <label required>
+                    Is the share in flat position before up trend?
+                    <select name="flat_before_up">
+                        <option value="" selected disabled></option>
+                        <option>No</option>
+                        <option>Yes</option>
+                    </select>
                 </label>
-                <label>
-                    is the stock in flat position before down trend?
-                    <select name="flat_before_down"><option>no</option><option>yes</option></select>
+                <label required>
+                    Is the share in flat position before down trend?
+                    <select name="flat_before_down">
+                        <option value="" selected disabled></option>
+                        <option>No</option>
+                        <option>Yes</option>
+                    </select>
                 </label>
-                <label>
-                    is green candle eats red?
-                    <select name="green_eats_red"><option>no</option><option>yes</option></select>
+                <label required>
+                    Does green candle biggest/highest than red stands before on week timeframe?
+                    <select name="green_eats_red">
+                        <option value="" selected disabled></option>
+                        <option>No</option>
+                        <option>Yes</option>
+                    </select>
                 </label>
-                <label class="full">Your other mind description<textarea name="notes"></textarea></label>
+                <label required class="full">Your other mind description<textarea name="notes"></textarea></label>
 
                 <div class="full" style="display:flex;justify-content:space-between;gap:8px">
-                    <button type="submit">Save deal</button>
+                    <button type="submit">Create deal</button>
                     <div style="flex:1"></div>
                     <button id="deleteBtn" type="button" class="secondary" style="display:none">Delete</button>
                     <button id="closeDealBtn" type="button" class="secondary" style="display:none">Close deal</button>
