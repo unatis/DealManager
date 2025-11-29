@@ -11,9 +11,9 @@ internal class Program
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen();
 
-        // Bind to Render's port
-        var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-        builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+        // Bind to Render's port for render
+        //var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+        //builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
         // Configure forwarded headers to respect X-Forwarded-Proto/X-Forwarded-For
         builder.Services.Configure<ForwardedHeadersOptions>(options =>
