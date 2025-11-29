@@ -69,10 +69,10 @@
 
         main {
             display: grid;
-            grid-template-columns: 240px 1fr 360px;
+            grid-template-columns: 400px 1fr 400px; 
             gap: 16px;
             padding: 16px;
-            align-items: start
+            align-items: start;
         }
 
         .panel {
@@ -266,10 +266,9 @@
         <!-- CENTER: only open deals (with search) -->
         <section class="panel center">
             <h3>Open deals</h3>
-            <div class="small">Список открытых сделок (только открытые)</div>
-
+           
             <div class="filterRow" style="margin-top:8px">
-                <input id="filterInput" placeholder="Поиск по тикеру или заметке" style="flex:1">
+                <input id="filterInput" placeholder="search" style="flex:1">
                 <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="openCount">0</span></div>
             </div>
 
@@ -417,7 +416,22 @@
                     <textarea name="desc" placeholder="Optional description"></textarea>
                 </label>
 
-                <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+                <label class="full" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                    <div class="switch">
+                        <span>S&P 500 member</span>
+                        <input type="checkbox" name="sp500_member">
+                        <span class="slider"></span>
+                    </div>
+                </label>
+                <label class="full" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                    <div class="switch">
+                        <span>Average weekly volume around 200M $</span>
+                        <input type="checkbox" name="averageWeekVol">
+                        <span class="slider"></span>
+                    </div>
+                </label>
+
+                <div style="display:flex; justify-content:center; width:100%; margin-top:8px">
                     <button type="submit">Save stock</button>
                 </div>
             </form>
