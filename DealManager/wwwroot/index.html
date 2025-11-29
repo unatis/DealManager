@@ -640,9 +640,6 @@
             deals = deals.filter(x => x.id !== id); save(); closeModal();
         });
 
-       
-       акрываем модалку
-        //});
         elements.closeDealBtn.addEventListener('click', () => {
             const id = elements.dealForm.dataset.editId;
             if (!id) return;
