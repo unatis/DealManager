@@ -568,10 +568,41 @@
             emptyClosed: document.getElementById('emptyClosed')
         };
 
-        function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(deals)); renderAll(); }
+        function save() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(deals));
+            renderAll();
+        }
 
         function uid() { return Math.random().toString(36).slice(2, 9) }
 
+        //function openModal(mode = 'new', id = null) {
+        //    elements.modal.style.display = 'flex';
+        //    elements.modalTitle.textContent = mode === 'new' ? 'New deal' : mode === 'view' ? 'Deal details' : 'Edit deal';
+        //    elements.deleteBtn.style.display = mode === 'new' ? 'none' : 'inline-block';
+        //    elements.closeDealBtn.style.display = (mode === 'view' || mode === 'edit') ? 'inline-block' : 'none';
+
+        //    if (id) {
+        //        const d = deals.find(x => x.id === id);
+        //        if (d) {
+        //            // populate
+        //            for (const key in d) {
+        //                const el = elements.dealForm.elements[key];
+        //                if (!el) continue;
+        //                if (el.type === 'checkbox') el.checked = d[key]; else el.value = d[key];
+        //            }
+        //            elements.dealForm.dataset.editId = id;
+        //            if (mode === 'view') {
+        //                // disable inputs
+        //                Array.from(elements.dealForm.elements).forEach(i => i.disabled = true);
+        //            } else {
+        //                Array.from(elements.dealForm.elements).forEach(i => i.disabled = false);
+        //            }
+        //        }
+        //    } else {
+        //        elements.dealForm.reset(); delete elements.dealForm.dataset.editId;
+        //        Array.from(elements.dealForm.elements).forEach(i => i.disabled = false);
+        //    }
+        //}
         function openModal(mode = 'new', id = null) {
             elements.modal.style.display = 'flex';
             elements.modalTitle.textContent = mode === 'new' ? 'New deal' : mode === 'view' ? 'Deal details' : 'Edit deal';
@@ -581,27 +612,34 @@
             if (id) {
                 const d = deals.find(x => x.id === id);
                 if (d) {
-                    // populate
-                    for (const key in d) {
-                        const el = elements.dealForm.elements[key];
-                        if (!el) continue;
-                        if (el.type === 'checkbox') el.checked = d[key]; else el.value = d[key];
-                    }
-                    elements.dealForm.dataset.editId = id;
+                    elements.dealForm.dataset.editId = id; // <-- обязательно присваиваем id
+                    // populate form
+                    Array.from(elements.dealForm.elements).forEach(el => {
+                        if (el.name && d[el.name] !== undefined) {
+                            if (el.type === 'checkbox') el.checked = d[el.name];
+                            else el.value = d[el.name];
+                        }
+                    });
                     if (mode === 'view') {
-                        // disable inputs
                         Array.from(elements.dealForm.elements).forEach(i => i.disabled = true);
+                        elements.closeDealBtn.disabled = false; // добавляем эту строку
                     } else {
                         Array.from(elements.dealForm.elements).forEach(i => i.disabled = false);
                     }
                 }
             } else {
-                elements.dealForm.reset(); delete elements.dealForm.dataset.editId;
+                elements.dealForm.reset();
+                delete elements.dealForm.dataset.editId;
                 Array.from(elements.dealForm.elements).forEach(i => i.disabled = false);
             }
         }
 
-        function closeModal() { elements.modal.style.display = 'none'; elements.dealForm.reset(); delete elements.dealForm.dataset.editId; }
+
+        function closeModal() {
+            elements.modal.style.display = 'none';
+            elements.dealForm.reset();
+            delete elements.dealForm.dataset.editId;
+        }
 
         elements.newDealBtn.addEventListener('click', () => openModal('new'));
         elements.closeModal.addEventListener('click', closeModal);
@@ -629,15 +667,75 @@
             deals = deals.filter(x => x.id !== id); save(); closeModal();
         });
 
+       
+        //elements.closeDealBtn.addEventListener('click', () => {
+        //    const id = elements.dealForm.dataset.editId; if (!id) return;
+        //    const d = deals.find(x => x.id === id);
+        //    if (!d) return;
+        //    d.closed = true; d.closedAt = new Date().toISOString(); save(); closeModal();
+        //});
+        //elements.closeDealBtn.addEventListener('click', () => {
+        //    const id = elements.dealForm.dataset.editId;
+        //    if (!id) return;
+        //    const d = deals.find(x => x.id === id);
+        //    if (!d) return;
+
+        //    d.closed = true;
+        //    d.closedAt = new Date().toISOString();
+
+        //    save();       // save() вызывает renderAll()
+        //    closeModal(); // закрываем модалку
+        //});
         elements.closeDealBtn.addEventListener('click', () => {
-            const id = elements.dealForm.dataset.editId; if (!id) return;
+            const id = elements.dealForm.dataset.editId;
+            if (!id) return;
             const d = deals.find(x => x.id === id);
             if (!d) return;
-            d.closed = true; d.closedAt = new Date().toISOString(); save(); closeModal();
+
+            d.closed = true;
+            d.closedAt = new Date().toISOString();
+            save();
+            closeModal();
         });
 
+
+
+        //function renderAll() {
+        //    // OPEN deals (center)
+        //    const filter = (elements.filterInput.value || '').toLowerCase();
+        //    const open = deals.filter(d => !d.closed && ((d.stock || '').toLowerCase().includes(filter) || (d.notes || '').toLowerCase().includes(filter)));
+        //    elements.openList.innerHTML = '';
+        //    if (open.length === 0) {
+        //        elements.emptyOpen.style.display = 'block';
+        //    } else {
+        //        elements.emptyOpen.style.display = 'none';
+        //        open.forEach(d => {
+        //            const el = document.createElement('div'); el.className = 'deal-item';
+        //            el.innerHTML = `<div class="meta"><strong>${escapeHtml(d.stock || '-')}</strong><span class="small" style="margin-top:4px">${escapeHtml(d.date || '')}</span><div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 140))}</div></div><div class="chips" style="min-width:140px;justify-content:flex-end"><div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div><div class="badge">SL:${escapeHtml(d.stop_loss || '-')}</div></div>`;
+        //            el.addEventListener('click', () => openModal('view', d.id));
+        //            elements.openList.appendChild(el);
+        //        });
+        //    }
+        //    elements.openCount.textContent = open.length;
+
+        //    // CLOSED deals (right)
+        //    const closed = deals.filter(d => d.closed);
+        //    elements.closedList.innerHTML = '';
+        //    if (closed.length === 0) {
+        //        elements.emptyClosed.style.display = 'block';
+        //    } else {
+        //        elements.emptyClosed.style.display = 'none';
+        //        closed.forEach(d => {
+        //            const el = document.createElement('div'); el.className = 'deal-item';
+        //            el.innerHTML = `<div class="meta"><strong>${escapeHtml(d.stock || '-')}</strong><span class="small" style="margin-top:4px">closed ${escapeHtml(d.closedAt ? d.closedAt.slice(0, 10) : '')}</span><div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 120))}</div></div><div class="chips"><div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div></div>`;
+        //            el.addEventListener('click', () => openModal('view', d.id));
+        //            elements.closedList.appendChild(el);
+        //        });
+        //    }
+        //}
+
         function renderAll() {
-            // OPEN deals (center)
+            // OPEN deals (центр)
             const filter = (elements.filterInput.value || '').toLowerCase();
             const open = deals.filter(d => !d.closed && ((d.stock || '').toLowerCase().includes(filter) || (d.notes || '').toLowerCase().includes(filter)));
             elements.openList.innerHTML = '';
@@ -646,15 +744,29 @@
             } else {
                 elements.emptyOpen.style.display = 'none';
                 open.forEach(d => {
-                    const el = document.createElement('div'); el.className = 'deal-item';
-                    el.innerHTML = `<div class="meta"><strong>${escapeHtml(d.stock || '-')}</strong><span class="small" style="margin-top:4px">${escapeHtml(d.date || '')}</span><div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 140))}</div></div><div class="chips" style="min-width:140px;justify-content:flex-end"><div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div><div class="badge">SL:${escapeHtml(d.stop_loss || '-')}</div></div>`;
-                    el.addEventListener('click', () => openModal('view', d.id));
+                    const el = document.createElement('div');
+                    el.className = 'deal-item';
+                    el.dataset.id = d.id; // <-- ВАЖНО: сохраняем id сделки
+                    el.innerHTML = `
+                <div class="meta">
+                    <strong>${escapeHtml(d.stock || '-')}</strong>
+                    <span class="small" style="margin-top:4px">${escapeHtml(d.date || '')}</span>
+                    <div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 140))}</div>
+                </div>
+                <div class="chips" style="min-width:140px;justify-content:flex-end">
+                    <div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div>
+                    <div class="badge">SL:${escapeHtml(d.stop_loss || '-')}</div>
+                </div>`;
+                    el.addEventListener('click', (event) => {
+                        const dealEl = event.currentTarget;
+                        openModal('view', dealEl.dataset.id);
+                    });
                     elements.openList.appendChild(el);
                 });
             }
             elements.openCount.textContent = open.length;
 
-            // CLOSED deals (right)
+            // CLOSED deals (правый столбец)
             const closed = deals.filter(d => d.closed);
             elements.closedList.innerHTML = '';
             if (closed.length === 0) {
@@ -662,13 +774,27 @@
             } else {
                 elements.emptyClosed.style.display = 'none';
                 closed.forEach(d => {
-                    const el = document.createElement('div'); el.className = 'deal-item';
-                    el.innerHTML = `<div class="meta"><strong>${escapeHtml(d.stock || '-')}</strong><span class="small" style="margin-top:4px">closed ${escapeHtml(d.closedAt ? d.closedAt.slice(0, 10) : '')}</span><div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 120))}</div></div><div class="chips"><div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div></div>`;
-                    el.addEventListener('click', () => openModal('view', d.id));
+                    const el = document.createElement('div');
+                    el.className = 'deal-item';
+                    el.dataset.id = d.id; // <-- тоже сохраняем id
+                    el.innerHTML = `
+                <div class="meta">
+                    <strong>${escapeHtml(d.stock || '-')}</strong>
+                    <span class="small" style="margin-top:4px">closed ${escapeHtml(d.closedAt ? d.closedAt.slice(0, 10) : '')}</span>
+                    <div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 120))}</div>
+                </div>
+                <div class="chips">
+                    <div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div>
+                </div>`;
+                    el.addEventListener('click', (event) => {
+                        const dealEl = event.currentTarget;
+                        openModal('view', dealEl.dataset.id);
+                    });
                     elements.closedList.appendChild(el);
                 });
             }
         }
+
 
         // simple escape to avoid accidental HTML injection when showing user text
         function escapeHtml(str) {
