@@ -354,6 +354,7 @@
                 <label required>What is your take profit in %?<input type="text" name="take_profit_prcnt" placeholder=""></label>
                 <label required>What is your stop loss price?<input type="text" name="stop_loss_prcnt" placeholder=""></label>
                 <label required>What is your stop loss in %?<input type="text" name="stop_loss" placeholder=""></label>
+                <label required>Shares amount to buy<input type="text" name="amount_tobuy" placeholder=""></label>
                 <label required>
                     Is S&P500 in an upper trend right now?
                     <select name="sp500_up">
@@ -416,7 +417,7 @@
                 <label required>
                     What is the timeframe you make decision
                     <select name="timeframe">
-                        <option value="" selected disabled></option>                   
+                        <option value="" selected disabled></option>
                         <option>Daily</option>
                         <option>Weekly</option>
                         <option>Monthly</option>
@@ -575,34 +576,6 @@
 
         function uid() { return Math.random().toString(36).slice(2, 9) }
 
-        //function openModal(mode = 'new', id = null) {
-        //    elements.modal.style.display = 'flex';
-        //    elements.modalTitle.textContent = mode === 'new' ? 'New deal' : mode === 'view' ? 'Deal details' : 'Edit deal';
-        //    elements.deleteBtn.style.display = mode === 'new' ? 'none' : 'inline-block';
-        //    elements.closeDealBtn.style.display = (mode === 'view' || mode === 'edit') ? 'inline-block' : 'none';
-
-        //    if (id) {
-        //        const d = deals.find(x => x.id === id);
-        //        if (d) {
-        //            // populate
-        //            for (const key in d) {
-        //                const el = elements.dealForm.elements[key];
-        //                if (!el) continue;
-        //                if (el.type === 'checkbox') el.checked = d[key]; else el.value = d[key];
-        //            }
-        //            elements.dealForm.dataset.editId = id;
-        //            if (mode === 'view') {
-        //                // disable inputs
-        //                Array.from(elements.dealForm.elements).forEach(i => i.disabled = true);
-        //            } else {
-        //                Array.from(elements.dealForm.elements).forEach(i => i.disabled = false);
-        //            }
-        //        }
-        //    } else {
-        //        elements.dealForm.reset(); delete elements.dealForm.dataset.editId;
-        //        Array.from(elements.dealForm.elements).forEach(i => i.disabled = false);
-        //    }
-        //}
         function openModal(mode = 'new', id = null) {
             elements.modal.style.display = 'flex';
             elements.modalTitle.textContent = mode === 'new' ? 'New deal' : mode === 'view' ? 'Deal details' : 'Edit deal';
@@ -668,23 +641,7 @@
         });
 
        
-        //elements.closeDealBtn.addEventListener('click', () => {
-        //    const id = elements.dealForm.dataset.editId; if (!id) return;
-        //    const d = deals.find(x => x.id === id);
-        //    if (!d) return;
-        //    d.closed = true; d.closedAt = new Date().toISOString(); save(); closeModal();
-        //});
-        //elements.closeDealBtn.addEventListener('click', () => {
-        //    const id = elements.dealForm.dataset.editId;
-        //    if (!id) return;
-        //    const d = deals.find(x => x.id === id);
-        //    if (!d) return;
-
-        //    d.closed = true;
-        //    d.closedAt = new Date().toISOString();
-
-        //    save();       // save() вызывает renderAll()
-        //    closeModal(); // закрываем модалку
+       акрываем модалку
         //});
         elements.closeDealBtn.addEventListener('click', () => {
             const id = elements.dealForm.dataset.editId;
@@ -698,41 +655,7 @@
             closeModal();
         });
 
-
-
-        //function renderAll() {
-        //    // OPEN deals (center)
-        //    const filter = (elements.filterInput.value || '').toLowerCase();
-        //    const open = deals.filter(d => !d.closed && ((d.stock || '').toLowerCase().includes(filter) || (d.notes || '').toLowerCase().includes(filter)));
-        //    elements.openList.innerHTML = '';
-        //    if (open.length === 0) {
-        //        elements.emptyOpen.style.display = 'block';
-        //    } else {
-        //        elements.emptyOpen.style.display = 'none';
-        //        open.forEach(d => {
-        //            const el = document.createElement('div'); el.className = 'deal-item';
-        //            el.innerHTML = `<div class="meta"><strong>${escapeHtml(d.stock || '-')}</strong><span class="small" style="margin-top:4px">${escapeHtml(d.date || '')}</span><div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 140))}</div></div><div class="chips" style="min-width:140px;justify-content:flex-end"><div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div><div class="badge">SL:${escapeHtml(d.stop_loss || '-')}</div></div>`;
-        //            el.addEventListener('click', () => openModal('view', d.id));
-        //            elements.openList.appendChild(el);
-        //        });
-        //    }
-        //    elements.openCount.textContent = open.length;
-
-        //    // CLOSED deals (right)
-        //    const closed = deals.filter(d => d.closed);
-        //    elements.closedList.innerHTML = '';
-        //    if (closed.length === 0) {
-        //        elements.emptyClosed.style.display = 'block';
-        //    } else {
-        //        elements.emptyClosed.style.display = 'none';
-        //        closed.forEach(d => {
-        //            const el = document.createElement('div'); el.className = 'deal-item';
-        //            el.innerHTML = `<div class="meta"><strong>${escapeHtml(d.stock || '-')}</strong><span class="small" style="margin-top:4px">closed ${escapeHtml(d.closedAt ? d.closedAt.slice(0, 10) : '')}</span><div class="small" style="margin-top:6px">${escapeHtml((d.notes || '').slice(0, 120))}</div></div><div class="chips"><div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div></div>`;
-        //            el.addEventListener('click', () => openModal('view', d.id));
-        //            elements.closedList.appendChild(el);
-        //        });
-        //    }
-        //}
+       
 
         function renderAll() {
             // OPEN deals (центр)
