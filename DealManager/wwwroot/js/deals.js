@@ -47,7 +47,9 @@ async function saveDealToServer(deal, isEdit) {
     });
 
     if (!res.ok) {
-        throw new Error('Failed to save deal');
+        const text = await res.text().catch(() => '');
+        console.error('Save failed', res.status, text);
+        throw new Error(`Failed to save deal (${res.status})`);
     }
 }
 
