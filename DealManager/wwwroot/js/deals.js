@@ -41,7 +41,7 @@ async function saveDealToServer(deal, isEdit) {
     const method = isEdit && hasId ? 'PUT' : 'POST';
 
     const res = await fetch(url, {
-        method,
+        method: method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(deal)
     });
