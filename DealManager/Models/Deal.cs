@@ -48,6 +48,18 @@ namespace DealManager.Models
         [JsonPropertyName("share_price")]
         public string? SharePrice { get; set; }
 
+        [JsonPropertyName("share_price_tobuy")]
+        public string? Share_price_tobuy { get; set; }
+
+        [JsonPropertyName("amount_tobuy_stage_1")]
+        public string? Amount_tobuy_stage_1 { get; set; }
+
+        [JsonPropertyName("amount_tobuy_stage_2")]
+        public string? Amount_tobuy_stage_2 { get; set; }
+
+        [JsonPropertyName("amount_tobuy_stage_3")]
+        public string? Amount_tobuy_stage_3 { get; set; }
+
         [JsonPropertyName("take_profit")]
         public string? TakeProfit { get; set; }
 
@@ -107,10 +119,7 @@ namespace DealManager.Models
 
         [JsonPropertyName("counter_trend")]
         public string? CounterTrend { get; set; }
-
-        [JsonPropertyName("define_best_price")]
-        public string? DefineBestPrice { get; set; }
-
+        
         [JsonPropertyName("buy_green_sell_red")]
         public string? BuyGreenSellRed { get; set; }
 
