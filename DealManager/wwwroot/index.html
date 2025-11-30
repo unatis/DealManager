@@ -19,7 +19,7 @@
         <div class="controls">
             <button id="newDealBtn">New Deal</button>
             <button id="importBtn" class="secondary">Import</button>
-            <button id="exportBtn" class="secondary">Export</button>
+            <button id="exportBtn" class="secondary">Export</button>            
         </div>
     </header>
 
@@ -54,7 +54,7 @@
         <!-- RIGHT: closed deals -->
         <aside class="panel">
             <h3>Closed deals</h3>
-            <div class="small">История закрытых сделок</div>
+            <div class="small">Closed deals</div>
             <div id="closedList" class="list"></div>
             <div id="emptyClosed" class="empty" style="display:none">Нет закрытых сделок.</div>
         </aside>
@@ -73,8 +73,8 @@
             <form id="dealForm">
                 <label>Deal date<input type="date" name="date" required></label>
                 <label>Share name<input type="text" name="stock" required placeholder="AAPL"></label>
-                <label required>What is the share parice right now?<input type="text" name="share_price" placeholder=""></label>
-                <label required>What is the share parice to buy?<input type="text" name="share_price_tobuy" placeholder=""></label>
+                <label required>Share parice<input type="text" name="share_price" placeholder=""></label>
+                <label required>Share parice to buy?<input type="text" name="share_price_tobuy" placeholder=""></label>
                 <label required>Shares amount to buy total<input type="text" name="amount_tobuy" placeholder=""></label>
                 <label required>Shares amount to buy at stage 1<input type="text" name="amount_tobuy_stage_1" placeholder=""></label>
                 <label>Shares amount to buy at stage 2<input type="text" name="amount_tobuy_stage_2" placeholder=""></label>
@@ -271,7 +271,7 @@
                         <option>Yes</option>
                     </select>
                 </label>
-                <label required class="full">Your other mind description<textarea name="notes"></textarea></label>
+                <label required class="full">Deal details description<textarea name="notes"></textarea></label>
 
                 <div class="full" style="display:flex;justify-content:space-between;gap:8px">
                     <button type="submit">Create deal</button>

@@ -48,8 +48,8 @@ namespace DealManager.Models
         [JsonPropertyName("share_price")]
         public string? SharePrice { get; set; }
 
-        [JsonPropertyName("share_price_tobuy")]
-        public string? Share_price_tobuy { get; set; }
+        //[JsonPropertyName("share_price_tobuy")]
+        //public string? Share_price_tobuy { get; set; }
 
         [JsonPropertyName("amount_tobuy_stage_1")]
         public string? Amount_tobuy_stage_1 { get; set; }
