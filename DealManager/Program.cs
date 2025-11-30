@@ -1,10 +1,26 @@
-﻿using Microsoft.AspNetCore.HttpOverrides;
+﻿using DealManager;
+using DealManager.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 
 internal class Program
 {
     private static void Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+
+        // Mongo settings from configuration + env
+        var mongoSection = builder.Configuration.GetSection("Mongo");
+        var mongoSettings = mongoSection.Get<MongoSettings>() ?? new MongoSettings();
+
+        // Если есть переменная окружения MONGODB_URI – используем её
+        var uriFromEnv = Environment.GetEnvironmentVariable("MONGODB_URI");
+        if (!string.IsNullOrWhiteSpace(uriFromEnv))
+        {
+            mongoSettings.ConnectionString = uriFromEnv;
+        }
+
+        builder.Services.AddSingleton(mongoSettings);
+        builder.Services.AddSingleton<DealsService>();
 
         // Add services
         builder.Services.AddControllers();
