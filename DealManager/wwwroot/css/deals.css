@@ -236,3 +236,7 @@ label {
         width: 95%
     }
 }
+#logoutBtn {
+    padding-inline: 14px;
+    font-size: 14px;
+}

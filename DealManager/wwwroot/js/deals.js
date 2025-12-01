@@ -18,7 +18,8 @@ const elements = {
     exportBtn: document.getElementById('exportBtn'),
     openCount: document.getElementById('openCount'),
     emptyOpen: document.getElementById('emptyOpen'),
-    emptyClosed: document.getElementById('emptyClosed')
+    emptyClosed: document.getElementById('emptyClosed'),
+    logoutBtn: document.getElementById('logoutBtn')
 };
 
 const token = localStorage.getItem('token');
@@ -157,6 +158,23 @@ function closeModal() {
 }
 
 // ---------- обработчики формы ----------
+
+
+if (elements.logoutBtn) {
+    elements.logoutBtn.addEventListener('click', () => {
+        // чистим всё, что связано с авторизацией
+        localStorage.removeItem('token');
+        localStorage.removeItem('email');
+        localStorage.removeItem('userName'); // на будущее, когда имя добавим
+
+        // на всякий случай можно вообще очистить всё:
+        // localStorage.clear();
+
+        // отправляем на страницу логина
+        window.location.href = '/login.html';
+    });
+}
+
 
 elements.newDealBtn.addEventListener('click', () => openModal('new'));
 elements.closeModal.addEventListener('click', closeModal);
