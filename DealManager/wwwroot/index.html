@@ -109,15 +109,7 @@
                         <option value="3">Big (around 200M per week)</option>
                     </select>
                 </label>
-                <label required>
-                    Stock speed type
-                    <select name="share_speed" required>
-                        <option value="" selected disabled></option>
-                        <option value="1">Slow &lt; (+/- 2%)</option>
-                        <option value="2">Average &lt; (+/- 5%)</option>
-                        <option value="3">Fast (+/- 10%)</option>
-                    </select>
-                </label>
+                
                 <label required>
                     You're afraid it will be too late?
                     <select name="fear_too_late">
@@ -302,35 +294,55 @@
             </div>
 
             <form id="stockForm">
-                <label>
-                    Ticker
-                    <input type="text" name="ticker" required placeholder="AAPL">
-                </label>
+                <div class="stock-form-grid">
+                    <!-- Ticker -->
+                    <label class="full">
+                        Ticker
+                        <input type="text" name="ticker" required placeholder="AAPL" />
+                    </label>
 
-                <label class="full">
-                    Description
-                    <textarea name="desc" placeholder="Optional description"></textarea>
-                </label>
+                    <!-- Description -->
+                    <label class="full">
+                        Description
+                        <textarea name="desc" placeholder="Optional description"></textarea>
+                    </label>
 
-                <label class="full" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-                    <div class="switch">
-                        <span>S&P 500 member</span>
-                        <input type="checkbox" name="sp500_member">
-                        <span class="slider"></span>
+                    <!-- Beta volatility + tooltip -->
+                    <div class="full has-tooltip"
+                         data-tooltip="Slow – low beta, Same – around market, High – more volatile.">
+                        <label>
+                            Share beta volatility
+                            <select name="betaVolatility" required>
+                                <option value="" selected disabled></option>
+                                <option value="1">Slow</option>
+                                <option value="2">Same (around market)</option>
+                                <option value="3">High (more volatile)</option>
+                            </select>
+                        </label>
                     </div>
-                </label>
-                <label class="full" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-                    <div class="switch">
+
+                    <!-- Чекбоксы в две колонки -->
+                    <label class="half inline-checkbox">
+                        <input type="checkbox" name="sp500_member" />
+                        <span>S&amp;P 500 member</span>
+                    </label>
+
+                    <label class="half inline-checkbox">
+                        <input type="checkbox" name="averageWeekVol" />
                         <span>Average weekly volume around 200M $</span>
-                        <input type="checkbox" name="averageWeekVol">
-                        <span class="slider"></span>
-                    </div>
-                </label>
+                    </label>
+                </div>
 
-                <div style="display:flex; justify-content:center; width:100%; margin-top:8px">
+                <!-- Кнопка снизу по центру -->
+                <div class="stock-form-actions">
                     <button type="submit">Save stock</button>
                 </div>
             </form>
+
+
+
+
+
         </div>
     </div>
 

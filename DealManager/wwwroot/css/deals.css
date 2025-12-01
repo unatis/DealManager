@@ -298,3 +298,76 @@ label {
     border: 1px solid rgba(11, 17, 36, 0.2);
     width: 90px;
 }
+/* ==== Stock modal layout ==== */
+/* сетка для формы акций */
+.stock-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* две колонки */
+    gap: 12px 24px;
+}
+
+@media (max-width: 900px) {
+    .stock-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.stock-form-grid .full {
+    grid-column: 1 / -1;
+}
+
+.stock-form-grid .half {
+    grid-column: auto;
+}
+
+/* чекбокс + текст в линию */
+.inline-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+/* переопределяем глобальное width:100% для checkbox */
+label.inline-checkbox > input[type="checkbox"] {
+    width: auto;
+}
+
+/* тултип у обёртки вокруг select */
+.has-tooltip {
+    position: relative;
+}
+
+    .has-tooltip::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 6px);
+        background: #0b1724;
+        color: #fff;
+        font-size: 11px;
+        padding: 4px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+        z-index: 40;
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(4px);
+        transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+    }
+
+    .has-tooltip:hover::after,
+    .has-tooltip:focus-within::after {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+/* кнопка внизу по центру */
+.stock-form-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+}
+

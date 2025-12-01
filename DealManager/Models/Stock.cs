@@ -17,5 +17,7 @@ namespace DealManager.Models
 
         public bool Sp500Member { get; set; }
         public bool AverageWeekVol { get; set; }
+
+        public bool BetaVolatility { get; set; }
     }
 }

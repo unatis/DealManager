@@ -72,6 +72,7 @@ stockForm.addEventListener('submit', async e => {
     const desc = (fd.get('desc') || '').toString().trim();
     const sp500_member = fd.get('sp500_member') === 'on';
     const averageWeekVol = fd.get('averageWeekVol') === 'on';
+    const betaVolatility = fd.get('betaVolatility');
 
     if (!ticker) return;
 
@@ -80,7 +81,8 @@ stockForm.addEventListener('submit', async e => {
             ticker,
             desc,
             sp500Member: sp500_member,
-            averageWeekVol
+            averageWeekVol,
+            betaVolatility
         });
 
         stockModal.style.display = 'none';

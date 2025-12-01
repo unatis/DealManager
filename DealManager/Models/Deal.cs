@@ -35,10 +35,7 @@ namespace DealManager.Models
         public string? InCollection { get; set; }
 
         [JsonPropertyName("volatility")]
-        public string? Volatility { get; set; }
-
-        [JsonPropertyName("share_speed")]
-        public string? ShareSpeed { get; set; }
+        public string? Volatility { get; set; }                
 
         [JsonPropertyName("fear_too_late")]
         public string? FearTooLate { get; set; }
