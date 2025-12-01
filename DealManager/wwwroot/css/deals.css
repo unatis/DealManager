@@ -214,11 +214,11 @@ textarea {
     }
 }
 
-form {
+#dealForm {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
     gap: 10px;
-    align-items: start
+    align-items: start;
 }
 
 label {
@@ -316,18 +316,6 @@ label {
     grid-column: 1 / -1;
 }
 
-.stock-form-grid .half {
-    grid-column: auto;
-}
-
-/* чекбокс + текст в линию */
-.inline-checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-}
-
 /* переопределяем глобальное width:100% для checkbox */
 label.inline-checkbox > input[type="checkbox"] {
     width: auto;
@@ -371,3 +359,26 @@ label.inline-checkbox > input[type="checkbox"] {
     margin-top: 16px;
 }
 
+/* чекбоксы в форме акций: иконка слева, текст справа */
+#stockForm label.inline-checkbox {
+    display: flex; /* переопределяем общий label */
+    flex-direction: row; /* в строку */
+    align-items: center;
+    gap: 8px;
+}
+
+    /* сам чекбокс не растягиваем */
+    #stockForm label.inline-checkbox > input[type="checkbox"] {
+        width: auto;
+        margin: 0;
+    }
+
+    /* текст рядом с чекбоксом */
+    #stockForm label.inline-checkbox > span {
+        display: inline-block;
+    }
+.stock-form-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+}

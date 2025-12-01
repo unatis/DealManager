@@ -82,8 +82,9 @@
                 </label>
 
                 <label required>Share parice<input type="text" name="share_price" placeholder=""></label>
-                <label required>Share parice to buy?<input type="text" name="share_price_tobuy" placeholder=""></label>
+               
                 <label required>Shares amount to buy total<input type="text" name="amount_tobuy" placeholder=""></label>
+
                 <label required>Shares amount to buy at stage 1<input type="text" name="amount_tobuy_stage_1" placeholder=""></label>
                 <label>Shares amount to buy at stage 2<input type="text" name="amount_tobuy_stage_2" placeholder=""></label>
                 <label>Shares amount to buy at stage 3<input type="text" name="amount_tobuy_stage_3" placeholder=""></label>
@@ -91,25 +92,9 @@
                 <label required>What is your take profit in %?<input type="text" name="take_profit_prcnt" placeholder=""></label>
                 <label required>What is your stop loss price?<input type="text" name="stop_loss_prcnt" placeholder=""></label>
                 <label required>What is your stop loss in %?<input type="text" name="stop_loss" placeholder=""></label>
-                <label required>What is the best price to buy the share?<input type="text" name="best_price"></label>
-                <label>
-                    Is this stock from your collection?
-                    <select name="inCollection">
-                        <option value="" selected disabled></option>
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                    </select>
-                </label>
-                <label required>
-                    What is volatility type
-                    <select name="volatility" required>
-                        <option value="" selected disabled></option>
-                        <option value="1">Small &lt; (around 50M per week)</option>
-                        <option value="2">Average &lt; (around 100M per week)</option>
-                        <option value="3">Big (around 200M per week)</option>
-                    </select>
-                </label>
-                
+
+
+
                 <label required>
                     You're afraid it will be too late?
                     <select name="fear_too_late">
@@ -143,16 +128,9 @@
                         <option value="yes">Yes</option>
                     </select>
                 </label>
+
                 <label required>
-                    Is share movement synchronized with S&P500?
-                    <select name="sync_sp500">
-                        <option value="" selected disabled></option>
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                    </select>
-                </label>
-                <label required>
-                    The share is in a reversal pattern?
+                    The share is in end of reversal pattern?
                     <select name="reversal">
                         <option value="" selected disabled></option>
                         <option value="no">No</option>
@@ -176,24 +154,13 @@
                         <option value="3">Highest</option>
                     </select>
                 </label>
-                <label required>
-                    Is price stands on support line?
-                    <select name="supportline">
-                        <option value="" selected disabled></option>
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                    </select>
-                </label>
-                <label required>
-                    Is price stands near resistance line?
-                    <select name="resistanceline">
-                        <option value="" selected disabled></option>
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                    </select>
-                </label>
+
                 <label required>Support price on week timeline<input type="text" name="support_price" placeholder=""></label>
                 <label required>Resistance price on week timeline<input type="text" name="resist_price" placeholder=""></label>
+
+                <label required>O price previous week<input type="text" name="o_price" placeholder=""></label>
+                <label required>H price previous week<input type="text" name="h_price" placeholder=""></label>
+
                 <label required>
                     What is the timeframe you make decision
                     <select name="timeframe">
@@ -223,7 +190,7 @@
                 </label>
 
                 <label required>
-                    Do you buy on corrections trand?
+                    Do you buy on the corrections pattern?
                     <select name="correction_trand">
                         <option value="" selected disabled></option>
                         <option>No</option>
@@ -264,8 +231,16 @@
                     </select>
                 </label>
                 <label required>
-                    Does green candle biggest/highest than red stands before on week timeframe?
-                    <select name="green_eats_red">
+                    Is current week candle green?
+                    <select name="green_candle">
+                        <option value="" selected disabled></option>
+                        <option>No</option>
+                        <option>Yes</option>
+                    </select>
+                </label>
+                <label required>
+                    Is current week candle O higher than previous  week O?
+                    <select name="green_candle_higher">
                         <option value="" selected disabled></option>
                         <option>No</option>
                         <option>Yes</option>
@@ -296,7 +271,7 @@
             <form id="stockForm">
                 <div class="stock-form-grid">
                     <!-- Ticker -->
-                    <label class="full">
+                    <label>
                         Ticker
                         <input type="text" name="ticker" required placeholder="AAPL" />
                     </label>
@@ -308,8 +283,7 @@
                     </label>
 
                     <!-- Beta volatility + tooltip -->
-                    <div class="full has-tooltip"
-                         data-tooltip="Slow – low beta, Same – around market, High – more volatile.">
+                    <div class="has-tooltip" data-tooltip="Slow – low beta, Same – around market, High – more volatile.">
                         <label>
                             Share beta volatility
                             <select name="betaVolatility" required>
@@ -320,17 +294,36 @@
                             </select>
                         </label>
                     </div>
+                    <label required>
+                        Regular share volume
+                        <select name="regular_volume" required>
+                            <option value="" selected disabled></option>
+                            <option value="1">Small &lt; (around 50M per week)</option>
+                            <option value="2">Average &lt; (around 100M per week)</option>
+                            <option value="3">Big (around 200M per week)</option>
+                        </select>
+                    </label>
 
-                    <!-- Чекбоксы в две колонки -->
-                    <label class="half inline-checkbox">
+                    <label required>
+                        Is share movement synchronized with S&P500?
+                        <select name="sync_sp500">
+                            <option value="" selected disabled></option>
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                        </select>
+                    </label>
+
+                    <label>
                         <input type="checkbox" name="sp500_member" />
                         <span>S&amp;P 500 member</span>
                     </label>
 
-                    <label class="half inline-checkbox">
+                    <label>
                         <input type="checkbox" name="averageWeekVol" />
                         <span>Average weekly volume around 200M $</span>
                     </label>
+
+
                 </div>
 
                 <!-- Кнопка снизу по центру -->

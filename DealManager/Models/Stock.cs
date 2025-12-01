@@ -1,5 +1,6 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using System.Text.Json.Serialization;
 
 namespace DealManager.Models
 {
@@ -19,5 +20,11 @@ namespace DealManager.Models
         public bool AverageWeekVol { get; set; }
 
         public bool BetaVolatility { get; set; }
+
+        [JsonPropertyName("regular_volume")]
+        public string? RegularVolume { get; set; }
+
+        [JsonPropertyName("sync_sp500")]
+        public string? SyncSp500 { get; set; }
     }
 }

@@ -30,12 +30,7 @@ namespace DealManager.Models
 
         [JsonPropertyName("stock")]
         public string Stock { get; set; } = "";
-
-        [JsonPropertyName("inCollection")]
-        public string? InCollection { get; set; }
-
-        [JsonPropertyName("volatility")]
-        public string? Volatility { get; set; }                
+             
 
         [JsonPropertyName("fear_too_late")]
         public string? FearTooLate { get; set; }
@@ -51,9 +46,6 @@ namespace DealManager.Models
 
         [JsonPropertyName("share_price")]
         public string? SharePrice { get; set; }
-
-        //[JsonPropertyName("share_price_tobuy")]
-        //public string? Share_price_tobuy { get; set; }
 
         [JsonPropertyName("amount_tobuy_stage_1")]
         public string? Amount_tobuy_stage_1 { get; set; }
@@ -81,10 +73,7 @@ namespace DealManager.Models
 
         [JsonPropertyName("sp500_up")]
         public string? Sp500Up { get; set; }
-
-        [JsonPropertyName("sync_sp500")]
-        public string? SyncSp500 { get; set; }
-
+               
         [JsonPropertyName("reversal")]
         public string? Reversal { get; set; }
 
@@ -94,14 +83,17 @@ namespace DealManager.Models
         [JsonPropertyName("price_range_pos")]
         public string? PriceRangePos { get; set; }
 
-        [JsonPropertyName("supportline")]
-        public string? SupportLine { get; set; }
-
-        [JsonPropertyName("resistanceline")]
-        public string? ResistanceLine { get; set; }
-
         [JsonPropertyName("support_price")]
         public string? SupportPrice { get; set; }
+
+
+        [JsonPropertyName("o_price")]
+        public string? OPrice { get; set; }
+
+
+        [JsonPropertyName("o_price")]
+        public string? HPrice { get; set; }
+
 
         [JsonPropertyName("resist_price")]
         public string? ResistancePrice { get; set; }
@@ -115,17 +107,15 @@ namespace DealManager.Models
         [JsonPropertyName("weekly_dir")]
         public string? WeeklyDir { get; set; }
 
-        [JsonPropertyName("best_price")]
-        public string? BestPrice { get; set; }
-
+       
         [JsonPropertyName("correction_trand")]
         public string? CorrectionTrend { get; set; }
 
         [JsonPropertyName("counter_trend")]
         public string? CounterTrend { get; set; }
         
-        [JsonPropertyName("buy_green_sell_red")]
-        public string? BuyGreenSellRed { get; set; }
+        [JsonPropertyName("green_candle")]
+        public string? GreenCandle { get; set; }
 
         [JsonPropertyName("flat_before_up")]
         public string? FlatBeforeUp { get; set; }
@@ -138,5 +128,10 @@ namespace DealManager.Models
 
         [JsonPropertyName("notes")]
         public string? Notes { get; set; }
+
+        [JsonPropertyName("green_candle_higher")]
+        public string? GreenCandleHigher { get; set; }
+
+        
     }
 }
