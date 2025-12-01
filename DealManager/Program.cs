@@ -25,6 +25,7 @@ internal class Program
         builder.Services.AddSingleton(mongoSettings);
         builder.Services.AddSingleton<DealsService>();
         builder.Services.AddSingleton<UsersService>();
+        builder.Services.AddSingleton<StocksService>();
 
         // ---------- JWT settings ----------
         var jwtSection = builder.Configuration.GetSection("Jwt");
