@@ -1,16 +1,21 @@
-﻿
+﻿// stocks.js
+
 const addStockBtn = document.getElementById('addStockBtn');
 const stockModal = document.getElementById('stockModal');
 const closeStockModalBtn = document.getElementById('closeStockModal');
 const stockForm = document.getElementById('stockForm');
 const stockList = document.getElementById('stockList');
+const emptyStockEl = document.getElementById('emptyStock');
 
 let stocks = [];
 
+// локальный вариант authHeaders (такой же, как в deals.js)
 function authHeaders() {
     const t = localStorage.getItem('token');
     return t ? { Authorization: 'Bearer ' + t } : {};
 }
+
+// ====== API ======
 
 async function loadStocks() {
     try {
@@ -48,7 +53,8 @@ async function deleteStockOnServer(id) {
     if (!res.ok) throw new Error('Failed to delete stock');
 }
 
-// модалка
+// ====== Модалка акций ======
+
 addStockBtn.addEventListener('click', () => {
     stockModal.style.display = 'flex';
 });
@@ -60,9 +66,10 @@ closeStockModalBtn.addEventListener('click', () => {
 
 stockForm.addEventListener('submit', async e => {
     e.preventDefault();
+
     const fd = new FormData(stockForm);
-    const ticker = fd.get('ticker').trim();
-    const desc = fd.get('desc').trim();
+    const ticker = (fd.get('ticker') || '').toString().trim();
+    const desc = (fd.get('desc') || '').toString().trim();
     const sp500_member = fd.get('sp500_member') === 'on';
     const averageWeekVol = fd.get('averageWeekVol') === 'on';
 
@@ -75,8 +82,11 @@ stockForm.addEventListener('submit', async e => {
             sp500Member: sp500_member,
             averageWeekVol
         });
+
         stockModal.style.display = 'none';
         stockForm.reset();
+
+        // перезагружаем список + селект сделок
         await loadStocks();
     } catch (e) {
         console.error(e);
@@ -84,14 +94,16 @@ stockForm.addEventListener('submit', async e => {
     }
 });
 
-// отрисовка
+// ====== Рендер списка акций ======
+
 function renderStocks() {
     stockList.innerHTML = '';
+
     if (!stocks.length) {
-        document.getElementById('emptyStock').style.display = 'block';
+        if (emptyStockEl) emptyStockEl.style.display = 'block';
         return;
     }
-    document.getElementById('emptyStock').style.display = 'none';
+    if (emptyStockEl) emptyStockEl.style.display = 'none';
 
     stocks.forEach(s => {
         const el = document.createElement('div');
@@ -106,18 +118,22 @@ function renderStocks() {
             </div>
         `;
 
-        // заполнение ticker в форме сделки при клике по названию
+        // клик по акции в левой панели – подставляем тикер в селект сделки (если модалка открыта)
         el.querySelector('.meta').addEventListener('click', () => {
-            const dealInput = document.querySelector('#dealForm input[name="stock"]');
-            if (dealInput) dealInput.value = s.ticker;
+            const select = document.getElementById('dealStockSelect');
+            if (select && !select.disabled) {
+                select.value = s.ticker;
+            }
         });
 
-        // удаление
-        el.querySelector('.delete-icon').addEventListener('click', async () => {
+        // удаление акции
+        el.querySelector('.delete-icon').addEventListener('click', async evt => {
+            evt.stopPropagation();
             if (!confirm('Удалить акцию?')) return;
+
             try {
                 await deleteStockOnServer(s.id);
-                await loadStocks();
+                await loadStocks(); // снова обновим и список, и селект
             } catch (e) {
                 console.error(e);
                 alert('Не удалось удалить акцию');
@@ -128,6 +144,5 @@ function renderStocks() {
     });
 }
 
-// стартовая загрузка
+// ====== Старт ======
 loadStocks();
-

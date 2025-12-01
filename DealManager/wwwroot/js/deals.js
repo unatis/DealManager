@@ -1,8 +1,9 @@
 ﻿// deals.js
 
 let deals = [];
-let dealsLoaded = false;   
+let dealsLoaded = false;
 
+// ---------- элементы DOM ----------
 const elements = {
     newDealBtn: document.getElementById('newDealBtn'),
     modal: document.getElementById('modal'),
@@ -23,28 +24,31 @@ const elements = {
     logoutBtn: document.getElementById('logoutBtn')
 };
 
+// ---------- редирект если нет токена ----------
 const token = localStorage.getItem('token');
 if (!token) {
     window.location.href = '/login.html';
 }
-// ---------- работа с API ----------
+
+// ---------- пользователь в шапке ----------
 (function initUserInfo() {
     if (!elements.userNameDisplay) return;
 
-    const storedUserName = localStorage.getItem('userName'); // на будущее
+    const storedUserName = localStorage.getItem('userName');
     const storedEmail = localStorage.getItem('email');
 
     const display = storedUserName || storedEmail || 'Unknown';
     elements.userNameDisplay.textContent = display;
 })();
 
+// ---------- заголовки авторизации ----------
 function authHeaders() {
     const token = localStorage.getItem('token');
     if (!token) return {};
     return { Authorization: `Bearer ${token}` };
 }
 
-// ====== Portfolio inline edit ======
+// ========== PORTFOLIO inline edit ==========
 const portfolioSpan = document.getElementById('portfolioValue');
 
 // начальное значение из localStorage
@@ -58,7 +62,6 @@ const portfolioSpan = document.getElementById('portfolioValue');
 
 if (portfolioSpan) {
     portfolioSpan.addEventListener('click', () => {
-        // уже редактируем — ничего не делаем
         if (portfolioSpan.dataset.editing === '1') return;
 
         const currentText = portfolioSpan.textContent.trim();
@@ -88,14 +91,11 @@ if (portfolioSpan) {
                 newVal = isNaN(parsed) ? current : parsed;
             }
 
-            // отрисовываем обратно текст
             portfolioSpan.textContent = newVal.toFixed(2);
 
             if (save) {
-                // локально
                 localStorage.setItem('portfolio', String(newVal));
 
-                // попытка сохранить на сервер
                 try {
                     const res = await fetch('/api/users/portfolio', {
                         method: 'PUT',
@@ -127,6 +127,54 @@ if (portfolioSpan) {
     });
 }
 
+// ========== STOCKS для сделок (select) ==========
+
+async function loadStocksForDeals() {
+    const select = document.getElementById('dealStockSelect');
+    if (!select) return;
+
+    // пока грузим
+    select.innerHTML = '<option value="" disabled selected>Loading stocks…</option>';
+
+    try {
+        const res = await fetch('/api/stocks', {
+            headers: authHeaders()
+        });
+
+        if (!res.ok) {
+            throw new Error('Failed to load stocks for deals');
+        }
+
+        const stocks = await res.json();
+
+        // если акций нет – просто показываем сообщение,
+        // но НЕ делаем select disabled, чтоб не ломать клик
+        if (!stocks || stocks.length === 0) {
+            select.innerHTML =
+                '<option value="" disabled selected>First add stocks in the left panel</option>';
+            return;
+        }
+
+        // есть акции – строим список
+        select.innerHTML =
+            '<option value="" disabled selected>Choose stock from list</option>';
+
+        stocks.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.ticker;
+            opt.textContent = s.ticker;
+            select.appendChild(opt);
+        });
+    } catch (err) {
+        console.error(err);
+        select.innerHTML =
+            '<option value="" disabled selected>Failed to load stocks</option>';
+    }
+}
+
+
+// ========== ЗАГРУЗКА СДЕЛОК ==========
+
 async function loadDeals() {
     try {
         const res = await fetch('/api/deals', {
@@ -136,20 +184,19 @@ async function loadDeals() {
         });
 
         if (res.status === 401 || res.status === 403) {
-            // токен сервер не принял – просто пишем в консоль,
-            // но не пугаем пользователя
             const text = await res.text().catch(() => '');
             console.warn('Unauthorized /api/deals:', res.status, text);
 
-            // Можно просто показать "Нет данных"
             elements.openList.innerHTML = '';
             elements.emptyOpen.textContent = 'Нет доступа к данным сделок.';
             elements.emptyOpen.style.display = 'block';
+            dealsLoaded = true;
             return;
         }
 
         if (!res.ok) {
             console.error('Failed to load deals', res.status);
+            dealsLoaded = true;
             return;
         }
 
@@ -158,10 +205,9 @@ async function loadDeals() {
         renderAll();
     } catch (e) {
         console.error('Load deals error', e);
+        dealsLoaded = true;
     }
 }
-
-
 
 async function saveDealToServer(deal, isEdit) {
     const hasId = !!deal.id;
@@ -199,10 +245,25 @@ async function deleteDealOnServer(id) {
     }
 }
 
-// ---------- модалка ----------
+// ========== ЛОГАУТ ==========
+
+if (elements.logoutBtn) {
+    elements.logoutBtn.addEventListener('click', () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('email');
+        localStorage.removeItem('userName');
+        // localStorage.clear(); // если хочешь вообще все снести
+
+        window.location.href = '/login.html';
+    });
+}
+
+// ========== МОДАЛКА ==========
 
 function openModal(mode = 'new', id = null) {
     elements.modal.style.display = 'flex';
+
+    loadStocksForDeals();
 
     elements.modalTitle.textContent =
         mode === 'new'
@@ -230,6 +291,10 @@ function openModal(mode = 'new', id = null) {
                 }
             });
 
+            // выставляем выбранный тикер в select
+            const currentTicker = d.stock || d.Stock || '';
+            
+
             if (mode === 'view') {
                 Array.from(elements.dealForm.elements).forEach(i => (i.disabled = true));
                 elements.closeDealBtn.disabled = false;
@@ -241,6 +306,7 @@ function openModal(mode = 'new', id = null) {
         elements.dealForm.reset();
         delete elements.dealForm.dataset.editId;
         Array.from(elements.dealForm.elements).forEach(i => (i.disabled = false));
+           
     }
 }
 
@@ -250,24 +316,7 @@ function closeModal() {
     delete elements.dealForm.dataset.editId;
 }
 
-// ---------- обработчики формы ----------
-
-
-if (elements.logoutBtn) {
-    elements.logoutBtn.addEventListener('click', () => {
-        // чистим всё, что связано с авторизацией
-        localStorage.removeItem('token');
-        localStorage.removeItem('email');
-        localStorage.removeItem('userName'); // на будущее, когда имя добавим
-
-        // на всякий случай можно вообще очистить всё:
-        // localStorage.clear();
-
-        // отправляем на страницу логина
-        window.location.href = '/login.html';
-    });
-}
-
+// ========== ОБРАБОТЧИКИ ФОРМЫ ==========
 
 elements.newDealBtn.addEventListener('click', () => openModal('new'));
 elements.closeModal.addEventListener('click', closeModal);
@@ -337,10 +386,9 @@ elements.closeDealBtn.addEventListener('click', async () => {
     }
 });
 
-// ---------- рендер ----------
+// ========== РЕНДЕР ==========
 
 function renderAll() {
-    // OPEN deals (центр)
     const filter = (elements.filterInput.value || '').toLowerCase();
 
     const open = deals.filter(
@@ -353,11 +401,9 @@ function renderAll() {
     elements.openList.innerHTML = '';
 
     if (!dealsLoaded) {
-        // ещё не загрузили с сервера
         elements.emptyOpen.textContent = 'Загружаем сделки...';
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0) {
-        // загрузили, но нет открытых сделок
         elements.emptyOpen.textContent =
             'Нет открытых сделок — нажмите «New Deal», чтобы добавить.';
         elements.emptyOpen.style.display = 'block';
@@ -396,14 +442,16 @@ function renderAll() {
 
     elements.openCount.textContent = open.length;
 
-    // CLOSED deals (правый столбец)
+    // CLOSED deals
     const closed = deals.filter(d => d.closed);
     elements.closedList.innerHTML = '';
 
-    if (closed.length === 0 && dealsLoaded) {
+    if (!dealsLoaded) {
+        elements.emptyClosed.style.display = 'none';
+    } else if (closed.length === 0) {
         elements.emptyClosed.style.display = 'block';
     } else {
-        elements.emptyClosed.style.display = closed.length === 0 ? 'none' : 'none';
+        elements.emptyClosed.style.display = 'none';
 
         closed.forEach(d => {
             const el = document.createElement('div');
@@ -435,7 +483,6 @@ function renderAll() {
     }
 }
 
-// простое экранирование текста
 function escapeHtml(str) {
     return String(str || '').replace(/[&<>"]/g, s => ({
         '&': '&amp;',
@@ -447,7 +494,7 @@ function escapeHtml(str) {
 
 elements.filterInput.addEventListener('input', renderAll);
 
-// ---------- import / export ----------
+// ========== IMPORT / EXPORT ==========
 
 elements.exportBtn.addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(deals, null, 2)], {
@@ -483,9 +530,8 @@ elements.importBtn.addEventListener('click', () => {
                     return;
                 }
 
-                // грузим каждую сделку на сервер
                 for (const d of imported) {
-                    delete d.id; // пусть сервер создаёт свои id
+                    delete d.id;
                     await saveDealToServer(d, false);
                 }
 
@@ -503,11 +549,10 @@ elements.importBtn.addEventListener('click', () => {
     inp.click();
 });
 
-// ---------- старт ----------
-
+// ======== СТАРТ =========
+loadStocksForDeals();
 loadDeals();
 
-// горячая клавиша: Ctrl/Cmd+N
 document.addEventListener('keydown', e => {
     if (e.key === 'n' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();

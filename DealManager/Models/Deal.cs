@@ -16,6 +16,9 @@ namespace DealManager.Models
         [JsonIgnore]
         public string? UserId { get; set; }
 
+        [JsonPropertyName("ownerId")]
+        public string OwnerId { get; set; } = "";
+
         [JsonPropertyName("closed")]
         public bool Closed { get; set; }
 

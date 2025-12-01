@@ -13,6 +13,8 @@ namespace DealManager.Services
             var db = client.GetDatabase(settings.Database);
             _deals = db.GetCollection<Deal>(settings.DealsCollection);
         }
+        public Task<List<Deal>> GetAllForOwnerAsync(string ownerId) =>
+            _deals.Find(d => d.OwnerId == ownerId).ToListAsync();
 
         // все сделки конкретного пользователя
         public Task<List<Deal>> GetByUserAsync(string userId) =>

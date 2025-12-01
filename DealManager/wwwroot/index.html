@@ -36,14 +36,7 @@
         <aside class="panel">
             <h3>Stocks</h3>
             <button id="addStockBtn">Add stock</button>
-            <div id="stockList" class="list">
-                <div class="deal-item">
-                    <div class="meta"><strong>AAPL</strong></div>
-                    <div style="display:flex;align-items:center">
-                        <span class="delete-icon">×</span>
-                    </div>
-                </div>
-            </div>
+            <div id="stockList" class="list"></div>
             <div id="emptyStock" class="empty" style="display: none;">Нет акций</div>
         </aside>
         <!-- CENTER: only open deals (with search) -->
@@ -80,7 +73,14 @@
 
             <form id="dealForm">
                 <label>Deal date<input type="date" name="date" required></label>
-                <label>Share name<input type="text" name="stock" required placeholder="AAPL"></label>
+
+                <label>
+                    Share name
+                    <select name="stock" id="dealStockSelect" required>
+                        <option value="" disabled selected>Choose stock from list</option>
+                    </select>
+                </label>
+
                 <label required>Share parice<input type="text" name="share_price" placeholder=""></label>
                 <label required>Share parice to buy?<input type="text" name="share_price_tobuy" placeholder=""></label>
                 <label required>Shares amount to buy total<input type="text" name="amount_tobuy" placeholder=""></label>
@@ -142,7 +142,7 @@
                         <option value="yes">Yes</option>
                     </select>
                 </label>
-               
+
                 <label required>
                     Is S&P500 in an upper trend right now on monthly timeframe?
                     <select name="sp500_up">
@@ -246,7 +246,7 @@
                         <option>Yes</option>
                     </select>
                 </label>
-               
+
                 <label required>
                     Do you buy on green or red candle?
                     <select name="buy_green_sell_red">

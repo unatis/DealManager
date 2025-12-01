@@ -13,10 +13,12 @@ namespace DealManager.Controllers
     public class DealsController : ControllerBase
     {
         private readonly DealsService _service;
+        private readonly StocksService _stocks;
 
-        public DealsController(DealsService service)
+        public DealsController(DealsService service, StocksService stocks)
         {
             _service = service;
+            _stocks = stocks;
         }
 
         private string? GetUserId()
@@ -42,8 +44,17 @@ namespace DealManager.Controllers
             var userId = GetUserId();
             if (userId == null) return Unauthorized();
 
-            // жёстко привязываем к текущему пользователю,
-            // игнорируя всё, что придёт с фронта
+            // обязательно должен быть тикер
+            if (string.IsNullOrWhiteSpace(deal.Stock))
+                return BadRequest("Stock ticker is required.");
+
+            // проверяем, что у этого пользователя есть такая акция в списке
+            // ВАЖНО: в StocksService должен быть метод ExistsForUserAsync(string userId, string ticker)
+            var exists = await _stocks.ExistsForUserAsync(userId, deal.Stock);
+            if (!exists)
+                return BadRequest("You can create deals only for stocks from your list.");
+
+            // жёстко привязываем к текущему пользователю
             deal.UserId = userId;
 
             await _service.CreateAsync(deal);
@@ -56,8 +67,17 @@ namespace DealManager.Controllers
             var userId = GetUserId();
             if (userId == null) return Unauthorized();
 
+            if (string.IsNullOrWhiteSpace(deal.Stock))
+                return BadRequest("Stock ticker is required.");
+
+            var exists = await _stocks.ExistsForUserAsync(userId, deal.Stock);
+            if (!exists)
+                return BadRequest("You can update deals only for stocks from your list.");
+
+            deal.UserId = userId;
+
             var ok = await _service.UpdateAsync(id, userId, deal);
-            if (!ok) return NotFound(); 
+            if (!ok) return NotFound();
 
             return NoContent();
         }
