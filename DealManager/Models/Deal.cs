@@ -91,7 +91,7 @@ namespace DealManager.Models
         public string? OPrice { get; set; }
 
 
-        [JsonPropertyName("o_price")]
+        [JsonPropertyName("h_price")]
         public string? HPrice { get; set; }
 
 
@@ -114,8 +114,6 @@ namespace DealManager.Models
         [JsonPropertyName("counter_trend")]
         public string? CounterTrend { get; set; }
         
-        [JsonPropertyName("green_candle")]
-        public string? GreenCandle { get; set; }
 
         [JsonPropertyName("flat_before_up")]
         public string? FlatBeforeUp { get; set; }
