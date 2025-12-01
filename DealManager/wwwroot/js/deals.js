@@ -19,6 +19,7 @@ const elements = {
     openCount: document.getElementById('openCount'),
     emptyOpen: document.getElementById('emptyOpen'),
     emptyClosed: document.getElementById('emptyClosed'),
+    userNameDisplay: document.getElementById('userNameDisplay'),
     logoutBtn: document.getElementById('logoutBtn')
 };
 
@@ -27,11 +28,103 @@ if (!token) {
     window.location.href = '/login.html';
 }
 // ---------- работа с API ----------
+(function initUserInfo() {
+    if (!elements.userNameDisplay) return;
+
+    const storedUserName = localStorage.getItem('userName'); // на будущее
+    const storedEmail = localStorage.getItem('email');
+
+    const display = storedUserName || storedEmail || 'Unknown';
+    elements.userNameDisplay.textContent = display;
+})();
 
 function authHeaders() {
     const token = localStorage.getItem('token');
     if (!token) return {};
     return { Authorization: `Bearer ${token}` };
+}
+
+// ====== Portfolio inline edit ======
+const portfolioSpan = document.getElementById('portfolioValue');
+
+// начальное значение из localStorage
+(function initPortfolio() {
+    const stored = localStorage.getItem('portfolio');
+    if (stored != null && portfolioSpan) {
+        const num = Number(stored);
+        portfolioSpan.textContent = isNaN(num) ? stored : num.toFixed(2);
+    }
+})();
+
+if (portfolioSpan) {
+    portfolioSpan.addEventListener('click', () => {
+        // уже редактируем — ничего не делаем
+        if (portfolioSpan.dataset.editing === '1') return;
+
+        const currentText = portfolioSpan.textContent.trim();
+        const current = Number(currentText.replace(',', '.')) || 0;
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = '0.01';
+        input.min = '0';
+        input.value = current.toString();
+        input.className = 'portfolio-input';
+
+        portfolioSpan.textContent = '';
+        portfolioSpan.appendChild(input);
+        portfolioSpan.dataset.editing = '1';
+
+        input.focus();
+        input.select();
+
+        const finish = async (save) => {
+            if (portfolioSpan.dataset.editing !== '1') return;
+            portfolioSpan.dataset.editing = '';
+
+            let newVal = current;
+            if (save) {
+                const parsed = Number(input.value.replace(',', '.'));
+                newVal = isNaN(parsed) ? current : parsed;
+            }
+
+            // отрисовываем обратно текст
+            portfolioSpan.textContent = newVal.toFixed(2);
+
+            if (save) {
+                // локально
+                localStorage.setItem('portfolio', String(newVal));
+
+                // попытка сохранить на сервер
+                try {
+                    const res = await fetch('/api/users/portfolio', {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...authHeaders()
+                        },
+                        body: JSON.stringify({ portfolio: newVal })
+                    });
+                    if (!res.ok) {
+                        console.error('Failed to save portfolio', res.status);
+                    }
+                } catch (e) {
+                    console.error('Error saving portfolio', e);
+                }
+            }
+        };
+
+        input.addEventListener('blur', () => finish(true));
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                finish(true);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                finish(false);
+            }
+        });
+    });
 }
 
 async function loadDeals() {

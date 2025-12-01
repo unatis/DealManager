@@ -22,22 +22,26 @@ function setMode(newMode) {
     errorEl.textContent = '';
 }
 
-// ================== токен / email ==================
+// ================== разбор ответа: token / email / userName / portfolio ==================
 
-function extractTokenAndEmail(raw) {
-    // ожидаем объект { Token, Email } или { token, email }
+function extractAuthData(raw) {
+    // ожидаем объект вида:
+    // { token, email, portfolio, userName } или
+    // { Token, Email, Portfolio, UserName }
     if (!raw || typeof raw !== 'object') {
-        return { token: null, email: null };
+        return { token: null, email: null, userName: null, portfolio: null };
     }
 
     const token = raw.token ?? raw.Token ?? null;
     const email = raw.email ?? raw.Email ?? null;
+    const userName = raw.userName ?? raw.UserName ?? null;
+    const portfolio = raw.portfolio ?? raw.Portfolio ?? null;
 
-    return { token, email };
+    return { token, email, userName, portfolio };
 }
 
 function finishLogin(raw) {
-    const { token, email } = extractTokenAndEmail(raw);
+    const { token, email, userName, portfolio } = extractAuthData(raw);
 
     console.log('Auth response:', raw);
     console.log('Parsed token:', token);
@@ -52,8 +56,13 @@ function finishLogin(raw) {
     if (email) {
         localStorage.setItem('email', email);
     }
+    if (userName) {
+        localStorage.setItem('userName', userName);
+    }
+    if (portfolio !== null && portfolio !== undefined) {
+        localStorage.setItem('portfolio', String(portfolio));
+    }
 
-    // для контроля: в консоли видно, что положили в localStorage
     console.log('Token saved to localStorage:', localStorage.getItem('token'));
 
     window.location.href = '/index.html';

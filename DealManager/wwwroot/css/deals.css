@@ -240,3 +240,38 @@ label {
     padding-inline: 14px;
     font-size: 14px;
 }
+.user-info {
+    font-size: 13px;
+    color: var(--muted);
+    margin-right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.portfolio-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: #0b1724;
+}
+
+.portfolio-display {
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+}
+
+    .portfolio-display:hover {
+        background: rgba(6, 182, 212, 0.08);
+    }
+
+.portfolio-input {
+    font: inherit;
+    padding: 2px 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(11, 17, 36, 0.2);
+    width: 90px;
+}
