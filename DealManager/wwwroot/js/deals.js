@@ -1,7 +1,7 @@
 ﻿// deals.js
 
-// Все сделки держим в памяти, загружаем с сервера
 let deals = [];
+let dealsLoaded = false;   
 
 const elements = {
     newDealBtn: document.getElementById('newDealBtn'),
@@ -21,19 +21,53 @@ const elements = {
     emptyClosed: document.getElementById('emptyClosed')
 };
 
+const token = localStorage.getItem('token');
+if (!token) {
+    window.location.href = '/login.html';
+}
 // ---------- работа с API ----------
+
+function authHeaders() {
+    const token = localStorage.getItem('token');
+    if (!token) return {};
+    return { Authorization: `Bearer ${token}` };
+}
 
 async function loadDeals() {
     try {
-        const res = await fetch('/api/deals');
-        if (!res.ok) throw new Error('Failed to load deals');
+        const res = await fetch('/api/deals', {
+            headers: {
+                ...authHeaders()
+            }
+        });
+
+        if (res.status === 401 || res.status === 403) {
+            // токен сервер не принял – просто пишем в консоль,
+            // но не пугаем пользователя
+            const text = await res.text().catch(() => '');
+            console.warn('Unauthorized /api/deals:', res.status, text);
+
+            // Можно просто показать "Нет данных"
+            elements.openList.innerHTML = '';
+            elements.emptyOpen.textContent = 'Нет доступа к данным сделок.';
+            elements.emptyOpen.style.display = 'block';
+            return;
+        }
+
+        if (!res.ok) {
+            console.error('Failed to load deals', res.status);
+            return;
+        }
+
         deals = await res.json();
+        dealsLoaded = true;
         renderAll();
     } catch (e) {
-        console.error(e);
-        alert('Не удалось загрузить сделки');
+        console.error('Load deals error', e);
     }
 }
+
+
 
 async function saveDealToServer(deal, isEdit) {
     const hasId = !!deal.id;
@@ -41,8 +75,11 @@ async function saveDealToServer(deal, isEdit) {
     const method = isEdit && hasId ? 'PUT' : 'POST';
 
     const res = await fetch(url, {
-        method: method,
-        headers: { 'Content-Type': 'application/json' },
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders()
+        },
         body: JSON.stringify(deal)
     });
 
@@ -54,8 +91,18 @@ async function saveDealToServer(deal, isEdit) {
 }
 
 async function deleteDealOnServer(id) {
-    const res = await fetch(`/api/deals/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete deal');
+    const res = await fetch(`/api/deals/${id}`, {
+        method: 'DELETE',
+        headers: {
+            ...authHeaders()
+        }
+    });
+
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.error('Delete failed', res.status, text);
+        throw new Error('Failed to delete deal');
+    }
 }
 
 // ---------- модалка ----------
@@ -194,7 +241,14 @@ function renderAll() {
 
     elements.openList.innerHTML = '';
 
-    if (open.length === 0) {
+    if (!dealsLoaded) {
+        // ещё не загрузили с сервера
+        elements.emptyOpen.textContent = 'Загружаем сделки...';
+        elements.emptyOpen.style.display = 'block';
+    } else if (open.length === 0) {
+        // загрузили, но нет открытых сделок
+        elements.emptyOpen.textContent =
+            'Нет открытых сделок — нажмите «New Deal», чтобы добавить.';
         elements.emptyOpen.style.display = 'block';
     } else {
         elements.emptyOpen.style.display = 'none';
@@ -235,10 +289,10 @@ function renderAll() {
     const closed = deals.filter(d => d.closed);
     elements.closedList.innerHTML = '';
 
-    if (closed.length === 0) {
+    if (closed.length === 0 && dealsLoaded) {
         elements.emptyClosed.style.display = 'block';
     } else {
-        elements.emptyClosed.style.display = 'none';
+        elements.emptyClosed.style.display = closed.length === 0 ? 'none' : 'none';
 
         closed.forEach(d => {
             const el = document.createElement('div');

@@ -14,19 +14,37 @@ namespace DealManager.Services
             _deals = db.GetCollection<Deal>(settings.DealsCollection);
         }
 
-        public async Task<List<Deal>> GetAllAsync() =>
-            await _deals.Find(_ => true).ToListAsync();
+        // все сделки конкретного пользователя
+        public Task<List<Deal>> GetByUserAsync(string userId) =>
+            _deals.Find(d => d.UserId == userId).ToListAsync();
 
-        public async Task<Deal?> GetAsync(string id) =>
-            await _deals.Find(d => d.Id == id).FirstOrDefaultAsync();
+        // одна сделка по id + userId
+        public Task<Deal?> GetAsync(string id, string userId) =>
+            _deals.Find(d => d.Id == id && d.UserId == userId)
+                  .FirstOrDefaultAsync();
 
-        public async Task CreateAsync(Deal deal) =>
-            await _deals.InsertOneAsync(deal);
+        public Task CreateAsync(Deal deal) =>
+            _deals.InsertOneAsync(deal);
 
-        public async Task UpdateAsync(string id, Deal deal) =>
-            await _deals.ReplaceOneAsync(d => d.Id == id, deal);
+        // возвращаем bool чтобы контроллер мог понять, было ли изменение
+        public async Task<bool> UpdateAsync(string id, string userId, Deal deal)
+        {
+            deal.Id = id;
+            deal.UserId = userId;
 
-        public async Task DeleteAsync(string id) =>
-            await _deals.DeleteOneAsync(d => d.Id == id);
+            var result = await _deals.ReplaceOneAsync(
+                d => d.Id == id && d.UserId == userId,
+                deal);
+
+            return result.ModifiedCount == 1;
+        }
+
+        public async Task<bool> DeleteAsync(string id, string userId)
+        {
+            var result = await _deals.DeleteOneAsync(
+                d => d.Id == id && d.UserId == userId);
+
+            return result.DeletedCount == 1;
+        }
     }
 }

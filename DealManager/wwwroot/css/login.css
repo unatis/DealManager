@@ -1,0 +1,213 @@
+﻿/* фон и центрирование карточки */
+body {
+    margin: 0;
+    font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #022c22;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.auth-wrapper {
+    padding: 24px;
+}
+
+.auth-card {
+    background: #ffffff;
+    border-radius: 24px;
+    padding: 32px 28px 28px;
+    box-shadow: 0 24px 40px rgba(0,0,0,0.25);
+    width: 100%;
+    max-width: 560px;
+}
+
+.auth-title {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.auth-sub {
+    font-size: 14px;
+    color: #64748b;
+    margin-bottom: 24px;
+}
+
+/* форма */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.auth-row {
+    display: flex;
+    gap: 16px;
+}
+
+.auth-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 14px;
+}
+
+    .auth-field input {
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid #d0d7f2;
+        font-size: 14px;
+    }
+
+/* доп. поля регистрации */
+.signup-extra {
+    display: none;
+}
+
+    .signup-extra.visible {
+        display: flex;
+    }
+
+/* НИЖНИЕ КНОПКИ */
+
+/* контейнер двух кнопок */
+.auth-actions {
+    display: flex;
+    gap: 16px;
+    margin-top: 24px;
+}
+
+/* базовый стиль кнопок */
+.auth-btn {
+    flex: 1; /* каждая занимает половину строки */
+    padding: 12px 18px;
+    border-radius: 999px; /* плавные табики */
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    text-align: center;
+    border: 2px solid transparent;
+    /* критично: убиваем любые старые размеры */
+    width: auto !important;
+    height: auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+}
+
+    /* активная зелёная (Sign in по умолчанию) */
+    .auth-btn.primary {
+        background: #10b981;
+        color: #ffffff;
+    }
+
+    /* вторичная белая (Sign up когда не активен) */
+    .auth-btn.secondary {
+        background: #ffffff;
+        color: #0f766e;
+        border-color: #0f766e;
+    }
+
+    /* подсветка активной кнопки */
+    .auth-btn.active.primary {
+        background: #10b981;
+        color: #ffffff;
+        border-color: #10b981;
+    }
+
+    .auth-btn.active.secondary {
+        background: #0f766e;
+        color: #ffffff;
+        border-color: #0f766e;
+    }
+
+/* блок ошибок */
+.auth-error {
+    font-size: 13px;
+    color: #b91c1c;
+    min-height: 18px;
+    margin-top: 6px;
+}
+
+/* адаптив для мобильных – поля и кнопки в столбик */
+@media (max-width: 600px) {
+    .auth-row {
+        flex-direction: column;
+    }
+
+    .auth-actions {
+        flex-direction: column;
+    }
+}
+.auth-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* два столбца одинаковой ширины */
+    gap: 16px;
+    margin-top: 24px;
+}
+
+    /* более специфичный селектор + !important, чтобы перебить ВСЁ */
+    .auth-actions .auth-btn {
+        display: block;
+        width: 100% !important; /* кнопка растягивается по всей своей колонке */
+        height: auto !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        padding: 12px 18px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 15px;
+        cursor: pointer;
+        text-align: center;
+        border: 2px solid transparent;
+    }
+
+        /* зелёная (активный Sign in) */
+        .auth-actions .auth-btn.primary {
+            background: #10b981;
+            color: #ffffff;
+        }
+
+        /* белая (неактивный режим) */
+        .auth-actions .auth-btn.secondary {
+            background: #ffffff;
+            color: #0f766e;
+            border-color: #0f766e;
+        }
+
+        /* подсветка активной */
+        .auth-actions .auth-btn.active.primary {
+            background: #10b981;
+            color: #ffffff;
+            border-color: #10b981;
+        }
+
+        .auth-actions .auth-btn.active.secondary {
+            background: #0f766e;
+            color: #ffffff;
+            border-color: #0f766e;
+        }
+/* контейнер кнопок — во всю ширину карточки */
+.auth-actions {
+    display: flex;
+    width: 100%;
+    gap: 16px;
+    margin-top: 24px;
+}
+
+    /* каждая кнопка занимает половину строки */
+    .auth-actions .auth-btn {
+        flex: 1 1 0;
+        display: block;
+        width: 100%;
+        padding: 14px 18px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 15px;
+        text-align: center;
+        cursor: pointer;
+        /* на всякий случай убиваем старые размеры */
+        height: auto !important;
+        min-width: 0 !important;
+    }

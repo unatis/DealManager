@@ -12,6 +12,10 @@ namespace DealManager.Models
         [JsonPropertyName("id")]
         public string? Id { get; set; }
 
+        [BsonRepresentation(BsonType.ObjectId)]
+        [JsonIgnore]
+        public string? UserId { get; set; }
+
         [JsonPropertyName("closed")]
         public bool Closed { get; set; }
 
