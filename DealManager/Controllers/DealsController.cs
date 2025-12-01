@@ -57,7 +57,7 @@ namespace DealManager.Controllers
             if (userId == null) return Unauthorized();
 
             var ok = await _service.UpdateAsync(id, userId, deal);
-            if (!ok) return NotFound(); // либо сделки нет, либо она чужая
+            if (!ok) return NotFound(); 
 
             return NoContent();
         }
