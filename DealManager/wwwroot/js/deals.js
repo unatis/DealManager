@@ -260,10 +260,11 @@ if (elements.logoutBtn) {
 
 // ========== МОДАЛКА ==========
 
-function openModal(mode = 'new', id = null) {
+async function openModal(mode = 'new', id = null) {
     elements.modal.style.display = 'flex';
 
-    loadStocksForDeals();
+    // Wait for stocks to load first
+    await loadStocksForDeals();
 
     elements.modalTitle.textContent =
         mode === 'new'
@@ -281,6 +282,10 @@ function openModal(mode = 'new', id = null) {
         if (d) {
             elements.dealForm.dataset.editId = id;
 
+            // Get the current ticker first
+            const currentTicker = d.stock || d.Stock || '';
+
+            // Populate all form fields
             Array.from(elements.dealForm.elements).forEach(el => {
                 if (el.name && d[el.name] !== undefined) {
                     if (el.type === 'checkbox') {
@@ -291,9 +296,11 @@ function openModal(mode = 'new', id = null) {
                 }
             });
 
-            // выставляем выбранный тикер в select
-            const currentTicker = d.stock || d.Stock || '';
-            
+            // Set the stock select value AFTER stocks are loaded
+            const stockSelect = document.getElementById('dealStockSelect');
+            if (stockSelect && currentTicker) {
+                stockSelect.value = currentTicker;
+            }
 
             if (mode === 'view') {
                 Array.from(elements.dealForm.elements).forEach(i => (i.disabled = true));
@@ -306,7 +313,6 @@ function openModal(mode = 'new', id = null) {
         elements.dealForm.reset();
         delete elements.dealForm.dataset.editId;
         Array.from(elements.dealForm.elements).forEach(i => (i.disabled = false));
-           
     }
 }
 
