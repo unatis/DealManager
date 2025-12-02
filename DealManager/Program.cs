@@ -31,10 +31,9 @@ internal class Program
         var jwtSection = builder.Configuration.GetSection("Jwt");
         builder.Services.Configure<JwtSettings>(jwtSection);
 
-        var jwtSettings = jwtSection.Get<JwtSettings>()
-                          ?? throw new InvalidOperationException("Jwt configuration section is missing");
-
+        var jwtSettings = jwtSection.Get<JwtSettings>()?? throw new InvalidOperationException("Jwt configuration section is missing");
         var key = Encoding.UTF8.GetBytes(jwtSettings.Key);
+
 
         builder.Services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -64,6 +63,12 @@ internal class Program
                 };
             });
 
+        builder.Services.Configure<AlphaVantageSettings>(
+        builder.Configuration.GetSection("AlphaVantage"));
+
+        builder.Services.AddMemoryCache();
+        builder.Services.AddHttpClient<AlphaVantageService>();
+
         builder.Services.AddAuthorization();
 
         builder.Services.AddControllers();
@@ -77,19 +82,16 @@ internal class Program
                 ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
         });
 
+        builder.Services.AddHttpClient();
+
         var app = builder.Build();
 
         app.UseForwardedHeaders();
-
         app.UseHttpsRedirection();
-
-        // статика (index.html, login.html, css, js)
         app.UseDefaultFiles();
         app.UseStaticFiles();
-
         app.UseAuthentication();
         app.UseAuthorization();
-
         app.MapControllers();
 
         app.Run();

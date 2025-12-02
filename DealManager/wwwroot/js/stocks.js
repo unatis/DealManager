@@ -42,8 +42,21 @@ async function saveStockToServer(stockDto) {
         },
         body: JSON.stringify(stockDto)
     });
-    if (!res.ok) throw new Error('Failed to save stock');
+
+    if (res.status === 401 || res.status === 403) {
+        alert('Сессия истекла, войдите заново');
+        localStorage.removeItem('token');
+        localStorage.removeItem('email');
+        localStorage.removeItem('userName');
+        window.location.href = '/login.html';
+        return;
+    }
+
+    if (!res.ok) {
+        throw new Error('Failed to save stock');
+    }
 }
+
 
 async function deleteStockOnServer(id) {
     const res = await fetch(`/api/stocks/${id}`, {

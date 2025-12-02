@@ -431,6 +431,12 @@ function renderAll() {
                 </div>
             `;
 
+            // сюда добавляем кнопку графика
+            const actionsDiv = el.querySelector('.chips');
+            if (actionsDiv) {
+                addChartButton(actionsDiv, d.stock || '');
+            }
+
             el.addEventListener('click', event => {
                 const dealEl = event.currentTarget;
                 openModal('view', dealEl.dataset.id);
@@ -473,6 +479,12 @@ function renderAll() {
                 </div>
             `;
 
+            // и здесь тоже кнопка графика
+            const actionsDiv = el.querySelector('.chips');
+            if (actionsDiv) {
+                addChartButton(actionsDiv, d.stock || '');
+            }
+
             el.addEventListener('click', event => {
                 const dealEl = event.currentTarget;
                 openModal('view', dealEl.dataset.id);
@@ -482,6 +494,7 @@ function renderAll() {
         });
     }
 }
+
 
 function escapeHtml(str) {
     return String(str || '').replace(/[&<>"]/g, s => ({
@@ -496,58 +509,93 @@ elements.filterInput.addEventListener('input', renderAll);
 
 // ========== IMPORT / EXPORT ==========
 
-elements.exportBtn.addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(deals, null, 2)], {
-        type: 'application/json'
+//elements.exportBtn.addEventListener('click', () => {
+//    const blob = new Blob([JSON.stringify(deals, null, 2)], {
+//        type: 'application/json'
+//    });
+
+//    const url = URL.createObjectURL(blob);
+//    const a = document.createElement('a');
+
+//    a.href = url;
+//    a.download = 'deals.json';
+//    a.click();
+
+//    URL.revokeObjectURL(url);
+//});
+
+//elements.importBtn.addEventListener('click', () => {
+//    const inp = document.createElement('input');
+//    inp.type = 'file';
+//    inp.accept = '.json';
+
+//    inp.onchange = async e => {
+//        const f = e.target.files[0];
+//        if (!f) return;
+
+//        const r = new FileReader();
+
+//        r.onload = async ev => {
+//            try {
+//                const imported = JSON.parse(ev.target.result);
+//                if (!Array.isArray(imported)) {
+//                    alert('Invalid file');
+//                    return;
+//                }
+
+//                for (const d of imported) {
+//                    delete d.id;
+//                    await saveDealToServer(d, false);
+//                }
+
+//                await loadDeals();
+//                alert('Imported ' + imported.length + ' deals');
+//            } catch (err) {
+//                console.error(err);
+//                alert('Ошибка импорта');
+//            }
+//        };
+
+//        r.readAsText(f);
+//    };
+
+//    inp.click();
+//});
+
+function addChartButton(containerEl, stockTicker) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Chart';
+    btn.className = 'secondary';
+    btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!stockTicker) return;
+
+        try {
+            const res = await fetch(`/api/prices/${encodeURIComponent(stockTicker)}`, {
+                headers: {
+                    ...authHeaders()
+                }
+            });
+
+            if (!res.ok) {
+                console.error('Failed to load prices', res.status);
+                alert('Не удалось загрузить данные по акции');
+                return;
+            }
+
+            const data = await res.json();
+            console.log('PriceSeries', data);
+            // TODO: здесь можно открыть модалку и нарисовать график Chart.js
+        } catch (err) {
+            console.error(err);
+            alert('Ошибка загрузки цены акции');
+        }
     });
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    containerEl.appendChild(btn);
+}
 
-    a.href = url;
-    a.download = 'deals.json';
-    a.click();
-
-    URL.revokeObjectURL(url);
-});
-
-elements.importBtn.addEventListener('click', () => {
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.accept = '.json';
-
-    inp.onchange = async e => {
-        const f = e.target.files[0];
-        if (!f) return;
-
-        const r = new FileReader();
-
-        r.onload = async ev => {
-            try {
-                const imported = JSON.parse(ev.target.result);
-                if (!Array.isArray(imported)) {
-                    alert('Invalid file');
-                    return;
-                }
-
-                for (const d of imported) {
-                    delete d.id;
-                    await saveDealToServer(d, false);
-                }
-
-                await loadDeals();
-                alert('Imported ' + imported.length + ' deals');
-            } catch (err) {
-                console.error(err);
-                alert('Ошибка импорта');
-            }
-        };
-
-        r.readAsText(f);
-    };
-
-    inp.click();
-});
 
 // ======== СТАРТ =========
 loadStocksForDeals();
