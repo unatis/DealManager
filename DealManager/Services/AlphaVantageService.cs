@@ -88,4 +88,50 @@ public class AlphaVantageService
 
         return list;
     }
+
+    public async Task<decimal?> GetCurrentPriceAsync(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+            throw new ArgumentException("Ticker is required", nameof(symbol));
+
+        symbol = symbol.Trim().ToUpperInvariant();
+
+        var cacheKey = $"av_quote_{symbol}";
+        if (_cache.TryGetValue(cacheKey, out decimal? cached) && cached.HasValue)
+            return cached;
+
+        var url =
+            $"https://www.alphavantage.co/query?function=GLOBAL_QUOTE" +
+            $"&symbol={Uri.EscapeDataString(symbol)}" +
+            $"&apikey={_settings.ApiKey}";
+
+        using var resp = await _http.GetAsync(url);
+        var json = await resp.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("Error Message", out var errProp))
+            throw new InvalidOperationException("Alpha Vantage error: " + errProp.GetString());
+
+        if (root.TryGetProperty("Information", out var infoProp))
+            throw new InvalidOperationException("Alpha Vantage info: " + infoProp.GetString());
+
+        if (!root.TryGetProperty("Global Quote", out var quote))
+            throw new InvalidOperationException("Alpha Vantage response has no 'Global Quote'");
+
+        if (!quote.TryGetProperty("05. price", out var priceProp))
+            throw new InvalidOperationException("Alpha Vantage quote has no '05. price'");
+
+        var priceStr = priceProp.GetString();
+        if (string.IsNullOrWhiteSpace(priceStr))
+            return null;
+
+        if (!decimal.TryParse(priceStr, out var price))
+            return null;
+
+        _cache.Set(cacheKey, price, TimeSpan.FromMinutes(1)); // Cache for 1 minute
+
+        return price;
+    }
 }

@@ -165,6 +165,12 @@ async function loadStocksForDeals() {
             opt.textContent = s.ticker;
             select.appendChild(opt);
         });
+
+        // Setup event listener for stock selection AFTER options are added
+        // Use setTimeout to ensure DOM is ready
+        setTimeout(() => {
+            setupStockSelectListener();
+        }, 50);
     } catch (err) {
         console.error(err);
         select.innerHTML =
@@ -313,6 +319,15 @@ async function openModal(mode = 'new', id = null) {
         elements.dealForm.reset();
         delete elements.dealForm.dataset.editId;
         Array.from(elements.dealForm.elements).forEach(i => (i.disabled = false));
+        
+        // Set default date to today when creating a new deal
+        if (mode === 'new') {
+            const dateInput = elements.dealForm.querySelector('input[name="date"]');
+            if (dateInput) {
+                const today = new Date().toISOString().split('T')[0];
+                dateInput.value = today;
+            }
+        }
     }
 }
 
@@ -425,7 +440,7 @@ function renderAll() {
                 <div class="meta">
                     <strong>${escapeHtml(d.stock || '-')}</strong>
                     <span class="small" style="margin-top:4px">
-                        ${escapeHtml(d.date || '')}
+                        ${formatDate(d.date)}
                     </span>
                     <div class="small" style="margin-top:6px">
                         ${escapeHtml((d.notes || '').slice(0, 140))}
@@ -474,7 +489,7 @@ function renderAll() {
                 <div class="meta">
                     <strong>${escapeHtml(d.stock || '-')}</strong>
                     <span class="small" style="margin-top:4px">
-                        closed ${escapeHtml(d.closedAt ? d.closedAt.slice(0, 10) : '')}
+                        closed ${formatDate(d.closedAt ? d.closedAt.slice(0, 10) : '')}
                     </span>
                     <div class="small" style="margin-top:6px">
                         ${escapeHtml((d.notes || '').slice(0, 120))}
@@ -509,6 +524,18 @@ function escapeHtml(str) {
         '>': '&gt;',
         '"': '&quot;'
     }[s]));
+}
+
+// Format date from YYYY-MM-DD to DD/MM/YYYY
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    // Handle both YYYY-MM-DD and ISO date strings
+    const datePart = dateStr.slice(0, 10);
+    const parts = datePart.split('-');
+    if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
 }
 
 elements.filterInput.addEventListener('input', renderAll);
@@ -602,6 +629,154 @@ function addChartButton(containerEl, stockTicker) {
     containerEl.appendChild(btn);
 }
 
+// Function to fetch previous week's low and high prices and populate o_price and h_price fields
+async function loadPreviousWeekLowPrice(ticker) {
+    if (!ticker) {
+        console.log('No ticker provided');
+        return;
+    }
+
+    console.log('Loading previous week low/high prices for:', ticker);
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}`, {
+            headers: {
+                ...authHeaders()
+            }
+        });
+
+        if (!res.ok) {
+            console.error('Failed to load prices', res.status);
+            return;
+        }
+
+        const data = await res.json();
+        console.log('Price data received:', data);
+        
+        // Data is an array of price points, sorted by date ascending (oldest first)
+        // Each item has: Date, Low, High, Open, Close, Volume
+        if (data && Array.isArray(data) && data.length >= 2) {
+            // Get the second-to-last item (previous week)
+            const previousWeek = data[data.length - 2];
+            console.log('Previous week data:', previousWeek);
+            
+            // Extract the low price (try both PascalCase and camelCase)
+            const lowPrice = previousWeek.Low !== undefined ? previousWeek.Low : 
+                           (previousWeek.low !== undefined ? previousWeek.low : null);
+            
+            // Extract the high price (try both PascalCase and camelCase)
+            const highPrice = previousWeek.High !== undefined ? previousWeek.High : 
+                            (previousWeek.high !== undefined ? previousWeek.high : null);
+            
+            console.log('Previous week low price:', lowPrice);
+            console.log('Previous week high price:', highPrice);
+            
+            // Set o_price field (low price)
+            if (lowPrice !== undefined && lowPrice !== null) {
+                const oPriceInput = elements.dealForm.querySelector('input[name="o_price"]');
+                if (oPriceInput) {
+                    oPriceInput.value = lowPrice.toString();
+                    console.log('Set o_price field to:', lowPrice);
+                } else {
+                    console.error('o_price input field not found');
+                }
+            } else {
+                console.warn('Low price not found in previous week data. Available keys:', Object.keys(previousWeek));
+            }
+            
+            // Set h_price field (high price)
+            if (highPrice !== undefined && highPrice !== null) {
+                const hPriceInput = elements.dealForm.querySelector('input[name="h_price"]');
+                if (hPriceInput) {
+                    hPriceInput.value = highPrice.toString();
+                    console.log('Set h_price field to:', highPrice);
+                } else {
+                    console.error('h_price input field not found');
+                }
+            } else {
+                console.warn('High price not found in previous week data. Available keys:', Object.keys(previousWeek));
+            }
+        } else {
+            console.warn('Not enough data points. Array length:', data?.length);
+        }
+    } catch (err) {
+        console.error('Error loading previous week low/high prices', err);
+    }
+}
+
+// Function to fetch current stock price and populate share_price field
+async function loadCurrentPrice(ticker) {
+    if (!ticker) {
+        console.log('No ticker provided for current price');
+        return;
+    }
+
+    console.log('Loading current price for:', ticker);
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+            headers: {
+                ...authHeaders()
+            }
+        });
+
+        if (!res.ok) {
+            console.error('Failed to load current price', res.status);
+            return;
+        }
+
+        const data = await res.json();
+        console.log('Current price data received:', data);
+        
+        if (data && data.price !== undefined && data.price !== null) {
+            const sharePriceInput = elements.dealForm.querySelector('input[name="share_price"]');
+            if (sharePriceInput) {
+                sharePriceInput.value = data.price.toString();
+                console.log('Set share_price field to:', data.price);
+            } else {
+                console.error('share_price input field not found');
+            }
+        } else {
+            console.warn('Price not found in response:', data);
+        }
+    } catch (err) {
+        console.error('Error loading current price', err);
+    }
+}
+
+// Setup event listener for stock select dropdown
+function setupStockSelectListener() {
+    const stockSelect = document.getElementById('dealStockSelect');
+    if (!stockSelect) {
+        console.warn('dealStockSelect not found');
+        return;
+    }
+
+    // Remove any existing change listeners by cloning (this removes all event listeners)
+    const newSelect = stockSelect.cloneNode(true);
+    stockSelect.parentNode.replaceChild(newSelect, stockSelect);
+
+    // Add change event listener to the new select element
+    newSelect.addEventListener('change', async (e) => {
+        const ticker = e.target.value;
+        console.log('Stock selected:', ticker);
+        
+        // Only load price if we're creating a new deal (not editing/viewing)
+        const isNewDeal = !elements.dealForm.dataset.editId;
+        console.log('Is new deal:', isNewDeal, 'editId:', elements.dealForm.dataset.editId);
+        
+        if (ticker && ticker.trim() !== '' && isNewDeal) {
+            console.log('Calling loadPreviousWeekLowPrice and loadCurrentPrice...');
+            // Load both previous week data and current price
+            await Promise.all([
+                loadPreviousWeekLowPrice(ticker),
+                loadCurrentPrice(ticker)
+            ]);
+        }
+    });
+    
+    console.log('Stock select listener attached');
+}
 
 // ======== СТАРТ =========
 loadStocksForDeals();

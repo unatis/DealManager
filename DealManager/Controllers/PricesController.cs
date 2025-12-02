@@ -42,4 +42,29 @@ public class PricesController : ControllerBase
             return StatusCode(500, "Internal error while loading prices");
         }
     }
+
+    [HttpGet("{ticker}/quote")]
+    public async Task<IActionResult> GetQuote(string ticker)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        try
+        {
+            var price = await _alpha.GetCurrentPriceAsync(ticker);
+            if (!price.HasValue)
+                return NotFound("No current price available for this ticker");
+
+            return Ok(new { price = price.Value });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load quote for {Ticker}", ticker);
+            return StatusCode(500, "Internal error while loading quote");
+        }
+    }
 }
