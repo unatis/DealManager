@@ -32,6 +32,21 @@ function setPriceError(containerEl, message) {
     }
 }
 
+// Calculate total sum: share_price * amount_tobuy
+function calculateTotalSum(sharePrice, amountToBuy) {
+    const price = parseFloat(String(sharePrice || '').replace(',', '.')) || 0;
+    const amount = parseFloat(String(amountToBuy || '').replace(',', '.')) || 0;
+    const total = price * amount;
+    return total > 0 ? total.toFixed(2) : null;
+}
+
+// Format total sum for display
+function formatTotalSum(totalSum) {
+    if (!totalSum) return '';
+    const num = parseFloat(String(totalSum).replace(',', '.')) || 0;
+    return num > 0 ? `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+}
+
 // ---------- редирект если нет токена ----------
 const token = localStorage.getItem('token');
 if (!token) {
@@ -266,8 +281,8 @@ function createDealFormHTML(deal = null, isNew = false) {
                 <label>Shares amount to buy at stage 3<input type="text" name="amount_tobuy_stage_3" value="${escapeHtml(deal?.amount_tobuy_stage_3 || '')}" placeholder=""></label>
                 <label>What is your take profit price?<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
                 <label>What is your take profit in %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
-                <label>What is your stop loss price?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
-                <label>What is your stop loss in %?<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
+                <label>What is your stop loss price?<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
+                <label>What is your stop loss in %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
 
                 <label>
                     You're afraid it will be too late?
@@ -429,12 +444,26 @@ function createDealFormHTML(deal = null, isNew = false) {
 function renderAll() {
     const filter = (elements.filterInput.value || '').toLowerCase();
 
-    const open = deals.filter(
+    let open = deals.filter(
         d =>
             !d.closed &&
             ((d.stock || '').toLowerCase().includes(filter) ||
                 (d.notes || '').toLowerCase().includes(filter))
     );
+
+    // Sort open deals by id (descending) - MongoDB ObjectIds contain timestamp, most recent first
+    open = open.sort((a, b) => {
+        // Compare by id (MongoDB ObjectId contains timestamp, lexicographic comparison works)
+        const idA = a.id || '';
+        const idB = b.id || '';
+        if (idA && idB) {
+            return idB.localeCompare(idA); // Descending order (newest first)
+        }
+        // If one has no id, put it at the end
+        if (idA && !idB) return -1;
+        if (!idA && idB) return 1;
+        return 0;
+    });
 
     elements.openList.innerHTML = '';
 
@@ -448,13 +477,13 @@ function renderAll() {
     } else {
         elements.emptyOpen.style.display = 'none';
 
-        // Render new deal row if it exists
+        // Render new deal row if it exists (always at the top)
         if (newDealRow) {
             const newRow = createDealRow(null, true);
             elements.openList.appendChild(newRow);
         }
 
-        // Render existing deals
+        // Render existing deals (already sorted, most recent first)
         open.forEach(d => {
             const row = createDealRow(d, false);
             elements.openList.appendChild(row);
@@ -464,7 +493,20 @@ function renderAll() {
     elements.openCount.textContent = open.length + (newDealRow ? 1 : 0);
 
     // CLOSED deals
-    const closed = deals.filter(d => d.closed);
+    let closed = deals.filter(d => d.closed);
+
+    // Sort closed deals by id (descending) - most recent first
+    closed = closed.sort((a, b) => {
+        const idA = a.id || '';
+        const idB = b.id || '';
+        if (idA && idB) {
+            return idB.localeCompare(idA); // Descending order (newest first)
+        }
+        if (idA && !idB) return -1;
+        if (!idA && idB) return 1;
+        return 0;
+    });
+
     elements.closedList.innerHTML = '';
 
     if (!dealsLoaded) {
@@ -492,9 +534,15 @@ function createDealRow(deal, isNew) {
     // Collapsed summary view
     const summary = document.createElement('div');
     summary.className = 'deal-summary';
+    
+    // Calculate and format total sum for display
+    const totalSum = calculateTotalSum(deal?.share_price, deal?.amount_tobuy);
+    const totalSumFormatted = formatTotalSum(totalSum || deal?.total_sum);
+    const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
+    
     summary.innerHTML = `
         <div class="meta">
-            <strong>${escapeHtml(deal?.stock || 'New Deal')}</strong>
+            <strong>${escapeHtml(deal?.stock || 'New Deal')}${totalSumDisplay}</strong>
             ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
         </div>
@@ -543,6 +591,8 @@ async function setupDealRowHandlers(row, deal, isNew) {
     // Setup trend select listeners for all forms
     if (form) {
         setupTrendSelectListeners(form);
+        setupSharePriceListener(form);
+        setupTotalSumCalculator(row, form, deal);
     }
 
     // Toggle expand/collapse on summary click
@@ -578,6 +628,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 await populateStockSelect(form, tickerToUse);
                 setupStockSelectListener(form, dealId);
                 setupTrendSelectListeners(form);
+                setupSharePriceListener(form);
             }
         }
     });
@@ -673,6 +724,10 @@ function setupStockSelectListener(form, dealId) {
                 loadTrends(ticker, form).catch(err => {
                     console.error('loadTrends failed:', err);
                     return null;
+                }),
+                loadSupportResistance(ticker, form).catch(err => {
+                    console.error('loadSupportResistance failed:', err);
+                    return null;
                 })
             ]);
             
@@ -683,11 +738,13 @@ function setupStockSelectListener(form, dealId) {
             const oPriceInput = form.querySelector('input[name="o_price"]');
             const hPriceInput = form.querySelector('input[name="h_price"]');
             const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const supportPriceInput = form.querySelector('input[name="support_price"]');
             const monthlySelect = form.querySelector('select[name="monthly_dir"]');
             const weeklySelect = form.querySelector('select[name="weekly_dir"]');
             if (oPriceInput) oPriceInput.value = '';
             if (hPriceInput) hPriceInput.value = '';
             if (sharePriceInput) sharePriceInput.value = '';
+            if (supportPriceInput) supportPriceInput.value = '';
             if (monthlySelect) {
                 monthlySelect.value = '';
                 updateSelectDownClass(monthlySelect);
@@ -716,12 +773,26 @@ async function handleDealSubmit(form, deal, isNew) {
         obj[k] = v;
     }
 
+    // Calculate and include total sum
+    const sharePrice = obj.share_price || '';
+    const amountToBuy = obj.amount_tobuy || '';
+    const totalSum = calculateTotalSum(sharePrice, amountToBuy);
+    if (totalSum) {
+        obj.total_sum = totalSum;
+    }
+
     if (!obj.date) {
         obj.date = new Date().toISOString().slice(0, 10);
     }
 
     try {
         await saveDealToServer(obj, !isNew);
+        
+        // Deduct total sum from portfolio for new deals
+        if (isNew && totalSum) {
+            await deductPortfolio(totalSum);
+        }
+        
         if (isNew) {
             newDealRow = null;
         }
@@ -730,6 +801,63 @@ async function handleDealSubmit(form, deal, isNew) {
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить сделку');
+    }
+}
+
+// Function to deduct deal total from portfolio
+async function deductPortfolio(totalSum) {
+    if (!totalSum) return;
+    
+    const totalSumValue = parseFloat(String(totalSum).replace(',', '.')) || 0;
+    if (totalSumValue <= 0) {
+        console.log('Skipping portfolio deduction: totalSum is zero or invalid');
+        return;
+    }
+    
+    // Get current portfolio value from localStorage (preferred) or UI
+    let currentPortfolio = 0;
+    const stored = localStorage.getItem('portfolio');
+    if (stored != null && stored !== '') {
+        const num = parseFloat(String(stored).replace(',', '.')) || 0;
+        currentPortfolio = num;
+    } else if (portfolioSpan) {
+        // Fallback to UI element value (remove any formatting)
+        const currentText = portfolioSpan.textContent.trim();
+        const cleanedText = currentText.replace(/[$,]/g, '').replace(',', '.');
+        currentPortfolio = parseFloat(cleanedText) || 0;
+    }
+    
+    // Calculate new portfolio
+    const newPortfolio = Math.max(0, currentPortfolio - totalSumValue); // Ensure non-negative
+    
+    // Update localStorage
+    localStorage.setItem('portfolio', String(newPortfolio));
+    
+    // Update UI
+    if (portfolioSpan) {
+        portfolioSpan.textContent = newPortfolio.toFixed(2);
+    }
+    
+    // Update database
+    try {
+        const res = await fetch('/api/users/portfolio', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders()
+            },
+            body: JSON.stringify({ portfolio: newPortfolio })
+        });
+        
+        if (!res.ok) {
+            console.error('Failed to update portfolio after deal creation', res.status);
+            const errorText = await res.text().catch(() => '');
+            console.error('Error response:', errorText);
+        } else {
+            console.log(`Portfolio updated: $${currentPortfolio.toFixed(2)} - $${totalSumValue.toFixed(2)} = $${newPortfolio.toFixed(2)}`);
+        }
+    } catch (e) {
+        console.error('Error updating portfolio after deal creation', e);
     }
 }
 
@@ -853,6 +981,8 @@ async function loadCurrentPrice(ticker, form) {
             const sharePriceInput = form.querySelector('input[name="share_price"]');
             if (sharePriceInput) {
                 sharePriceInput.value = data.price.toString();
+                // Calculate stop loss after autofilling share price
+                await calculateStopLoss(form);
             }
             setPriceError(formContainer, '');
         }
@@ -913,6 +1043,101 @@ async function loadTrends(ticker, form) {
     }
 }
 
+async function loadSupportResistance(ticker, form) {
+    if (!ticker || !form) return;
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/support-resistance`, {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) {
+            console.warn('Failed to load support/resistance levels');
+            return;
+        }
+
+        const data = await res.json();
+        console.log('Support/resistance data received for', ticker, ':', data);
+        
+        // Set support_price to ALL found support levels (comma-separated)
+        const supportInput = form.querySelector('input[name="support_price"]');
+        if (supportInput && data.levels && data.levels.length > 0) {
+            // Use all levels found
+            supportInput.value = data.levels.map(l => parseFloat(l).toFixed(2)).join(', ');
+            console.log(`All support levels loaded for ${ticker}: ${supportInput.value} (${data.levels.length} levels)`);
+        } else if (supportInput && data.supportPrice) {
+            // Fallback to supportPrice if levels array is not available
+            supportInput.value = data.supportPrice;
+            console.log(`Support levels loaded for ${ticker}: ${data.supportPrice}`);
+        } else if (supportInput && data.firstTwo && data.firstTwo.length > 0) {
+            // Fallback: use firstTwo if available
+            supportInput.value = data.firstTwo.map(l => parseFloat(l).toFixed(2)).join(', ');
+            console.log(`Support levels loaded for ${ticker}: ${supportInput.value}`);
+        }
+    } catch (err) {
+        console.error('Error loading support/resistance levels', err);
+    }
+}
+
+async function calculateStopLoss(form) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const stopLossInput = form.querySelector('input[name="stop_loss"]');
+    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    
+    if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) return;
+    
+    const sharePrice = parseFloat(sharePriceInput.value);
+    if (!sharePrice || isNaN(sharePrice) || sharePrice <= 0) {
+        return; // Invalid share price
+    }
+    
+    // Get the ticker to fetch previous week Low price
+    const stockSelect = form.querySelector('select[name="stock"]');
+    if (!stockSelect || !stockSelect.value) {
+        return; // No stock selected
+    }
+    
+    const ticker = stockSelect.value;
+    
+    try {
+        // Fetch weekly prices to get previous week Low
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}`, {
+            headers: { ...authHeaders() }
+        });
+        
+        if (!res.ok) {
+            console.warn('Failed to fetch weekly prices for stop loss calculation');
+            return;
+        }
+        
+        const data = await res.json();
+        if (data && Array.isArray(data) && data.length >= 2) {
+            // Get the second-to-last week (previous week)
+            const previousWeek = data[data.length - 2];
+            
+            // Get Low price from previous week
+            const lowPrice = previousWeek.Low !== undefined ? previousWeek.Low : 
+                           (previousWeek.low !== undefined ? previousWeek.low : null);
+            
+            if (lowPrice !== null && lowPrice !== undefined && !isNaN(lowPrice)) {
+                // Set stop loss price to previous week Low
+                stopLossInput.value = lowPrice.toString();
+                
+                // Calculate percentage: ((share_price - stop_loss) / share_price) * 100
+                const percentage = ((sharePrice - lowPrice) / sharePrice) * 100;
+                stopLossPrcntInput.value = percentage.toFixed(2);
+                
+                // Check and apply error styling if needed
+                updateStopLossErrorClass(stopLossPrcntInput, percentage);
+                
+                console.log(`Stop loss calculated: Price=${lowPrice}, Percentage=${percentage.toFixed(2)}%`);
+            }
+        }
+    } catch (err) {
+        console.error('Error calculating stop loss:', err);
+    }
+}
+
 function updateSelectDownClass(select) {
     if (!select) return;
     if (select.value === 'Down') {
@@ -939,6 +1164,154 @@ function setupTrendSelectListeners(form) {
             updateSelectDownClass(weeklySelect);
         });
     }
+}
+
+function updateStopLossErrorClass(input, value) {
+    if (!input) return;
+    
+    // Remove error class first
+    input.classList.remove('has-stop-loss-error');
+    
+    // Check if value is negative or greater than 10
+    if (value < 0 || value > 10) {
+        input.classList.add('has-stop-loss-error');
+    }
+}
+
+function setupSharePriceListener(form) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    
+    if (!sharePriceInput) return;
+    
+    // Remove existing listeners by cloning
+    const newInput = sharePriceInput.cloneNode(true);
+    sharePriceInput.parentNode.replaceChild(newInput, sharePriceInput);
+    
+    // Add listeners for both 'input' (real-time) and 'change' (on blur)
+    newInput.addEventListener('input', () => {
+        // Debounce to avoid too many calculations while typing
+        clearTimeout(newInput._stopLossTimeout);
+        newInput._stopLossTimeout = setTimeout(() => {
+            calculateStopLoss(form);
+        }, 500); // Wait 500ms after user stops typing
+    });
+    
+    newInput.addEventListener('change', () => {
+        calculateStopLoss(form);
+    });
+    
+    // Also check stop loss % field when user manually changes it
+    if (stopLossPrcntInput) {
+        // Check initial value
+        const initialValue = parseFloat(stopLossPrcntInput.value);
+        if (!isNaN(initialValue)) {
+            updateStopLossErrorClass(stopLossPrcntInput, initialValue);
+        }
+        
+        const newStopLossPrcnt = stopLossPrcntInput.cloneNode(true);
+        stopLossPrcntInput.parentNode.replaceChild(newStopLossPrcnt, stopLossPrcntInput);
+        
+        newStopLossPrcnt.addEventListener('input', () => {
+            const value = parseFloat(newStopLossPrcnt.value);
+            if (!isNaN(value)) {
+                updateStopLossErrorClass(newStopLossPrcnt, value);
+            } else {
+                newStopLossPrcnt.classList.remove('has-stop-loss-error');
+            }
+        });
+        
+        newStopLossPrcnt.addEventListener('change', () => {
+            const value = parseFloat(newStopLossPrcnt.value);
+            if (!isNaN(value)) {
+                updateStopLossErrorClass(newStopLossPrcnt, value);
+            } else {
+                newStopLossPrcnt.classList.remove('has-stop-loss-error');
+            }
+        });
+    }
+}
+
+// Setup total sum calculation and update row title
+function setupTotalSumCalculator(row, form, deal) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const amountToBuyInput = form.querySelector('input[name="amount_tobuy"]');
+    const stockSelect = form.querySelector('.deal-stock-select');
+    const summary = row.querySelector('.deal-summary');
+    
+    if (!sharePriceInput || !amountToBuyInput || !summary) return;
+    
+    // Function to update the row title with total sum
+    const updateRowTitle = () => {
+        const sharePrice = sharePriceInput.value || '';
+        const amountToBuy = amountToBuyInput.value || '';
+        const totalSum = calculateTotalSum(sharePrice, amountToBuy);
+        const totalSumFormatted = formatTotalSum(totalSum);
+        const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
+        
+        // Get current stock name from select or from deal
+        let currentStock = 'New Deal';
+        if (stockSelect && stockSelect.value) {
+            currentStock = stockSelect.value;
+        } else if (deal?.stock) {
+            currentStock = deal.stock;
+        }
+        
+        // Find the stock name element and update it
+        const stockElement = summary.querySelector('.meta strong');
+        if (stockElement) {
+            stockElement.textContent = `${currentStock}${totalSumDisplay}`;
+        }
+        
+        // Store totalSum in a data attribute for later use
+        row.dataset.totalSum = totalSum || '';
+    };
+    
+    // Remove existing listeners by cloning
+    const newSharePriceInput = sharePriceInput.cloneNode(true);
+    sharePriceInput.parentNode.replaceChild(newSharePriceInput, sharePriceInput);
+    
+    const newAmountToBuyInput = amountToBuyInput.cloneNode(true);
+    amountToBuyInput.parentNode.replaceChild(newAmountToBuyInput, amountToBuyInput);
+    
+    // Add event listeners for share_price
+    newSharePriceInput.addEventListener('input', () => {
+        clearTimeout(newSharePriceInput._totalSumTimeout);
+        newSharePriceInput._totalSumTimeout = setTimeout(() => {
+            updateRowTitle();
+        }, 300);
+    });
+    
+    newSharePriceInput.addEventListener('change', () => {
+        updateRowTitle();
+    });
+    
+    // Add event listeners for amount_tobuy
+    newAmountToBuyInput.addEventListener('input', () => {
+        clearTimeout(newAmountToBuyInput._totalSumTimeout);
+        newAmountToBuyInput._totalSumTimeout = setTimeout(() => {
+            updateRowTitle();
+        }, 300);
+    });
+    
+    newAmountToBuyInput.addEventListener('change', () => {
+        updateRowTitle();
+    });
+    
+    // Update row title when stock name changes
+    if (stockSelect) {
+        const handleStockChange = () => {
+            // Small delay to let the stock select update first
+            setTimeout(() => {
+                updateRowTitle();
+            }, 100);
+        };
+        
+        stockSelect.addEventListener('change', handleStockChange);
+    }
+    
+    // Initial calculation
+    updateRowTitle();
 }
 
 function escapeHtml(str) {

@@ -65,13 +65,16 @@ main {
     gap: 16px;
     padding: 16px;
     align-items: start;
+    min-height: auto;
 }
 
 .panel {
     background: var(--card);
     padding: 12px;
     border-radius: 12px;
-    box-shadow: 0 6px 18px rgba(11,17,36,0.06)
+    box-shadow: 0 6px 18px rgba(11,17,36,0.06);
+    height: fit-content;
+    min-height: auto;
 }
 
 h3 {
@@ -89,8 +92,7 @@ h3 {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 72vh;
-    overflow: auto;
+    /* Removed max-height and overflow to allow natural page scrolling */
     padding-right: 6px
 }
 
@@ -157,8 +159,8 @@ h3 {
 }
 
 .deal-row.expanded .deal-form-container {
-    max-height: 70vh;
-    padding: 16px 16px 300px 16px;
+    max-height: calc(100vh - 200px);
+    padding: 16px;
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -168,7 +170,7 @@ h3 {
     grid-template-columns: 1fr 1fr 1fr;
     gap: 10px;
     align-items: start;
-    padding-bottom: 120px;
+    padding-bottom: 20px;
 }
 
 .deal-form-inline .form-grid .full {
@@ -192,16 +194,15 @@ h3 {
     display: flex !important;
     justify-content: space-between;
     gap: 8px;
-    margin-top: 24px;
-    margin-bottom: 40px;
-    padding: 20px 0;
+    margin-top: 16px;
+    margin-bottom: 0;
+    padding: 16px 0 8px 0;
     border-top: 1px solid rgba(11,17,36,0.06);
     width: 100%;
     visibility: visible !important;
     opacity: 1 !important;
     position: relative;
     z-index: 1;
-    min-height: 80px;
     flex-shrink: 0;
 }
 
@@ -241,7 +242,9 @@ h3 {
 .center {
     display: flex;
     flex-direction: column;
-    gap: 12px
+    gap: 12px;
+    height: fit-content;
+    min-height: auto;
 }
 
 .filterRow {
@@ -282,6 +285,12 @@ select.has-down-selected {
 select.has-down-selected option[value="Down"] {
     color: #dc2626;
     font-weight: 600;
+}
+
+/* Red border and text for stop loss percentage error (negative or > 10%) */
+input.has-stop-loss-error {
+    border: 2px solid #dc2626;
+    color: #dc2626;
 }
 
 /* все элементы формы внутри label тянутся на всю ширину */
