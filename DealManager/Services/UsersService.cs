@@ -22,5 +22,10 @@ namespace DealManager.Services
 
         public Task CreateAsync(AppUser user) =>
             _users.InsertOneAsync(user);
+
+        public Task UpdatePortfolioAsync(string userId, double portfolio) =>
+            _users.UpdateOneAsync(
+                u => u.Id == userId,
+                Builders<AppUser>.Update.Set(u => u.Portfolio, portfolio));
     }
 }

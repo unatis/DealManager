@@ -21,8 +21,20 @@ const elements = {
     emptyOpen: document.getElementById('emptyOpen'),
     emptyClosed: document.getElementById('emptyClosed'),
     userNameDisplay: document.getElementById('userNameDisplay'),
-    logoutBtn: document.getElementById('logoutBtn')
+    logoutBtn: document.getElementById('logoutBtn'),
+    priceError: document.getElementById('priceError')
 };
+
+function setPriceError(message) {
+    if (!elements.priceError) return;
+    if (message) {
+        elements.priceError.textContent = message;
+        elements.priceError.style.display = 'inline';
+    } else {
+        elements.priceError.textContent = '';
+        elements.priceError.style.display = 'none';
+    }
+}
 
 // ---------- редирект если нет токена ----------
 const token = localStorage.getItem('token');
@@ -268,6 +280,7 @@ if (elements.logoutBtn) {
 
 async function openModal(mode = 'new', id = null) {
     elements.modal.style.display = 'flex';
+    setPriceError('');
 
     // Wait for stocks to load first
     await loadStocksForDeals();
@@ -452,12 +465,6 @@ function renderAll() {
                 </div>
             `;
 
-            // сюда добавляем кнопку графика
-            const actionsDiv = el.querySelector('.chips');
-            if (actionsDiv) {
-                addChartButton(actionsDiv, d.stock || '');
-            }
-
             el.addEventListener('click', event => {
                 const dealEl = event.currentTarget;
                 openModal('view', dealEl.dataset.id);
@@ -499,12 +506,6 @@ function renderAll() {
                     <div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div>
                 </div>
             `;
-
-            // и здесь тоже кнопка графика
-            const actionsDiv = el.querySelector('.chips');
-            if (actionsDiv) {
-                addChartButton(actionsDiv, d.stock || '');
-            }
 
             el.addEventListener('click', event => {
                 const dealEl = event.currentTarget;
@@ -595,46 +596,15 @@ elements.filterInput.addEventListener('input', renderAll);
 //    inp.click();
 //});
 
-function addChartButton(containerEl, stockTicker) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = 'Chart';
-    btn.className = 'secondary';
-    btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!stockTicker) return;
-
-        try {
-            const res = await fetch(`/api/prices/${encodeURIComponent(stockTicker)}`, {
-                headers: {
-                    ...authHeaders()
-                }
-            });
-
-            if (!res.ok) {
-                console.error('Failed to load prices', res.status);
-                alert('Не удалось загрузить данные по акции');
-                return;
-            }
-
-            const data = await res.json();
-            console.log('PriceSeries', data);
-            // TODO: здесь можно открыть модалку и нарисовать график Chart.js
-        } catch (err) {
-            console.error(err);
-            alert('Ошибка загрузки цены акции');
-        }
-    });
-
-    containerEl.appendChild(btn);
-}
-
 // Function to fetch previous week's low and high prices and populate o_price and h_price fields
 async function loadPreviousWeekLowPrice(ticker) {
     if (!ticker) {
         console.log('No ticker provided');
         return;
     }
+
+    const oPriceInput = elements.dealForm.querySelector('input[name="o_price"]');
+    const hPriceInput = elements.dealForm.querySelector('input[name="h_price"]');
 
     console.log('Loading previous week low/high prices for:', ticker);
 
@@ -647,6 +617,10 @@ async function loadPreviousWeekLowPrice(ticker) {
 
         if (!res.ok) {
             console.error('Failed to load prices', res.status);
+            // quota / error – очищаем поля, чтобы не оставались старые значения
+            if (oPriceInput) oPriceInput.value = '';
+            if (hPriceInput) hPriceInput.value = '';
+            setPriceError('Price history is temporarily unavailable (API quota reached).');
             return;
         }
 
@@ -673,7 +647,6 @@ async function loadPreviousWeekLowPrice(ticker) {
             
             // Set o_price field (low price)
             if (lowPrice !== undefined && lowPrice !== null) {
-                const oPriceInput = elements.dealForm.querySelector('input[name="o_price"]');
                 if (oPriceInput) {
                     oPriceInput.value = lowPrice.toString();
                     console.log('Set o_price field to:', lowPrice);
@@ -686,7 +659,6 @@ async function loadPreviousWeekLowPrice(ticker) {
             
             // Set h_price field (high price)
             if (highPrice !== undefined && highPrice !== null) {
-                const hPriceInput = elements.dealForm.querySelector('input[name="h_price"]');
                 if (hPriceInput) {
                     hPriceInput.value = highPrice.toString();
                     console.log('Set h_price field to:', highPrice);
@@ -696,11 +668,18 @@ async function loadPreviousWeekLowPrice(ticker) {
             } else {
                 console.warn('High price not found in previous week data. Available keys:', Object.keys(previousWeek));
             }
+
+            // Успешно получили данные по истории цен – убираем сообщение об ошибке
+            setPriceError('');
         } else {
             console.warn('Not enough data points. Array length:', data?.length);
         }
     } catch (err) {
         console.error('Error loading previous week low/high prices', err);
+        // На любой ошибке очищаем поля
+        if (oPriceInput) oPriceInput.value = '';
+        if (hPriceInput) hPriceInput.value = '';
+        setPriceError('Price history is temporarily unavailable (API error).');
     }
 }
 
@@ -710,6 +689,8 @@ async function loadCurrentPrice(ticker) {
         console.log('No ticker provided for current price');
         return;
     }
+
+    const sharePriceInput = elements.dealForm.querySelector('input[name="share_price"]');
 
     console.log('Loading current price for:', ticker);
 
@@ -722,6 +703,9 @@ async function loadCurrentPrice(ticker) {
 
         if (!res.ok) {
             console.error('Failed to load current price', res.status);
+            // quota / error – очищаем поле, чтобы не оставалось старое значение
+            if (sharePriceInput) sharePriceInput.value = '';
+            setPriceError('Current price is temporarily unavailable (API quota reached).');
             return;
         }
 
@@ -729,18 +713,22 @@ async function loadCurrentPrice(ticker) {
         console.log('Current price data received:', data);
         
         if (data && data.price !== undefined && data.price !== null) {
-            const sharePriceInput = elements.dealForm.querySelector('input[name="share_price"]');
             if (sharePriceInput) {
                 sharePriceInput.value = data.price.toString();
                 console.log('Set share_price field to:', data.price);
             } else {
                 console.error('share_price input field not found');
             }
+            // Успешно получили текущую цену – убираем сообщение об ошибке
+            setPriceError('');
         } else {
             console.warn('Price not found in response:', data);
         }
     } catch (err) {
         console.error('Error loading current price', err);
+        // На любой ошибке очищаем поле
+        if (sharePriceInput) sharePriceInput.value = '';
+        setPriceError('Current price is temporarily unavailable (API error).');
     }
 }
 

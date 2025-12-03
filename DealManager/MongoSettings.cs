@@ -5,7 +5,8 @@
         public string ConnectionString { get; set; } = "";
         public string Database { get; set; } = "";
         public string DealsCollection { get; set; } = "deals";
-
         public string StocksCollection { get; set; } = "stocks";
+        public string QuotesCollection { get; set; } = "quotes";
+        public string WeeklyPricesCollection { get; set; } = "weekly_prices";
     }
 }
