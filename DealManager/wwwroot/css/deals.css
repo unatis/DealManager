@@ -359,6 +359,11 @@ label.inline-checkbox > input[type="checkbox"] {
     margin-top: 16px;
 }
 
+.error-text {
+    color: #dc2626; /* red-600 */
+    font-size: 12px;
+}
+
 /* чекбоксы в форме акций: иконка слева, текст справа */
 #stockForm label.inline-checkbox {
     display: flex; /* переопределяем общий label */
