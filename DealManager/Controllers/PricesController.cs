@@ -1,7 +1,9 @@
-﻿using DealManager.Services;
+﻿using DealManager.Models;
+using DealManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace DealManager.Controllers;
@@ -151,6 +153,92 @@ public class PricesController : ControllerBase
             _logger.LogError(ex, "Failed to calculate trends for {Ticker}. Exception: {ExceptionType}, Message: {Message}, StackTrace: {StackTrace}", 
                 ticker, ex.GetType().Name, ex.Message, ex.StackTrace);
             return StatusCode(500, $"Internal error while calculating trends: {ex.Message}");
+        }
+    }
+
+    [HttpGet("{ticker}/support-resistance")]
+    public async Task<IActionResult> GetSupportResistance(string ticker)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        try
+        {
+            if (_trendAnalyzer == null)
+            {
+                _logger.LogError("TrendAnalyzer is null for {Ticker}", ticker);
+                return StatusCode(500, "TrendAnalyzer service is not available");
+            }
+
+            _logger.LogInformation("Calculating support/resistance levels for {Ticker}", ticker);
+            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            _logger.LogInformation("Retrieved {Count} price points for support/resistance calculation for {Ticker}", priceData.Count, ticker);
+            
+            if (priceData.Count == 0)
+                return NotFound("No data for this ticker");
+
+            // Log all price points for debugging
+            _logger.LogInformation("Price points for {Ticker}: {PricePoints}", ticker, 
+                string.Join(" | ", priceData.Select(p => $"Date:{p.Date:yyyy-MM-dd} H:{p.High} L:{p.Low}")));
+
+            // Try with relaxed parameters first (lower minTotalTouches to find more levels)
+            var levels = _trendAnalyzer.DetectSupportResistanceLevels(priceData, minHighTouches: 1, minLowTouches: 1, minTotalTouches: 2, maxLevels: 10);
+            _logger.LogInformation("Found {Count} support/resistance levels for {Ticker} with minTotalTouches=2. Levels: {Levels}", 
+                levels.Count, ticker, string.Join(", ", levels.Select(l => $"{l.Level:F2} (Touches:{l.TotalTouches})")));
+
+            // If we got less than 2 levels, try with even more relaxed parameters
+            if (levels.Count < 2)
+            {
+                _logger.LogWarning("Only found {Count} levels with minTotalTouches=2, trying with minTotalTouches=1", levels.Count);
+                levels = _trendAnalyzer.DetectSupportResistanceLevels(priceData, minHighTouches: 1, minLowTouches: 1, minTotalTouches: 1, maxLevels: 10);
+                _logger.LogInformation("Found {Count} support/resistance levels with minTotalTouches=1. Levels: {Levels}", 
+                    levels.Count, string.Join(", ", levels.Select(l => $"{l.Level:F2} (Touches:{l.TotalTouches})")));
+            }
+
+            // Get all level values for the response
+            var levelValues = levels.Select(l => l.Level).ToList();
+            var firstTwo = levels.Count >= 2 
+                ? new[] { levels[0].Level, levels[1].Level }
+                : levels.Count == 1 
+                    ? new[] { levels[0].Level }
+                    : Array.Empty<decimal>();
+
+            _logger.LogInformation("Selected first two levels for {Ticker}: {FirstTwo}", 
+                ticker, string.Join(", ", firstTwo.Select(l => l.ToString("F2"))));
+
+            return Ok(new
+            {
+                levels = levelValues.Select(l => l.ToString("F2")).ToList(),
+                firstTwo = firstTwo.Select(l => l.ToString("F2")).ToList(),
+                supportPrice = firstTwo.Length > 0 
+                    ? string.Join(", ", firstTwo.Select(l => l.ToString("F2")))
+                    : null,
+                pricePointsCount = priceData.Count,
+                allHighs = priceData.Select(p => p.High).OrderBy(h => h).ToList(),
+                allLows = priceData.Select(p => p.Low).OrderBy(l => l).ToList(),
+                levelsDetail = levels.Select(l => new
+                {
+                    level = l.Level.ToString("F2"),
+                    lowBound = l.LowBound.ToString("F2"),
+                    highBound = l.HighBound.ToString("F2"),
+                    highTouches = l.HighTouches,
+                    lowTouches = l.LowTouches,
+                    totalTouches = l.TotalTouches,
+                    firstTouch = l.FirstTouch?.ToString("yyyy-MM-dd"),
+                    lastTouch = l.LastTouch?.ToString("yyyy-MM-dd")
+                }).ToList()
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage error for support/resistance {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate support/resistance for {Ticker}. Exception: {ExceptionType}, Message: {Message}, StackTrace: {StackTrace}", 
+                ticker, ex.GetType().Name, ex.Message, ex.StackTrace);
+            return StatusCode(500, $"Internal error while calculating support/resistance: {ex.Message}");
         }
     }
 }

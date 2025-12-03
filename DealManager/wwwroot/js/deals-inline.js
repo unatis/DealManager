@@ -673,6 +673,10 @@ function setupStockSelectListener(form, dealId) {
                 loadTrends(ticker, form).catch(err => {
                     console.error('loadTrends failed:', err);
                     return null;
+                }),
+                loadSupportResistance(ticker, form).catch(err => {
+                    console.error('loadSupportResistance failed:', err);
+                    return null;
                 })
             ]);
             
@@ -683,11 +687,13 @@ function setupStockSelectListener(form, dealId) {
             const oPriceInput = form.querySelector('input[name="o_price"]');
             const hPriceInput = form.querySelector('input[name="h_price"]');
             const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const supportPriceInput = form.querySelector('input[name="support_price"]');
             const monthlySelect = form.querySelector('select[name="monthly_dir"]');
             const weeklySelect = form.querySelector('select[name="weekly_dir"]');
             if (oPriceInput) oPriceInput.value = '';
             if (hPriceInput) hPriceInput.value = '';
             if (sharePriceInput) sharePriceInput.value = '';
+            if (supportPriceInput) supportPriceInput.value = '';
             if (monthlySelect) {
                 monthlySelect.value = '';
                 updateSelectDownClass(monthlySelect);
@@ -910,6 +916,42 @@ async function loadTrends(ticker, form) {
         }
     } catch (err) {
         console.error('Error loading trends for', ticker, ':', err);
+    }
+}
+
+async function loadSupportResistance(ticker, form) {
+    if (!ticker || !form) return;
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/support-resistance`, {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) {
+            console.warn('Failed to load support/resistance levels');
+            return;
+        }
+
+        const data = await res.json();
+        console.log('Support/resistance data received for', ticker, ':', data);
+        
+        // Set support_price to ALL found support levels (comma-separated)
+        const supportInput = form.querySelector('input[name="support_price"]');
+        if (supportInput && data.levels && data.levels.length > 0) {
+            // Use all levels found
+            supportInput.value = data.levels.map(l => parseFloat(l).toFixed(2)).join(', ');
+            console.log(`All support levels loaded for ${ticker}: ${supportInput.value} (${data.levels.length} levels)`);
+        } else if (supportInput && data.supportPrice) {
+            // Fallback to supportPrice if levels array is not available
+            supportInput.value = data.supportPrice;
+            console.log(`Support levels loaded for ${ticker}: ${data.supportPrice}`);
+        } else if (supportInput && data.firstTwo && data.firstTwo.length > 0) {
+            // Fallback: use firstTwo if available
+            supportInput.value = data.firstTwo.map(l => parseFloat(l).toFixed(2)).join(', ');
+            console.log(`Support levels loaded for ${ticker}: ${supportInput.value}`);
+        }
+    } catch (err) {
+        console.error('Error loading support/resistance levels', err);
     }
 }
 
