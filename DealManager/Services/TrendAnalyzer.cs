@@ -60,8 +60,17 @@ namespace DealManager.Services
 
             for (int i = startIndex + 1; i < points.Count; i++)
             {
-                var prevLow = points[i - 1].Low;
-                var currLow = points[i].Low;
+                if (i - 1 < 0 || i >= points.Count)
+                    continue;
+                    
+                var prevPoint = points[i - 1];
+                var currPoint = points[i];
+                
+                if (prevPoint == null || currPoint == null)
+                    continue;
+
+                var prevLow = prevPoint.Low;
+                var currLow = currPoint.Low;
                 var diff = currLow - prevLow;
 
                 // Игнорируем мелкие колебания

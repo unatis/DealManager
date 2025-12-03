@@ -537,6 +537,12 @@ async function setupDealRowHandlers(row, deal, isNew) {
         }
         await populateStockSelect(form, null);
         setupStockSelectListener(form, dealId);
+        setupTrendSelectListeners(form);
+    }
+    
+    // Setup trend select listeners for all forms
+    if (form) {
+        setupTrendSelectListeners(form);
     }
 
     // Toggle expand/collapse on summary click
@@ -571,6 +577,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 const tickerToUse = isNew ? null : (deal?.stock || null);
                 await populateStockSelect(form, tickerToUse);
                 setupStockSelectListener(form, dealId);
+                setupTrendSelectListeners(form);
             }
         }
     });
@@ -651,22 +658,50 @@ function setupStockSelectListener(form, dealId) {
         const ticker = e.target.value;
         if (ticker && ticker.trim() !== '') {
             const formContainer = form.closest('.deal-form-container');
-            await Promise.all([
-                loadPreviousWeekLowPrice(ticker, form),
-                loadCurrentPrice(ticker, form)
+            console.log('Loading data for ticker:', ticker);
+            
+            // Use Promise.allSettled so one failure doesn't stop the others
+            const results = await Promise.allSettled([
+                loadPreviousWeekLowPrice(ticker, form).catch(err => {
+                    console.error('loadPreviousWeekLowPrice failed:', err);
+                    return null;
+                }),
+                loadCurrentPrice(ticker, form).catch(err => {
+                    console.error('loadCurrentPrice failed:', err);
+                    return null;
+                }),
+                loadTrends(ticker, form).catch(err => {
+                    console.error('loadTrends failed:', err);
+                    return null;
+                })
             ]);
+            
+            console.log('All requests completed:', results);
         } else {
             // Clear price fields if stock is deselected
             const formContainer = form.closest('.deal-form-container');
             const oPriceInput = form.querySelector('input[name="o_price"]');
             const hPriceInput = form.querySelector('input[name="h_price"]');
             const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const monthlySelect = form.querySelector('select[name="monthly_dir"]');
+            const weeklySelect = form.querySelector('select[name="weekly_dir"]');
             if (oPriceInput) oPriceInput.value = '';
             if (hPriceInput) hPriceInput.value = '';
             if (sharePriceInput) sharePriceInput.value = '';
+            if (monthlySelect) {
+                monthlySelect.value = '';
+                updateSelectDownClass(monthlySelect);
+            }
+            if (weeklySelect) {
+                weeklySelect.value = '';
+                updateSelectDownClass(weeklySelect);
+            }
             setPriceError(formContainer, '');
         }
     });
+    
+    // Setup listeners for monthly_dir and weekly_dir selects to add red border when "Down" is selected
+    setupTrendSelectListeners(form);
 }
 
 async function handleDealSubmit(form, deal, isNew) {
@@ -720,23 +755,72 @@ async function loadPreviousWeekLowPrice(ticker, form) {
         }
 
         const data = await res.json();
+        console.log('Weekly prices data received for', ticker, ':', data);
         
         if (data && Array.isArray(data) && data.length >= 2) {
+            // Get the second-to-last week (previous week)
             const previousWeek = data[data.length - 2];
-            const lowPrice = previousWeek.Low !== undefined ? previousWeek.Low : (previousWeek.low !== undefined ? previousWeek.low : null);
-            const highPrice = previousWeek.High !== undefined ? previousWeek.High : (previousWeek.high !== undefined ? previousWeek.high : null);
+            console.log('Previous week data:', previousWeek);
             
-            if (lowPrice !== undefined && lowPrice !== null) {
+            // Get Open price for o_price field
+            const openPrice = previousWeek.Open !== undefined ? previousWeek.Open : 
+                             (previousWeek.open !== undefined ? previousWeek.open : null);
+            
+            // Get High price for h_price field
+            const highPrice = previousWeek.High !== undefined ? previousWeek.High : 
+                             (previousWeek.high !== undefined ? previousWeek.high : null);
+            
+            console.log('Open price:', openPrice, 'High price:', highPrice);
+            
+            if (openPrice !== undefined && openPrice !== null) {
                 const oPriceInput = form.querySelector('input[name="o_price"]');
-                if (oPriceInput) oPriceInput.value = lowPrice.toString();
+                if (oPriceInput) {
+                    oPriceInput.value = openPrice.toString();
+                    console.log('Set o_price to:', openPrice);
+                } else {
+                    console.warn('o_price input not found');
+                }
             }
             
             if (highPrice !== undefined && highPrice !== null) {
                 const hPriceInput = form.querySelector('input[name="h_price"]');
-                if (hPriceInput) hPriceInput.value = highPrice.toString();
+                if (hPriceInput) {
+                    hPriceInput.value = highPrice.toString();
+                    console.log('Set h_price to:', highPrice);
+                } else {
+                    console.warn('h_price input not found');
+                }
             }
             
             setPriceError(formContainer, '');
+        } else if (data && Array.isArray(data) && data.length === 1) {
+            // If only one week available, use it
+            const week = data[0];
+            console.log('Using only available week:', week);
+            const openPrice = week.Open !== undefined ? week.Open : 
+                             (week.open !== undefined ? week.open : null);
+            const highPrice = week.High !== undefined ? week.High : 
+                             (week.high !== undefined ? week.high : null);
+            
+            if (openPrice !== undefined && openPrice !== null) {
+                const oPriceInput = form.querySelector('input[name="o_price"]');
+                if (oPriceInput) {
+                    oPriceInput.value = openPrice.toString();
+                    console.log('Set o_price to:', openPrice);
+                }
+            }
+            
+            if (highPrice !== undefined && highPrice !== null) {
+                const hPriceInput = form.querySelector('input[name="h_price"]');
+                if (hPriceInput) {
+                    hPriceInput.value = highPrice.toString();
+                    console.log('Set h_price to:', highPrice);
+                }
+            }
+            
+            setPriceError(formContainer, '');
+        } else {
+            console.warn('Invalid or empty data received for', ticker, ':', data);
         }
     } catch (err) {
         console.error('Error loading previous week low/high prices', err);
@@ -776,6 +860,84 @@ async function loadCurrentPrice(ticker, form) {
         console.error('Error loading current price', err);
         const formContainer = form.closest('.deal-form-container');
         setPriceError(formContainer, 'Current price is temporarily unavailable (API error).');
+    }
+}
+
+async function loadTrends(ticker, form) {
+    if (!ticker || !form) return;
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/trends`, {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) {
+            console.warn('Failed to load trends for', ticker, 'Status:', res.status);
+            const errorText = await res.text().catch(() => '');
+            console.warn('Error response:', errorText);
+            return;
+        }
+
+        const data = await res.json();
+        console.log('Trends data received for', ticker, ':', data);
+        
+        // Set monthly_dir
+        const monthlySelect = form.querySelector('select[name="monthly_dir"]');
+        if (monthlySelect) {
+            if (data.monthly) {
+                monthlySelect.value = data.monthly;
+                updateSelectDownClass(monthlySelect);
+                console.log('Set monthly_dir to:', data.monthly);
+            } else {
+                console.warn('No monthly trend in response');
+            }
+        } else {
+            console.warn('monthly_dir select not found in form');
+        }
+        
+        // Set weekly_dir
+        const weeklySelect = form.querySelector('select[name="weekly_dir"]');
+        if (weeklySelect) {
+            if (data.weekly) {
+                weeklySelect.value = data.weekly;
+                updateSelectDownClass(weeklySelect);
+                console.log('Set weekly_dir to:', data.weekly);
+            } else {
+                console.warn('No weekly trend in response');
+            }
+        } else {
+            console.warn('weekly_dir select not found in form');
+        }
+    } catch (err) {
+        console.error('Error loading trends for', ticker, ':', err);
+    }
+}
+
+function updateSelectDownClass(select) {
+    if (!select) return;
+    if (select.value === 'Down') {
+        select.classList.add('has-down-selected');
+    } else {
+        select.classList.remove('has-down-selected');
+    }
+}
+
+function setupTrendSelectListeners(form) {
+    const monthlySelect = form.querySelector('select[name="monthly_dir"]');
+    const weeklySelect = form.querySelector('select[name="weekly_dir"]');
+    
+    if (monthlySelect) {
+        updateSelectDownClass(monthlySelect);
+        monthlySelect.addEventListener('change', () => {
+            updateSelectDownClass(monthlySelect);
+        });
+    }
+    
+    if (weeklySelect) {
+        updateSelectDownClass(weeklySelect);
+        weeklySelect.addEventListener('change', () => {
+            updateSelectDownClass(weeklySelect);
+        });
     }
 }
 

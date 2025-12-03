@@ -94,7 +94,24 @@ async function callLogin(email, password) {
     return data;
 }
 
+function setButtonLoading(button, isLoading) {
+    if (isLoading) {
+        if (!button.dataset.originalText) {
+            button.dataset.originalText = button.textContent.trim();
+        }
+        button.disabled = true;
+        button.innerHTML = '<span class="loading-spinner"></span> Loading...';
+    } else {
+        button.disabled = false;
+        const originalText = button.dataset.originalText || 'Sign in';
+        button.textContent = originalText;
+        delete button.dataset.originalText;
+    }
+}
+
 async function doAuth(kind) {
+    if (isProcessing) return;
+    
     errorEl.textContent = '';
 
     const fd = new FormData(form);
@@ -105,6 +122,17 @@ async function doAuth(kind) {
         errorEl.textContent = 'Please fill in email and password';
         return;
     }
+
+    isProcessing = true;
+    const activeButton = kind === 'login' ? btnSignIn : btnSignUp;
+    const otherButton = kind === 'login' ? btnSignUp : btnSignIn;
+    
+    // Disable both buttons and show loading on active one
+    setButtonLoading(activeButton, true);
+    otherButton.disabled = true;
+    
+    // Small delay to ensure button state is visible
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     try {
         if (kind === 'login') {
@@ -119,10 +147,16 @@ async function doAuth(kind) {
 
         if (!username) {
             errorEl.textContent = 'Please enter username';
+            setButtonLoading(activeButton, false);
+            otherButton.disabled = false;
+            isProcessing = false;
             return;
         }
         if (password !== passwordConfirm) {
             errorEl.textContent = 'Passwords do not match';
+            setButtonLoading(activeButton, false);
+            otherButton.disabled = false;
+            isProcessing = false;
             return;
         }
 
@@ -152,12 +186,18 @@ async function doAuth(kind) {
     } catch (err) {
         console.error(err);
         errorEl.textContent = err.message || 'Network error. Try again later.';
+        setButtonLoading(activeButton, false);
+        otherButton.disabled = false;
+        isProcessing = false;
     }
 }
 
 // ================== обработчики кнопок ==================
 
+let isProcessing = false;
+
 btnSignIn.addEventListener('click', async () => {
+    if (isProcessing) return;
     if (mode !== 'login') {
         setMode('login');
         return;
@@ -166,6 +206,7 @@ btnSignIn.addEventListener('click', async () => {
 });
 
 btnSignUp.addEventListener('click', async () => {
+    if (isProcessing) return;
     if (mode !== 'signup') {
         setMode('signup');
         return;
@@ -175,6 +216,7 @@ btnSignUp.addEventListener('click', async () => {
 
 form.addEventListener('submit', async e => {
     e.preventDefault();
+    if (isProcessing) return;
     await doAuth(mode);
 });
 
