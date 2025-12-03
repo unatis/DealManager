@@ -71,6 +71,9 @@ namespace DealManager.Models
         [JsonPropertyName("amount_tobuy")]
         public string? AmountToBuy { get; set; }
 
+        [JsonPropertyName("total_sum")]
+        public string? TotalSum { get; set; }
+
         [JsonPropertyName("sp500_up")]
         public string? Sp500Up { get; set; }
                

@@ -224,8 +224,9 @@ public class PricesController : ControllerBase
                     highTouches = l.HighTouches,
                     lowTouches = l.LowTouches,
                     totalTouches = l.TotalTouches,
-                    firstTouch = l.FirstTouch?.ToString("yyyy-MM-dd"),
-                    lastTouch = l.LastTouch?.ToString("yyyy-MM-dd")
+                    score = l.Score,
+                    firstTouch = l.FirstTouch.ToString("yyyy-MM-dd"),
+                    lastTouch = l.LastTouch.ToString("yyyy-MM-dd")
                 }).ToList()
             });
         }

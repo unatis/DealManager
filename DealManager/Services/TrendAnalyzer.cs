@@ -7,6 +7,47 @@ namespace DealManager.Services
 {
     public class TrendAnalyzer
     {
+        // Локальный пивот (локальный максимум/минимум)
+        private sealed record Pivot(int Index, decimal Price, bool IsHigh, DateTime Date);
+
+        // Кластер из пивотов = горизонтальная зона
+        private sealed class SrCluster
+        {
+            public decimal SumPrice;
+            public int Count;
+
+            public decimal MinPrice = decimal.MaxValue;
+            public decimal MaxPrice = decimal.MinValue;
+
+            public int HighTouches;
+            public int LowTouches;
+
+            // индекс последнего бара, где был пивот (для "свежести")
+            public int LastIndex;
+
+            public DateTime FirstTouch = DateTime.MaxValue;
+            public DateTime LastTouch = DateTime.MinValue;
+
+            public decimal Level => Count == 0 ? 0m : SumPrice / Count;
+
+            public void Add(Pivot p)
+            {
+                SumPrice += p.Price;
+                Count++;
+
+                if (p.Price < MinPrice) MinPrice = p.Price;
+                if (p.Price > MaxPrice) MaxPrice = p.Price;
+
+                if (p.IsHigh) HighTouches++;
+                else LowTouches++;
+
+                if (p.Index > LastIndex) LastIndex = p.Index;
+
+                if (p.Date < FirstTouch) FirstTouch = p.Date;
+                if (p.Date > LastTouch) LastTouch = p.Date;
+            }
+        }
+
         public enum TrendWeeks
         {
             Flat,
@@ -62,10 +103,10 @@ namespace DealManager.Services
             {
                 if (i - 1 < 0 || i >= points.Count)
                     continue;
-                    
+
                 var prevPoint = points[i - 1];
                 var currPoint = points[i];
-                
+
                 if (prevPoint == null || currPoint == null)
                     continue;
 
@@ -109,7 +150,6 @@ namespace DealManager.Services
             return TrendWeeks.Flat;
         }
 
-        // если используешь PriceSeriesDto
         public TrendWeeks DetectTrendByLowsForWeeks(
             PriceSeriesDto series,
             int weeks = 4,
@@ -185,281 +225,214 @@ namespace DealManager.Services
             return DetectTrendByLowsForDays(series.Points, days, tolerance);
         }
 
+        // ---------- УРОВНИ ПОДДЕРЖКИ / СОПРОТИВЛЕНИЯ ----------
+
         public IReadOnlyList<SupportResistanceLevel> DetectSupportResistanceLevels(
-    IReadOnlyList<PricePoint> points,
-    int minHighTouches = 1,
-    int minLowTouches = 1,
-    int minTotalTouches = 3,
-    int maxLevels = 10)
+            IReadOnlyList<PricePoint> points,
+            int minHighTouches = 1,
+            int minLowTouches = 1,
+            int minTotalTouches = 3,
+            int maxLevels = 10,
+            int pivotWindow = 2,
+            decimal maxRangePercent = 0.12m) // ~12% ширина зоны
         {
-            if (points == null || points.Count == 0)
+            if (points == null || points.Count < pivotWindow * 2 + 1)
                 return Array.Empty<SupportResistanceLevel>();
 
-            // Собираем хай/лоу вместе с датами
-            var highs = points
-                .Select(p => (price: p.High, date: p.Date))
+            // строго по времени
+            var ordered = points
+                .OrderBy(p => p.Date)
                 .ToList();
 
-            var lows = points
-                .Select(p => (price: p.Low, date: p.Date))
-                .ToList();
-
-            var allPrices = highs.Select(h => h.price)
-                .Concat(lows.Select(l => l.price))
-                .OrderBy(v => v)
-                .ToList();
-
-            if (allPrices.Count == 0)
+            var pivots = GetPivots(ordered, pivotWindow);
+            if (pivots.Count == 0)
                 return Array.Empty<SupportResistanceLevel>();
 
-            // Соседние разности -> медиана = типичный шаг
-            var diffs = new List<decimal>();
-            for (int i = 0; i < allPrices.Count - 1; i++)
-            {
-                var diff = allPrices[i + 1] - allPrices[i];
-                if (diff > 0)
-                    diffs.Add(diff);
-            }
+            var clusters = BuildClusters(pivots, maxRangePercent);
 
-            if (diffs.Count == 0)
-            {
-                // Все цены примерно одинаковые -> один уровень
-                var onlyLevel = allPrices[0];
-
-                var touches = points
-                    .Where(p => p.High == onlyLevel || p.Low == onlyLevel)
-                    .ToList();
-
-                return new[]
-                {
-            new SupportResistanceLevel
-            {
-                Level      = onlyLevel,
-                LowBound   = onlyLevel,
-                HighBound  = onlyLevel,
-                HighTouches = touches.Count(p => p.High == onlyLevel),
-                LowTouches  = touches.Count(p => p.Low == onlyLevel),
-                FirstTouch  = touches.Min(p => p.Date),
-                LastTouch   = touches.Max(p => p.Date)
-            }
-        };
-            }
-
-            diffs.Sort();
-            decimal medianDiff;
-            int mid = diffs.Count / 2;
-            if (diffs.Count % 2 == 0)
-                medianDiff = (diffs[mid - 1] + diffs[mid]) / 2m;
-            else
-                medianDiff = diffs[mid];
-
-            if (medianDiff <= 0)
-                medianDiff = diffs[0];
-
-            var threshold = medianDiff; // авто-порог по данным
-
-            // Строим кластеры по allPrices
-            var clusterBounds = new List<(decimal low, decimal high)>();
-            decimal clusterLow = allPrices[0];
-            decimal clusterHigh = allPrices[0];
-
-            for (int i = 1; i < allPrices.Count; i++)
-            {
-                var price = allPrices[i];
-                var gap = price - clusterHigh;
-
-                if (gap <= threshold)
-                {
-                    // продолжаем кластер
-                    clusterHigh = price;
-                }
-                else
-                {
-                    // закрываем текущий кластер
-                    clusterBounds.Add((clusterLow, clusterHigh));
-                    // начинаем новый
-                    clusterLow = clusterHigh = price;
-                }
-            }
-
-            // последний кластер
-            clusterBounds.Add((clusterLow, clusterHigh));
+            var lastClose = ordered[^1].Close;
+            var totalBars = ordered.Count;
 
             var levels = new List<SupportResistanceLevel>();
 
-            foreach (var (lowBound, highBound) in clusterBounds)
+            foreach (var c in clusters)
             {
-                // сколько хай/лоу попадает в этот диапазон
-                var highTouchesList = highs
-                    .Where(h => h.price >= lowBound && h.price <= highBound)
-                    .ToList();
+                int totalTouches = c.HighTouches + c.LowTouches;
 
-                var lowTouchesList = lows
-                    .Where(l => l.price >= lowBound && l.price <= highBound)
-                    .ToList();
-
-                int highTouches = highTouchesList.Count;
-                int lowTouches = lowTouchesList.Count;
-                int totalTouches = highTouches + lowTouches;
-
-                // интересуют только уровни, где есть и high, и low,
-                // и достаточно касаний
-                if (highTouches < minHighTouches ||
-                    lowTouches < minLowTouches ||
+                // фильтры по касаниям
+                if (c.HighTouches < minHighTouches ||
+                    c.LowTouches < minLowTouches ||
                     totalTouches < minTotalTouches)
                 {
                     continue;
                 }
 
-                // все цены внутри кластера
-                var clusterValues = allPrices
-                    .Where(v => v >= lowBound && v <= highBound)
-                    .ToList();
+                var levelPrice = c.Level;
+                var lowBound = c.MinPrice;
+                var highBound = c.MaxPrice;
 
-                if (clusterValues.Count == 0)
-                    continue;
-
-                var levelPrice = clusterValues.Average();
-
-                var allTouchDates = highTouchesList
-                    .Select(h => h.date)
-                    .Concat(lowTouchesList.Select(l => l.date))
-                    .ToList();
+                var score = ComputeSrScore(
+                    levelPrice,
+                    c.HighTouches,
+                    c.LowTouches,
+                    lastClose,
+                    totalBars,
+                    c.LastIndex);
 
                 levels.Add(new SupportResistanceLevel
                 {
                     Level = levelPrice,
                     LowBound = lowBound,
                     HighBound = highBound,
-                    HighTouches = highTouches,
-                    LowTouches = lowTouches,
-                    FirstTouch = allTouchDates.Min(),
-                    LastTouch = allTouchDates.Max()
+                    HighTouches = c.HighTouches,
+                    LowTouches = c.LowTouches,
+                    FirstTouch = c.FirstTouch,
+                    LastTouch = c.LastTouch,
+                    Score = score
                 });
             }
 
-            // сортируем по "силе": сначала по числу касаний, потом по свежести
-            var ordered = levels
-                .OrderByDescending(l => l.TotalTouches)
-                .ThenByDescending(l => l.LastTouch)
+            // сортируем по "силе" с учётом расстояния от цены и свежести
+            var orderedByScore = levels
+                .OrderByDescending(l => l.Score)
                 .ToList();
 
-            if (maxLevels > 0 && ordered.Count > maxLevels)
-                ordered = ordered.Take(maxLevels).ToList();
+            if (maxLevels > 0 && orderedByScore.Count > maxLevels)
+                orderedByScore = orderedByScore.Take(maxLevels).ToList();
 
-            // для удобства отображения можно отсортировать по цене:
-            // ordered = ordered.OrderBy(l => l.Level).ToList();
-
-            return ordered;
+            return orderedByScore;
         }
 
-        /// <summary>
-        /// Находит уровни, которые одновременно выступают как поддержка/сопротивление:
-        /// кластеры цен, где есть и High, и Low и достаточно касаний.
-        /// Возвращает уровни как среднее значение по кластеру.
-        /// </summary>
-        /// <param name="points">Коллекция свечей</param>
-        /// <param name="minHighTouches">минимальное число касаний high в кластере</param>
-        /// <param name="minLowTouches">минимальное число касаний low в кластере</param>
-        /// <param name="minTotalTouches">минимальное общее число касаний (high+low)</param>
-        //public IReadOnlyList<decimal> DetectSupportResistanceLevels(
-        //    IReadOnlyList<PricePoint> points,
-        //    int minHighTouches = 1,
-        //    int minLowTouches = 1,
-        //    int minTotalTouches = 3)
-        //{
-        //    if (points == null || points.Count == 0)
-        //        return Array.Empty<decimal>();
+        public IReadOnlyList<SupportResistanceLevel> DetectSupportResistanceLevels(
+            PriceSeriesDto series,
+            int minHighTouches = 1,
+            int minLowTouches = 1,
+            int minTotalTouches = 3,
+            int maxLevels = 10,
+            int pivotWindow = 2,
+            decimal maxRangePercent = 0.12m)
+        {
+            if (series == null)
+                return Array.Empty<SupportResistanceLevel>();
 
-        //    var highs = points.Select(p => p.High).ToList();
-        //    var lows = points.Select(p => p.Low).ToList();
+            return DetectSupportResistanceLevels(
+                series.Points,
+                minHighTouches,
+                minLowTouches,
+                minTotalTouches,
+                maxLevels,
+                pivotWindow,
+                maxRangePercent);
+        }
 
-        //    var allPrices = highs
-        //        .Concat(lows)
-        //        .OrderBy(v => v)
-        //        .ToList();
+        // ---------- СЛУЖЕБНЫЕ МЕТОДЫ ДЛЯ УРОВНЕЙ ----------
 
-        //    if (allPrices.Count == 0)
-        //        return Array.Empty<decimal>();
+        private static List<Pivot> GetPivots(IReadOnlyList<PricePoint> points, int window)
+        {
+            var pivots = new List<Pivot>();
 
-        //    // Считаем соседние разности и берём медиану как типичный шаг
-        //    var diffs = new List<decimal>();
-        //    for (int i = 0; i < allPrices.Count - 1; i++)
-        //    {
-        //        var diff = allPrices[i + 1] - allPrices[i];
-        //        if (diff > 0)
-        //            diffs.Add(diff);
-        //    }
+            // points должны быть отсортированы по дате
+            for (int i = window; i < points.Count - window; i++)
+            {
+                var cur = points[i];
+                var curHigh = cur.High;
+                var curLow = cur.Low;
 
-        //    if (diffs.Count == 0)
-        //    {
-        //        // Все цены одинаковые -> один уровень
-        //        return new[] { allPrices[0] };
-        //    }
+                bool isHigh = true;
+                bool isLow = true;
 
-        //    diffs.Sort();
-        //    decimal medianDiff;
-        //    int mid = diffs.Count / 2;
-        //    if (diffs.Count % 2 == 0)
-        //        medianDiff = (diffs[mid - 1] + diffs[mid]) / 2m;
-        //    else
-        //        medianDiff = diffs[mid];
+                for (int j = i - window; j <= i + window; j++)
+                {
+                    if (points[j].High > curHigh) isHigh = false;
+                    if (points[j].Low < curLow) isLow = false;
 
-        //    if (medianDiff <= 0)
-        //        medianDiff = diffs[0];
+                    if (!isHigh && !isLow)
+                        break;
+                }
 
-        //    var threshold = medianDiff;
+                if (isHigh)
+                    pivots.Add(new Pivot(i, curHigh, true, cur.Date));  // <- тут
 
-        //    // Строим кластеры по allPrices
-        //    var clusters = new List<(int start, int end)>();
-        //    int startIdx = 0;
-        //    for (int i = 1; i < allPrices.Count; i++)
-        //    {
-        //        var gap = allPrices[i] - allPrices[i - 1];
-        //        if (gap <= threshold)
-        //            continue;
+                if (isLow)
+                    pivots.Add(new Pivot(i, curLow, false, cur.Date));  // <- и тут
+            }
 
-        //        clusters.Add((startIdx, i - 1));
-        //        startIdx = i;
-        //    }
-        //    clusters.Add((startIdx, allPrices.Count - 1));
+            return pivots;
+        }
 
-        //    var resultLevels = new List<decimal>();
+        // Кластеры – зоны, где (max-min)/mid <= maxRangePercent
+        private static List<SrCluster> BuildClusters(
+            List<Pivot> pivots,
+            decimal maxRangePercent)
+        {
+            var ordered = pivots.OrderBy(p => p.Price).ToList();
+            var clusters = new List<SrCluster>();
 
-        //    foreach (var (start, end) in clusters)
-        //    {
-        //        var lowBound = allPrices[start];
-        //        var highBound = allPrices[end];
+            foreach (var p in ordered)
+            {
+                SrCluster? bestCluster = null;
+                decimal bestWidth = decimal.MaxValue;
 
-        //        int highTouches = highs.Count(h => h >= lowBound && h <= highBound);
-        //        int lowTouches = lows.Count(l => l >= lowBound && l <= highBound);
-        //        int totalTouches = highTouches + lowTouches;
+                foreach (var c in clusters)
+                {
+                    var minPrice = Math.Min(c.MinPrice, p.Price);
+                    var maxPrice = Math.Max(c.MaxPrice, p.Price);
+                    var mid = (minPrice + maxPrice) / 2m;
+                    if (mid <= 0) continue;
 
-        //        // Нас интересуют только уровни, где есть и high, и low,
-        //        // и при этом достаточно суммарных касаний
-        //        if (highTouches < minHighTouches ||
-        //            lowTouches < minLowTouches ||
-        //            totalTouches < minTotalTouches)
-        //        {
-        //            continue;
-        //        }
+                    var widthPercent = (maxPrice - minPrice) / mid;
 
-        //        var clusterValues = allPrices
-        //            .Where(v => v >= lowBound && v <= highBound)
-        //            .ToList();
+                    if (widthPercent <= maxRangePercent && widthPercent < bestWidth)
+                    {
+                        bestWidth = widthPercent;
+                        bestCluster = c;
+                    }
+                }
 
-        //        if (clusterValues.Count == 0)
-        //            continue;
+                if (bestCluster == null)
+                {
+                    var c = new SrCluster();
+                    c.Add(p);
+                    clusters.Add(c);
+                }
+                else
+                {
+                    bestCluster.Add(p);
+                }
+            }
 
-        //        var level = clusterValues.Average();
-        //        resultLevels.Add(level);
-        //    }
+            return clusters;
+        }
 
-        //    // на всякий случай отсортируем уровни по возрастанию и уберём дубликаты
-        //    return resultLevels
-        //        .OrderBy(x => x)
-        //        .Distinct()
-        //        .ToList();
-        //}
+        // Сила уровня: касания * бонус за обе стороны * близость к цене * свежесть
+        private static double ComputeSrScore(
+            decimal levelPrice,
+            int highTouches,
+            int lowTouches,
+            decimal lastClose,
+            int totalBars,
+            int lastIndex)
+        {
+            var touches = highTouches + lowTouches;
+            if (touches == 0) return 0;
+
+            // бонус, если уровень отрабатывался и как хай, и как лоу
+            var bothSidesBonus = 1.0 + 0.3 * Math.Min(highTouches, lowTouches);
+
+            double distanceWeight = 1.0;
+            if (lastClose > 0)
+            {
+                var distance = (double)Math.Abs(levelPrice - lastClose) / (double)lastClose;
+                // чем дальше от текущей цены, тем меньше вес
+                distanceWeight = 1.0 / (1.0 + distance * 5.0);
+            }
+
+            // "возраст" уровня в барах
+            var age = Math.Max(1, totalBars - lastIndex);
+            // чем свежее, тем больше вес
+            var timeWeight = 1.0 / (1.0 + age / 52.0); // 52 бара условно ~год
+
+            return touches * bothSidesBonus * distanceWeight * timeWeight;
+        }
     }
 }
