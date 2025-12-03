@@ -465,12 +465,6 @@ function renderAll() {
                 </div>
             `;
 
-            // сюда добавляем кнопку графика
-            const actionsDiv = el.querySelector('.chips');
-            if (actionsDiv) {
-                addChartButton(actionsDiv, d.stock || '');
-            }
-
             el.addEventListener('click', event => {
                 const dealEl = event.currentTarget;
                 openModal('view', dealEl.dataset.id);
@@ -512,12 +506,6 @@ function renderAll() {
                     <div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div>
                 </div>
             `;
-
-            // и здесь тоже кнопка графика
-            const actionsDiv = el.querySelector('.chips');
-            if (actionsDiv) {
-                addChartButton(actionsDiv, d.stock || '');
-            }
 
             el.addEventListener('click', event => {
                 const dealEl = event.currentTarget;
@@ -607,40 +595,6 @@ elements.filterInput.addEventListener('input', renderAll);
 
 //    inp.click();
 //});
-
-function addChartButton(containerEl, stockTicker) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = 'Chart';
-    btn.className = 'secondary';
-    btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!stockTicker) return;
-
-        try {
-            const res = await fetch(`/api/prices/${encodeURIComponent(stockTicker)}`, {
-                headers: {
-                    ...authHeaders()
-                }
-            });
-
-            if (!res.ok) {
-                console.error('Failed to load prices', res.status);
-                alert('Не удалось загрузить данные по акции');
-                return;
-            }
-
-            const data = await res.json();
-            console.log('PriceSeries', data);
-            // TODO: здесь можно открыть модалку и нарисовать график Chart.js
-        } catch (err) {
-            console.error(err);
-            alert('Ошибка загрузки цены акции');
-        }
-    });
-
-    containerEl.appendChild(btn);
-}
 
 // Function to fetch previous week's low and high prices and populate o_price and h_price fields
 async function loadPreviousWeekLowPrice(ticker) {
