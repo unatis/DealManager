@@ -8,6 +8,7 @@ using DealManager.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace DealManager.Services
@@ -35,10 +36,56 @@ namespace DealManager.Services
             _cache = cache;
             _logger = logger;
 
-            var client = new MongoClient(mongoSettings.ConnectionString);
+            var clientSettings = MongoClientSettings.FromConnectionString(mongoSettings.ConnectionString);
+            clientSettings.AllowInsecureTls = true;
+            var client = new MongoClient(clientSettings);
             var db = client.GetDatabase(mongoSettings.Database);
             _quotesCollection = db.GetCollection<CachedQuote>(mongoSettings.QuotesCollection);
             _weeklyCollection = db.GetCollection<CachedWeeklySeries>(mongoSettings.WeeklyPricesCollection);
+
+            // Clean up documents with null Id on startup (fire and forget)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await CleanupNullIdDocumentsAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to cleanup null Id documents on startup");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Removes all documents with null or empty Id from both collections.
+        /// This fixes duplicate key errors caused by documents with _id: null.
+        /// Uses raw BSON filter to match documents where _id is null or missing.
+        /// </summary>
+        private async Task CleanupNullIdDocumentsAsync()
+        {
+            try
+            {
+                // Delete documents with null _id from quotes collection using raw BSON filter
+                var quotesFilter = Builders<CachedQuote>.Filter.Eq("_id", BsonNull.Value);
+                var quotesResult = await _quotesCollection.DeleteManyAsync(quotesFilter);
+                if (quotesResult.DeletedCount > 0)
+                {
+                    _logger.LogInformation("Cleaned up {Count} documents with null _id from quotes collection", quotesResult.DeletedCount);
+                }
+
+                // Delete documents with null _id from weekly_prices collection using raw BSON filter
+                var weeklyFilter = Builders<CachedWeeklySeries>.Filter.Eq("_id", BsonNull.Value);
+                var weeklyResult = await _weeklyCollection.DeleteManyAsync(weeklyFilter);
+                if (weeklyResult.DeletedCount > 0)
+                {
+                    _logger.LogInformation("Cleaned up {Count} documents with null _id from weekly_prices collection", weeklyResult.DeletedCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during cleanup of null Id documents: {Message}", ex.Message);
+            }
         }
 
         public async Task<IReadOnlyList<PricePoint>> GetWeeklyAsync(string symbol)
@@ -94,22 +141,51 @@ namespace DealManager.Services
             // Try to save to MongoDB, but don't fail if it doesn't work
             try
             {
-                var entity = new CachedWeeklySeries
-                {
-                    Ticker = symbol,
-                    Points = list,
-                    LastUpdatedUtc = DateTime.UtcNow
-                };
+                // Find existing document to check if it exists
+                var existing = await _weeklyCollection
+                    .Find(x => x.Ticker == symbol)
+                    .FirstOrDefaultAsync();
 
-                await _weeklyCollection.ReplaceOneAsync(
-                    x => x.Ticker == symbol,
-                    entity,
-                    new ReplaceOptions { IsUpsert = true });
-                _logger.LogInformation("Successfully saved weekly prices for {Symbol} to MongoDB ({Count} points)", symbol, list.Count);
+                var hadValidId = existing != null && !string.IsNullOrEmpty(existing.Id);
+
+                // If existing document has null Id, delete it first to avoid duplicate key error
+                if (existing != null && string.IsNullOrEmpty(existing.Id))
+                {
+                    await _weeklyCollection.DeleteOneAsync(x => x.Ticker == symbol);
+                }
+
+                // Use UpdateOneAsync with $set operator - MongoDB will auto-generate Id for new documents
+                var filter = Builders<CachedWeeklySeries>.Filter.Eq(x => x.Ticker, symbol);
+                var update = Builders<CachedWeeklySeries>.Update
+                    .Set(x => x.Ticker, symbol)
+                    .Set(x => x.Points, list)
+                    .Set(x => x.LastUpdatedUtc, DateTime.UtcNow);
+                
+                var result = await _weeklyCollection.UpdateOneAsync(
+                    filter,
+                    update,
+                    new UpdateOptions { IsUpsert = true });
+                
+                if (result.UpsertedId != null)
+                {
+                    _logger.LogInformation("Successfully inserted weekly prices for {Symbol} to MongoDB ({Count} points). New Id: {Id}", 
+                        symbol, list.Count, result.UpsertedId);
+                }
+                else if (result.ModifiedCount > 0)
+                {
+                    _logger.LogInformation("Successfully updated weekly prices for {Symbol} in MongoDB ({Count} points). Matched: {Matched}", 
+                        symbol, list.Count, result.MatchedCount);
+                }
+                else
+                {
+                    _logger.LogWarning("MongoDB update for {Symbol} returned no changes. Matched: {Matched}", 
+                        symbol, result.MatchedCount);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save weekly prices to MongoDB for {Symbol}, but continuing with in-memory cache. Error: {Message}", symbol, ex.Message);
+                _logger.LogError(ex, "Failed to save weekly prices to MongoDB for {Symbol}, but continuing with in-memory cache. Error: {Message}, StackTrace: {StackTrace}", 
+                    symbol, ex.Message, ex.StackTrace);
                 // Continue even if DB save fails - we still have the data in memory cache
             }
 
@@ -359,31 +435,71 @@ namespace DealManager.Services
                 changePercent = cpProp.GetString();
             }
 
-            var entity = new CachedQuote
-            {
-                Ticker = symbol,
-                Price = price.Value,
-                Open = open,
-                High = high,
-                Low = low,
-                PreviousClose = previousClose,
-                Volume = volume,
-                Change = change,
-                ChangePercent = changePercent,
-                LatestTradingDay = latestTradingDay,
-                LastUpdatedUtc = DateTime.UtcNow
-            };
-
+            // Find existing document to check if it exists
+            CachedQuote? existingQuote = null;
+            bool hadValidId = false;
             try
             {
-                await _quotesCollection.ReplaceOneAsync(
-                    x => x.Ticker == symbol,
-                    entity,
-                    new ReplaceOptions { IsUpsert = true });
+                existingQuote = await _quotesCollection
+                    .Find(x => x.Ticker == symbol)
+                    .FirstOrDefaultAsync();
+                
+                hadValidId = existingQuote != null && !string.IsNullOrEmpty(existingQuote.Id);
+                
+                // If existing document has null Id, delete it first to avoid duplicate key error
+                if (existingQuote != null && string.IsNullOrEmpty(existingQuote.Id))
+                {
+                    await _quotesCollection.DeleteOneAsync(x => x.Ticker == symbol);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save quote to MongoDB for {Symbol}", symbol);
+                _logger.LogWarning(ex, "Failed to find existing quote for {Symbol} before save, will attempt upsert anyway", symbol);
+            }
+
+            try
+            {
+                // Use UpdateOneAsync with $set operator - MongoDB will auto-generate Id for new documents
+                var filter = Builders<CachedQuote>.Filter.Eq(x => x.Ticker, symbol);
+                var updateBuilder = Builders<CachedQuote>.Update
+                    .Set(x => x.Ticker, symbol)
+                    .Set(x => x.Price, price.Value)
+                    .Set(x => x.LastUpdatedUtc, DateTime.UtcNow);
+                
+                if (open.HasValue) updateBuilder = updateBuilder.Set(x => x.Open, open.Value);
+                if (high.HasValue) updateBuilder = updateBuilder.Set(x => x.High, high.Value);
+                if (low.HasValue) updateBuilder = updateBuilder.Set(x => x.Low, low.Value);
+                if (previousClose.HasValue) updateBuilder = updateBuilder.Set(x => x.PreviousClose, previousClose.Value);
+                if (volume.HasValue) updateBuilder = updateBuilder.Set(x => x.Volume, volume.Value);
+                if (change.HasValue) updateBuilder = updateBuilder.Set(x => x.Change, change.Value);
+                if (!string.IsNullOrEmpty(changePercent)) updateBuilder = updateBuilder.Set(x => x.ChangePercent, changePercent);
+                if (latestTradingDay.HasValue) updateBuilder = updateBuilder.Set(x => x.LatestTradingDay, latestTradingDay.Value);
+                
+                var result = await _quotesCollection.UpdateOneAsync(
+                    filter,
+                    updateBuilder,
+                    new UpdateOptions { IsUpsert = true });
+                
+                if (result.UpsertedId != null)
+                {
+                    _logger.LogInformation("Successfully inserted quote for {Symbol} to MongoDB. New Id: {Id}", 
+                        symbol, result.UpsertedId);
+                }
+                else if (result.ModifiedCount > 0)
+                {
+                    _logger.LogInformation("Successfully updated quote for {Symbol} in MongoDB. Matched: {Matched}", 
+                        symbol, result.MatchedCount);
+                }
+                else
+                {
+                    _logger.LogWarning("MongoDB update for quote {Symbol} returned no changes. Matched: {Matched}", 
+                        symbol, result.MatchedCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save quote to MongoDB for {Symbol}. Error: {Message}, StackTrace: {StackTrace}", 
+                    symbol, ex.Message, ex.StackTrace);
                 // Continue even if DB save fails - we still have the price
             }
 
