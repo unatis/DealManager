@@ -4,6 +4,9 @@ let deals = [];
 let dealsLoaded = false;
 let expandedDealId = null; // Track which deal is currently expanded
 let newDealRow = null; // Track if there's a new deal row being created
+let stocksCache = []; // Cache stocks data for checking regular_volume
+// warningsCache is now a window property to share with stocks.js
+window.warningsCache = window.warningsCache || [];
 
 // ---------- элементы DOM ----------
 const elements = {
@@ -163,11 +166,47 @@ async function loadStocksForDeals() {
         }
 
         const stocks = await res.json();
-        return stocks || [];
+        stocksCache = stocks || []; // Update cache
+        return stocksCache;
     } catch (err) {
         console.error(err);
+        stocksCache = [];
         return [];
     }
+}
+
+// Function to get stock by ticker from cache
+function getStockByTicker(ticker) {
+    if (!ticker || !stocksCache || stocksCache.length === 0) return null;
+    return stocksCache.find(s => s.ticker === ticker) || null;
+}
+
+// Function to load warnings from server
+async function loadWarnings() {
+    try {
+        const res = await fetch('/api/stocks/warnings', {
+            headers: authHeaders()
+        });
+
+        if (!res.ok) {
+            throw new Error('Failed to load warnings');
+        }
+
+        const warnings = await res.json();
+        window.warningsCache = warnings || [];
+        return window.warningsCache;
+    } catch (err) {
+        console.error(err);
+        window.warningsCache = [];
+        return [];
+    }
+}
+
+// Function to get warning by ticker from cache
+function getWarningByTicker(ticker) {
+    const cache = window.warningsCache || [];
+    if (!ticker || !cache || cache.length === 0) return null;
+    return cache.find(w => w.ticker === ticker?.toUpperCase()) || null;
 }
 
 // ========== ЗАГРУЗКА СДЕЛОК ==========
@@ -199,6 +238,11 @@ async function loadDeals() {
 
         deals = await res.json();
         dealsLoaded = true;
+        
+        // Load stocks and warnings to cache for volume indicator
+        await loadStocksForDeals();
+        await loadWarnings();
+        
         renderAll();
         
         // Calculate and display portfolio risk after loading deals
@@ -560,9 +604,28 @@ function createDealRow(deal, isNew) {
     // Add planned future indicator next to date
     const plannedFutureLabel = deal?.planned_future ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>' : '';
     
+    // Check if stock has regular_share_volume warning and add indicator
+    let volumeIndicator = '';
+    if (deal?.stock) {
+        // First check warnings cache (preferred method)
+        const warning = getWarningByTicker(deal.stock);
+        if (warning && warning.regular_share_volume) {
+            volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
+        } else {
+            // Fallback: check stock's regular_volume field (for backward compatibility)
+            const stock = getStockByTicker(deal.stock);
+            if (stock) {
+                const regularVolume = stock.regular_volume || stock.RegularVolume;
+                if (regularVolume === '1' || regularVolume === 1) {
+                    volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
+                }
+            }
+        }
+    }
+    
     summary.innerHTML = `
         <div class="meta">
-            <strong>${escapeHtml(deal?.stock || 'New Deal')}${totalSumDisplay}</strong>
+            <strong>${escapeHtml(deal?.stock || 'New Deal')}${volumeIndicator}${totalSumDisplay}</strong>
             ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}${plannedFutureLabel}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
         </div>
@@ -753,8 +816,8 @@ function setupStockSelectListener(form, dealId) {
     // Restore the value (should be empty for new deals, or the ticker for existing deals)
     newSelect.value = currentValue;
 
-    newSelect.addEventListener('change', async (e) => {
-        const ticker = e.target.value;
+    // Function to load data for a ticker
+    const loadDataForTicker = async (ticker) => {
         if (ticker && ticker.trim() !== '') {
             const formContainer = form.closest('.deal-form-container');
             console.log('Loading data for ticker:', ticker);
@@ -775,6 +838,10 @@ function setupStockSelectListener(form, dealId) {
                 }),
                 loadSupportResistance(ticker, form).catch(err => {
                     console.error('loadSupportResistance failed:', err);
+                    return null;
+                }),
+                loadAverageWeeklyVolume(ticker).catch(err => {
+                    console.error('loadAverageWeeklyVolume failed:', err);
                     return null;
                 })
             ]);
@@ -802,6 +869,21 @@ function setupStockSelectListener(form, dealId) {
                 updateSelectDownClass(weeklySelect);
             }
             setPriceError(formContainer, '');
+        }
+    };
+
+    // Add change event listener
+    newSelect.addEventListener('change', async (e) => {
+        const ticker = e.target.value;
+        await loadDataForTicker(ticker);
+    });
+
+    // Also listen to input event (for when user types in a select with search/autocomplete)
+    newSelect.addEventListener('input', async (e) => {
+        const ticker = e.target.value;
+        // Only trigger if value actually changed (to avoid duplicate calls)
+        if (ticker !== currentValue) {
+            await loadDataForTicker(ticker);
         }
     });
     
@@ -1132,6 +1214,27 @@ async function loadTrends(ticker, form) {
     } catch (err) {
         console.error('Error loading trends for', ticker, ':', err);
     }
+}
+
+async function loadAverageWeeklyVolume(ticker) {
+    if (!ticker || !ticker.trim()) return null;
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/average-volume`, {
+            headers: authHeaders()
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            console.log(`Average weekly volume for ${ticker}: ${data.averageVolumeFormatted} (${data.averageVolumeInDollarsFormatted})`);
+            return data;
+        } else {
+            console.warn('Failed to get average weekly volume', res.status);
+        }
+    } catch (err) {
+        console.error('Error loading average weekly volume', err);
+    }
+    return null;
 }
 
 async function loadSupportResistance(ticker, form) {
@@ -1543,6 +1646,13 @@ elements.newDealBtn.addEventListener('click', async () => {
             }
         }, 50);
     }
+});
+
+// Listen for stocks updated event to reload cache
+window.addEventListener('stocksUpdated', async () => {
+    await loadStocksForDeals();
+    await loadWarnings(); // Also reload warnings
+    renderAll(); // Re-render deals to show updated indicators
 });
 
 // ======== СТАРТ =========

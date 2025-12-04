@@ -242,4 +242,191 @@ public class PricesController : ControllerBase
             return StatusCode(500, $"Internal error while calculating support/resistance: {ex.Message}");
         }
     }
+
+    [HttpGet("{ticker}/average-volume")]
+    public async Task<IActionResult> GetAverageWeeklyVolume(string ticker)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        try
+        {
+            _logger.LogInformation("Calculating average weekly volume for {Ticker}", ticker);
+            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            
+            if (priceData.Count == 0)
+                return NotFound("No data for this ticker");
+
+            // Take only the last 52 weeks (or all if less than 52)
+            // Since data is ordered by date ascending, the last items are the most recent
+            var recentData = priceData.Count > 52 
+                ? priceData.Skip(priceData.Count - 52).ToList()
+                : priceData.ToList();
+
+            _logger.LogInformation("Using {Count} weeks (out of {Total}) for average volume calculation for {Ticker}", 
+                recentData.Count, priceData.Count, ticker);
+
+            // Calculate average weekly volume (in shares) using only recent data
+            var totalVolume = recentData.Sum(p => (long)p.Volume);
+            var averageVolume = recentData.Count > 0 ? (double)totalVolume / recentData.Count : 0;
+
+            // Calculate average volume in dollars (average volume * average price) using only recent data
+            var averagePrice = recentData.Average(p => (double)(p.High + p.Low) / 2);
+            var averageVolumeInDollars = averageVolume * averagePrice;
+
+            // Log detailed calculation values
+            _logger.LogInformation(
+                "Volume calculation for {Ticker}: " +
+                "TotalVolumeShares={TotalVolumeShares:N0}, " +
+                "WeeksCount={WeeksCount}, " +
+                "AverageVolumeShares={AverageVolumeShares:N0}, " +
+                "AveragePrice={AveragePrice:F2}, " +
+                "AverageVolumeInDollars={AverageVolumeInDollars:N2} (${AverageVolumeInDollarsFormatted})",
+                ticker,
+                totalVolume,
+                recentData.Count,
+                averageVolume,
+                averagePrice,
+                averageVolumeInDollars,
+                FormatVolumeInDollars(averageVolumeInDollars)
+            );
+
+            // Log sample volume values from first, middle, and last weeks
+            if (recentData.Count > 0)
+            {
+                var first = recentData.First();
+                var last = recentData.Last();
+                var middle = recentData[recentData.Count / 2];
+                
+                _logger.LogInformation(
+                    "Sample volume data for {Ticker}: " +
+                    "First week - Date={FirstDate}, Volume={FirstVolume:N0} shares, High={FirstHigh:F2}, Low={FirstLow:F2}, AvgPrice={FirstAvgPrice:F2}, VolumeInDollars={FirstVolumeDollars:N2}; " +
+                    "Middle week - Date={MiddleDate}, Volume={MiddleVolume:N0} shares, High={MiddleHigh:F2}, Low={MiddleLow:F2}, AvgPrice={MiddleAvgPrice:F2}, VolumeInDollars={MiddleVolumeDollars:N2}; " +
+                    "Last week - Date={LastDate}, Volume={LastVolume:N0} shares, High={LastHigh:F2}, Low={LastLow:F2}, AvgPrice={LastAvgPrice:F2}, VolumeInDollars={LastVolumeDollars:N2}",
+                    ticker,
+                    first.Date.ToString("yyyy-MM-dd"),
+                    first.Volume,
+                    first.High,
+                    first.Low,
+                    (double)(first.High + first.Low) / 2,
+                    first.Volume * (double)(first.High + first.Low) / 2,
+                    middle.Date.ToString("yyyy-MM-dd"),
+                    middle.Volume,
+                    middle.High,
+                    middle.Low,
+                    (double)(middle.High + middle.Low) / 2,
+                    middle.Volume * (double)(middle.High + middle.Low) / 2,
+                    last.Date.ToString("yyyy-MM-dd"),
+                    last.Volume,
+                    last.High,
+                    last.Low,
+                    (double)(last.High + last.Low) / 2,
+                    last.Volume * (double)(last.High + last.Low) / 2
+                );
+            }
+
+            // Determine volume category based on average volume in dollars with ±5% ranges
+            // Option 1 (50M): 50M ± 5% = 47.5M to 52.5M
+            // Option 2 (100M): 100M ± 5% = 95M to 105M
+            // Option 3 (200M): 200M - 5% or higher = 190M to infinity
+            int volumeCategory = 3; // Default to Big (200M)
+            
+            const double fiftyM = 50_000_000;
+            const double hundredM = 100_000_000;
+            const double twoHundredM = 200_000_000;
+            const double fivePercent = 0.05;
+            
+            // Check if in 50M range (47.5M to 52.5M)
+            if (averageVolumeInDollars >= fiftyM * (1 - fivePercent) && 
+                averageVolumeInDollars <= fiftyM * (1 + fivePercent))
+            {
+                volumeCategory = 1; // 50M option
+            }
+            // Check if in 100M range (95M to 105M)
+            else if (averageVolumeInDollars >= hundredM * (1 - fivePercent) && 
+                     averageVolumeInDollars <= hundredM * (1 + fivePercent))
+            {
+                volumeCategory = 2; // 100M option
+            }
+            // Check if 200M - 5% or higher (190M to infinity)
+            else if (averageVolumeInDollars >= twoHundredM * (1 - fivePercent))
+            {
+                volumeCategory = 3; // 200M option
+            }
+            // For values outside the ranges, assign to closest option
+            else
+            {
+                if (averageVolumeInDollars < fiftyM * (1 + fivePercent)) // Less than 52.5M
+                {
+                    volumeCategory = 1; // Closest to 50M
+                }
+                else if (averageVolumeInDollars < twoHundredM * (1 - fivePercent)) // Less than 190M
+                {
+                    volumeCategory = 2; // Closest to 100M
+                }
+                else
+                {
+                    volumeCategory = 3; // 200M or higher
+                }
+            }
+
+            _logger.LogInformation(
+                "Volume category determined for {Ticker}: {Category} (value={Value:N2}, " +
+                "50M range (47.5M-52.5M)={In50MRange}, " +
+                "100M range (95M-105M)={In100MRange}, " +
+                "200M+ range (190M+)={In200MRange})",
+                ticker,
+                volumeCategory == 1 ? "50M" : volumeCategory == 2 ? "100M" : "200M",
+                averageVolumeInDollars,
+                averageVolumeInDollars >= fiftyM * (1 - fivePercent) && averageVolumeInDollars <= fiftyM * (1 + fivePercent),
+                averageVolumeInDollars >= hundredM * (1 - fivePercent) && averageVolumeInDollars <= hundredM * (1 + fivePercent),
+                averageVolumeInDollars >= twoHundredM * (1 - fivePercent)
+            );
+
+            return Ok(new
+            {
+                averageVolume = averageVolume,
+                averageVolumeFormatted = FormatVolume(averageVolume),
+                averageVolumeInDollars = averageVolumeInDollars,
+                averageVolumeInDollarsFormatted = FormatVolumeInDollars(averageVolumeInDollars),
+                volumeCategory = volumeCategory, // 1, 2, or 3
+                weeksCount = recentData.Count, // Count of weeks used in calculation
+                totalWeeksAvailable = priceData.Count, // Total weeks available
+                totalVolume = totalVolume
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage error for average volume {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate average weekly volume for {Ticker}. Exception: {ExceptionType}, Message: {Message}", 
+                ticker, ex.GetType().Name, ex.Message);
+            return StatusCode(500, $"Internal error: {ex.Message}");
+        }
+    }
+
+    private string FormatVolume(double volume)
+    {
+        if (volume >= 1_000_000_000)
+            return $"{volume / 1_000_000_000:F2}B";
+        if (volume >= 1_000_000)
+            return $"{volume / 1_000_000:F2}M";
+        if (volume >= 1_000)
+            return $"{volume / 1_000:F2}K";
+        return volume.ToString("F0");
+    }
+
+    private string FormatVolumeInDollars(double volumeInDollars)
+    {
+        if (volumeInDollars >= 1_000_000_000)
+            return $"${volumeInDollars / 1_000_000_000:F2}B";
+        if (volumeInDollars >= 1_000_000)
+            return $"${volumeInDollars / 1_000_000:F2}M";
+        if (volumeInDollars >= 1_000)
+            return $"${volumeInDollars / 1_000:F2}K";
+        return $"${volumeInDollars:F2}";
+    }
 }
