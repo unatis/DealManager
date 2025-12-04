@@ -50,6 +50,13 @@ function getWarningByTicker(ticker) {
     return cache.find(w => w.ticker === ticker?.toUpperCase()) || null;
 }
 
+// Function to get warning by stockId from cache (preferred for unique stock instances)
+function getWarningByStockId(stockId) {
+    const cache = window.warningsCache || [];
+    if (!stockId || !cache || cache.length === 0) return null;
+    return cache.find(w => w.stockId === stockId) || null;
+}
+
 async function loadStocks() {
     stocksLoaded = false;
     renderStocks(); // Show loading state
@@ -182,6 +189,18 @@ if (closeStockModalBtn) {
             delete stockForm.dataset.stockId; // Clear stored ID
             const modalTitle = document.getElementById('stockModalTitle');
             if (modalTitle) modalTitle.textContent = 'Add stock';
+            
+            // Clear ATR styling when form is reset
+            const atrInput = stockForm.querySelector('input[name="atr"]');
+            if (atrInput) {
+                atrInput.classList.remove('atr-high-risk-readonly');
+            }
+            
+            // Clear sync_sp500 field when form is reset
+            const syncSp500Select = stockForm.querySelector('select[name="sync_sp500"]');
+            if (syncSp500Select) {
+                syncSp500Select.value = '';
+            }
         }
         // Only call setTickerError if it exists (it's defined later)
         if (typeof setTickerError === 'function') {
@@ -200,9 +219,12 @@ if (stockForm) {
         const ticker = (fd.get('ticker') || '').toString().trim();
         const desc = (fd.get('desc') || '').toString().trim();
         const sp500_member = fd.get('sp500_member') === 'on';
-        const betaVolatility = fd.get('betaVolatility');
+        const betaVolatility = fd.get('betaVolatility') || null;
         const regularVolume = fd.get('regular_volume');
         const syncSp500 = fd.get('sync_sp500');
+        const atr = (fd.get('atr') || '').toString().trim() || null;
+        
+        console.log('Saving stock with betaVolatility:', betaVolatility, 'ATR:', atr);
 
         if (!ticker) return;
 
@@ -220,9 +242,10 @@ if (stockForm) {
                     ticker,
                     desc,
                     sp500Member: sp500_member,
-                    betaVolatility,
+                    betaVolatility: betaVolatility ? betaVolatility.toString() : null,
                     regularVolume: regularVolume ? regularVolume.toString() : null,
-                    syncSp500: syncSp500 || null
+                    syncSp500: syncSp500 || null,
+                    atr: atr
                 });
             } else {
                 // Create new stock
@@ -230,9 +253,10 @@ if (stockForm) {
                     ticker,
                     desc,
                     sp500Member: sp500_member,
-                    betaVolatility,
+                    betaVolatility: betaVolatility ? betaVolatility.toString() : null,
                     regularVolume: regularVolume ? regularVolume.toString() : null,
-                    syncSp500: syncSp500 || null
+                    syncSp500: syncSp500 || null,
+                    atr: atr
                 });
             }
 
@@ -240,6 +264,18 @@ if (stockForm) {
             stockModal.style.display = 'none';
             stockForm.reset();
             delete stockForm.dataset.stockId; // Clear stored ID
+            
+            // Clear ATR styling when form is reset
+            const atrInput = stockForm.querySelector('input[name="atr"]');
+            if (atrInput) {
+                atrInput.classList.remove('atr-high-risk-readonly');
+            }
+            
+            // Clear sync_sp500 field when form is reset
+            const syncSp500Select = stockForm.querySelector('select[name="sync_sp500"]');
+            if (syncSp500Select) {
+                syncSp500Select.value = '';
+            }
             
             // Reset modal title
             const modalTitle = document.getElementById('stockModalTitle');
@@ -300,15 +336,22 @@ function createStockRow(stock) {
     const summary = document.createElement('div');
     summary.className = 'deal-summary';
     
-    // Check if stock has warnings
-    const warning = getWarningByTicker(stock.ticker);
+    // Check if stock has warnings - prefer StockId, fallback to ticker
+    const warning = (stock.id && getWarningByStockId(stock.id)) || getWarningByTicker(stock.ticker);
     const hasVolumeWarning = warning && warning.regular_share_volume;
     const hasSp500Warning = warning && warning.sp500_member;
+    const hasAtrWarning = warning && warning.atr_high_risk;
+    const hasSyncSp500Warning = warning && warning.sync_sp500_no;
+    const hasBetaVolatilityWarning = warning && warning.beta_volatility_high;
     
     // Also check stock's fields as fallback
     const regularVolume = stock.regular_volume || stock.RegularVolume;
     const hasVolumeWarningFallback = hasVolumeWarning || (regularVolume === '1' || regularVolume === 1);
     const hasSp500WarningFallback = hasSp500Warning || (!stock.sp500Member && !stock.Sp500Member);
+    const hasAtrWarningFallback = hasAtrWarning || isAtrHighRiskFromString(stock.atr || stock.Atr);
+    const hasSyncSp500WarningFallback = hasSyncSp500Warning || (stock.sync_sp500 === 'no' || stock.SyncSp500 === 'no');
+    const hasBetaVolatilityWarningFallback = hasBetaVolatilityWarning || 
+        (stock.betaVolatility === '3' || stock.BetaVolatility === '3' || stock.betaVolatility === 3);
     
     // Add warning icons if needed
     const volumeWarningIcon = hasVolumeWarningFallback 
@@ -318,10 +361,22 @@ function createStockRow(stock) {
     const sp500WarningIcon = hasSp500WarningFallback
         ? `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`
         : '';
+
+    const atrWarningIcon = hasAtrWarningFallback
+        ? `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`
+        : '';
+
+    const syncSp500WarningIcon = hasSyncSp500WarningFallback
+        ? `<span class="volume-warning-icon" data-tooltip="Is share movement synchronized with S&amp;P500?: No">!</span>`
+        : '';
+
+    const betaVolatilityWarningIcon = hasBetaVolatilityWarningFallback
+        ? `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`
+        : '';
     
     summary.innerHTML = `
         <div class="meta">
-            <strong>${stock.ticker}${volumeWarningIcon}${sp500WarningIcon}</strong>
+            <strong>${stock.ticker}${volumeWarningIcon}${sp500WarningIcon}${atrWarningIcon}${syncSp500WarningIcon}${betaVolatilityWarningIcon}</strong>
             <div class="small">${stock.desc || ''}</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -343,6 +398,32 @@ function createStockRow(stock) {
     setupStockRowHandlers(row, stock);
 
     return row;
+}
+
+// Helper function to check if ATR is high risk (> 10%) from ATR string
+function isAtrHighRiskFromString(atrString) {
+    if (!atrString) return false;
+    const match = atrString.match(/\(([\d.]+)%\)/);
+    if (match && match[1]) {
+        const percent = parseFloat(match[1]);
+        return !isNaN(percent) && percent > 10.0;
+    }
+    return false;
+}
+
+// Helper function to check if ATR is high risk (> 10%) from stock object
+function isAtrHighRisk(stock) {
+    const atr = stock.atr || stock.Atr || '';
+    if (!atr) return false;
+
+    // First check warning from cache - prefer StockId, fallback to ticker
+    const warning = (stock.id && getWarningByStockId(stock.id)) || getWarningByTicker(stock.ticker);
+    if (warning && warning.atr_high_risk) {
+        return true;
+    }
+
+    // Fallback: parse ATR string
+    return isAtrHighRiskFromString(atr);
 }
 
 // Add new function to create stock details HTML (read-only view)
@@ -376,6 +457,14 @@ function createStockDetailsHTML(stock) {
 
     const regularVolume = stock.regular_volume || stock.RegularVolume;
     const volumeClass = getRegularVolumeClass(regularVolume);
+    const atrValue = stock.atr || stock.Atr || '-';
+    const isAtrHighRiskValue = isAtrHighRisk(stock);
+    const atrClass = isAtrHighRiskValue ? 'atr-high-risk-readonly' : '';
+    const syncSp500Value = stock.sync_sp500 || stock.SyncSp500 || '';
+    const syncSp500Class = (syncSp500Value === 'no') ? 'sync-sp500-no-readonly' : '';
+    const betaVolatilityValue = stock.betaVolatility || stock.BetaVolatility || '';
+    const betaVolatilityClass = (betaVolatilityValue === '3' || betaVolatilityValue === 3) 
+        ? 'beta-volatility-high-readonly' : '';
 
     return `
         <div class="deal-form-inline stock-details-form">
@@ -387,7 +476,7 @@ function createStockDetailsHTML(stock) {
 
                 <label>
                     Share beta volatility
-                    <input type="text" value="${getBetaVolatilityText(stock.betaVolatility)}" readonly style="background: #f6f8fb; cursor: default;" />
+                    <input type="text" value="${getBetaVolatilityText(betaVolatilityValue)}" readonly class="${betaVolatilityClass}" style="background: #f6f8fb; cursor: default;" />
                 </label>
 
                 <label>
@@ -396,8 +485,13 @@ function createStockDetailsHTML(stock) {
                 </label>
 
                 <label>
-                    Is share movement synchronized with S&P500?
-                    <input type="text" value="${getSyncSp500Text(stock.sync_sp500 || stock.SyncSp500)}" readonly style="background: #f6f8fb; cursor: default;" />
+                    ATR (Average True Range)
+                    <input type="text" value="${escapeHtml(atrValue)}" readonly class="${atrClass}" style="background: #f6f8fb; cursor: default;" />
+                </label>
+
+                <label>
+                    Synchronized with S&P500
+                    <input type="text" value="${getSyncSp500Text(syncSp500Value)}" readonly class="${syncSp500Class}" style="background: #f6f8fb; cursor: default;" />
                 </label>
 
                 <label class="inline-checkbox">
@@ -481,9 +575,28 @@ function setupStockRowHandlers(row, stock) {
                 stockForm.querySelector('input[name="ticker"]').value = stock.ticker || '';
                 stockForm.querySelector('textarea[name="desc"]').value = stock.desc || '';
                 stockForm.querySelector('input[name="sp500_member"]').checked = stock.sp500Member || stock.Sp500Member || false;
-                stockForm.querySelector('select[name="betaVolatility"]').value = stock.betaVolatility || '';
+                const betaVolatilitySelect = stockForm.querySelector('select[name="betaVolatility"]');
+                const betaVolatilityValue = stock.betaVolatility || stock.BetaVolatility || '';
+                if (betaVolatilitySelect) {
+                    betaVolatilitySelect.value = betaVolatilityValue;
+                    // Update betaVolatility styling based on value
+                    updateBetaVolatilityStyling(betaVolatilitySelect, betaVolatilityValue);
+                }
                 stockForm.querySelector('select[name="regular_volume"]').value = stock.regular_volume || stock.RegularVolume || '';
-                stockForm.querySelector('select[name="sync_sp500"]').value = stock.sync_sp500 || stock.SyncSp500 || '';
+                const syncSp500Select = stockForm.querySelector('select[name="sync_sp500"]');
+                const syncSp500Value = stock.sync_sp500 || stock.SyncSp500 || '';
+                if (syncSp500Select) {
+                    syncSp500Select.value = syncSp500Value;
+                    // Update sync_sp500 styling based on value
+                    updateSyncSp500Styling(syncSp500Select, syncSp500Value);
+                }
+                const atrInput = stockForm.querySelector('input[name="atr"]');
+                const atrValue = stock.atr || stock.Atr || '';
+                if (atrInput) {
+                    atrInput.value = atrValue;
+                    // Update ATR styling based on value
+                    updateAtrStyling(atrInput, atrValue);
+                }
                 
                 // Update modal title
                 const modalTitle = document.getElementById('stockModalTitle');
@@ -568,6 +681,195 @@ function updateRegularVolumeBorder() {
     }
 }
 
+// Function to update ATR input styling based on value
+function updateAtrStyling(atrInput, atrValue) {
+    if (!atrInput) return;
+    
+    // Remove high risk styling first
+    atrInput.classList.remove('atr-high-risk-readonly');
+    
+    if (!atrValue || !atrValue.trim()) {
+        return;
+    }
+    
+    // Check if ATR percentage > 10% and apply red styling
+    const match = atrValue.match(/\(([\d.]+)%\)/);
+    if (match && match[1]) {
+        const percent = parseFloat(match[1]);
+        if (!isNaN(percent) && percent > 10.0) {
+            atrInput.classList.add('atr-high-risk-readonly');
+        }
+    }
+}
+
+// Function to update sync_sp500 select styling based on value
+function updateSyncSp500Styling(syncSp500Select, syncSp500Value) {
+    if (!syncSp500Select) return;
+    
+    // Remove high risk styling first
+    syncSp500Select.classList.remove('sync-sp500-no-readonly');
+    
+    if (syncSp500Value === 'no') {
+        syncSp500Select.classList.add('sync-sp500-no-readonly');
+    }
+}
+
+// Function to update betaVolatility select styling based on value
+function updateBetaVolatilityStyling(betaVolatilitySelect, betaVolatilityValue) {
+    if (!betaVolatilitySelect) return;
+    
+    // Remove high risk styling first
+    betaVolatilitySelect.classList.remove('beta-volatility-high-readonly');
+    
+    if (betaVolatilityValue === '3' || betaVolatilityValue === 3) {
+        betaVolatilitySelect.classList.add('beta-volatility-high-readonly');
+    }
+}
+
+// Function to calculate and set ATR value
+async function calculateAndSetAtr(ticker) {
+    if (!ticker || !ticker.trim()) {
+        const atrInput = stockForm.querySelector('input[name="atr"]');
+        if (atrInput) {
+            atrInput.value = '';
+            // Remove high risk styling when clearing
+            atrInput.classList.remove('atr-high-risk-readonly');
+        }
+        return;
+    }
+
+    const atrInput = stockForm.querySelector('input[name="atr"]');
+    if (!atrInput) return;
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/atr?period=14`, {
+            headers: authHeaders()
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            // Format ATR: show value and percentage
+            const atrValue = data.atr || '';
+            const atrPercent = data.atrPercent || '';
+            
+            if (atrValue && atrPercent) {
+                const atrString = `${atrValue} (${atrPercent}%)`;
+                atrInput.value = atrString;
+                
+                // Update styling based on value
+                updateAtrStyling(atrInput, atrString);
+            } else if (atrValue) {
+                atrInput.value = atrValue;
+                updateAtrStyling(atrInput, atrValue);
+            } else {
+                atrInput.value = '';
+                updateAtrStyling(atrInput, '');
+            }
+            console.log(`Auto-calculated ATR for ${ticker}: ${atrInput.value}`);
+        } else {
+            // Clear ATR if calculation fails
+            atrInput.value = '';
+            updateAtrStyling(atrInput, '');
+            console.warn('Failed to get ATR data', res.status);
+        }
+    } catch (err) {
+        console.error('Error calculating ATR', err);
+        atrInput.value = '';
+        updateAtrStyling(atrInput, '');
+    }
+}
+
+// Function to calculate Beta and auto-set both betaVolatility and sync_sp500 fields (optimized - single API call)
+async function calculateAndSetBetaFields(ticker) {
+    if (!ticker || !ticker.trim()) {
+        const betaVolatilitySelect = stockForm.querySelector('select[name="betaVolatility"]');
+        const syncSp500Select = stockForm.querySelector('select[name="sync_sp500"]');
+        if (betaVolatilitySelect) {
+            betaVolatilitySelect.value = '';
+            updateBetaVolatilityStyling(betaVolatilitySelect, '');
+        }
+        if (syncSp500Select) {
+            syncSp500Select.value = '';
+            updateSyncSp500Styling(syncSp500Select, '');
+        }
+        return;
+    }
+
+    const betaVolatilitySelect = stockForm.querySelector('select[name="betaVolatility"]');
+    const syncSp500Select = stockForm.querySelector('select[name="sync_sp500"]');
+    if (!betaVolatilitySelect || !syncSp500Select) return;
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/beta`, {
+            headers: authHeaders()
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            const beta = data.beta;
+            const correlation = data.correlation;
+            const volatilityCategory = data.volatilityCategory;
+            
+            // Set betaVolatility field based on volatility category
+            if (volatilityCategory !== null && volatilityCategory !== undefined && 
+                !isNaN(volatilityCategory) && volatilityCategory > 0 && volatilityCategory <= 3) {
+                betaVolatilitySelect.value = volatilityCategory.toString();
+                // Apply styling after setting value
+                updateBetaVolatilityStyling(betaVolatilitySelect, betaVolatilitySelect.value);
+                console.log(`Auto-set betaVolatility for ${ticker}: ${betaVolatilitySelect.value} (beta: ${beta.toFixed(4)})`);
+            } else {
+                betaVolatilitySelect.value = '';
+                updateBetaVolatilityStyling(betaVolatilitySelect, '');
+                console.warn(`Invalid volatility category for ${ticker}:`, volatilityCategory);
+            }
+            
+            // Set sync_sp500 field based on correlation
+            // Correlation threshold: >= 0.7 means strong synchronization with S&P500
+            if (correlation !== null && correlation !== undefined && !isNaN(correlation)) {
+                if (correlation >= 0.7) {
+                    syncSp500Select.value = 'yes';
+                } else {
+                    syncSp500Select.value = 'no';
+                }
+                // Apply styling after setting value
+                updateSyncSp500Styling(syncSp500Select, syncSp500Select.value);
+                console.log(`Auto-set sync_sp500 for ${ticker}: ${syncSp500Select.value} (correlation: ${correlation.toFixed(4)})`);
+            } else {
+                syncSp500Select.value = '';
+                updateSyncSp500Styling(syncSp500Select, '');
+                console.warn(`Invalid correlation value for ${ticker}:`, correlation);
+            }
+        } else if (res.status === 503) {
+            // SPY data not available
+            console.warn('SPY benchmark data not available for Beta calculation');
+            betaVolatilitySelect.value = '';
+            updateBetaVolatilityStyling(betaVolatilitySelect, '');
+            syncSp500Select.value = '';
+            updateSyncSp500Styling(syncSp500Select, '');
+        } else if (res.status === 404) {
+            // No weekly data found for ticker
+            console.warn(`No weekly data found for ${ticker}`);
+            betaVolatilitySelect.value = '';
+            updateBetaVolatilityStyling(betaVolatilitySelect, '');
+            syncSp500Select.value = '';
+            updateSyncSp500Styling(syncSp500Select, '');
+        } else {
+            // Other API errors
+            console.warn('Failed to get Beta data', res.status);
+            betaVolatilitySelect.value = '';
+            updateBetaVolatilityStyling(betaVolatilitySelect, '');
+            syncSp500Select.value = '';
+            updateSyncSp500Styling(syncSp500Select, '');
+        }
+    } catch (err) {
+        console.error('Error calculating Beta/Correlation', err);
+        betaVolatilitySelect.value = '';
+        updateBetaVolatilityStyling(betaVolatilitySelect, '');
+        syncSp500Select.value = '';
+        updateSyncSp500Styling(syncSp500Select, '');
+    }
+}
+
 // Function to calculate average weekly volume and auto-select regular_volume
 async function calculateAndSetRegularVolume(ticker) {
     if (!ticker || !ticker.trim()) {
@@ -627,7 +929,12 @@ if (tickerInput) {
         const ticker = e.target.value.trim();
         // Always recalculate if ticker has a value and it's different from previous
         if (ticker && ticker !== previousTicker) {
-            await calculateAndSetRegularVolume(ticker);
+            // Calculate regular volume, ATR, and Beta fields (volatility + sync_sp500) in parallel
+            await Promise.all([
+                calculateAndSetRegularVolume(ticker),
+                calculateAndSetAtr(ticker),
+                calculateAndSetBetaFields(ticker)
+            ]);
             previousTicker = ticker; // Update previous value
         } else if (!ticker) {
             // Clear error if ticker is empty
@@ -636,6 +943,22 @@ if (tickerInput) {
             if (regularVolumeSelect) {
                 regularVolumeSelect.value = '';
                 updateRegularVolumeBorder(); // Update border
+            }
+            const atrInput = stockForm.querySelector('input[name="atr"]');
+            if (atrInput) {
+                atrInput.value = '';
+                // Remove high risk styling when clearing
+                atrInput.classList.remove('atr-high-risk-readonly');
+            }
+            // Clear betaVolatility and sync_sp500 fields
+            const betaVolatilitySelect = stockForm.querySelector('select[name="betaVolatility"]');
+            if (betaVolatilitySelect) {
+                betaVolatilitySelect.value = '';
+            }
+            const syncSp500Select = stockForm.querySelector('select[name="sync_sp500"]');
+            if (syncSp500Select) {
+                syncSp500Select.value = '';
+                updateSyncSp500Styling(syncSp500Select, '');
             }
             previousTicker = ''; // Reset previous ticker
         }
@@ -654,6 +977,28 @@ if (regularVolumeSelect) {
     
     // Update initial state if value is already set
     updateRegularVolumeBorder();
+}
+
+// Setup event listener for sync_sp500 select to update styling on change
+const syncSp500Select = stockForm.querySelector('select[name="sync_sp500"]');
+if (syncSp500Select) {
+    syncSp500Select.addEventListener('change', () => {
+        updateSyncSp500Styling(syncSp500Select, syncSp500Select.value);
+    });
+    
+    // Update initial state if value is already set
+    updateSyncSp500Styling(syncSp500Select, syncSp500Select.value);
+}
+
+// Setup event listener for betaVolatility select to update styling on change
+const betaVolatilitySelect = stockForm.querySelector('select[name="betaVolatility"]');
+if (betaVolatilitySelect) {
+    betaVolatilitySelect.addEventListener('change', () => {
+        updateBetaVolatilityStyling(betaVolatilitySelect, betaVolatilitySelect.value);
+    });
+    
+    // Update initial state if value is already set
+    updateBetaVolatilityStyling(betaVolatilitySelect, betaVolatilitySelect.value);
 }
 
 // ====== Старт ======

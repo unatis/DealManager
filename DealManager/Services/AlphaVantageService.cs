@@ -194,15 +194,16 @@ namespace DealManager.Services
             return readonlyList;
         }
 
-        private async Task<List<PricePoint>> FetchWeeklyFromApi(string symbol)
+        private async Task<List<PricePoint>> FetchWeeklyFromApi(string symbol, bool useFullOutput = false)
         {
+            var outputSize = useFullOutput ? "full" : "compact";
             var url =
                 $"https://www.alphavantage.co/query?function={Function}" +
                 $"&symbol={Uri.EscapeDataString(symbol)}" +
                 $"&apikey={_settings.ApiKey}" +
-                $"&outputsize=compact";
+                $"&outputsize={outputSize}";
 
-            _logger.LogInformation("Fetching weekly prices from Alpha Vantage for {Symbol}", symbol);
+            _logger.LogInformation("Fetching weekly prices from Alpha Vantage for {Symbol} with outputsize={OutputSize}", symbol, outputSize);
             
             using var resp = await _http.GetAsync(url);
             var json = await resp.Content.ReadAsStringAsync();
@@ -510,5 +511,119 @@ namespace DealManager.Services
 
         private static bool IsSameDay(DateTime storedUtc) =>
             storedUtc.Date == DateTime.UtcNow.Date;
+
+        /// <summary>
+        /// Fetches SPY weekly data for the last 2 years and saves to MongoDB.
+        /// Uses outputsize=full to get maximum historical data (up to 20 years).
+        /// </summary>
+        public async Task<IReadOnlyList<PricePoint>> FetchSpyWeeklyDataAsync()
+        {
+            const string spySymbol = "SPY";
+            
+            _logger.LogInformation("Fetching SPY weekly data with full historical range");
+            
+            // Check if we already have recent SPY data (within same day)
+            var cacheKey = $"av_weekly_{spySymbol}";
+            if (_cache.TryGetValue(cacheKey, out IReadOnlyList<PricePoint>? cached) && cached != null)
+            {
+                _logger.LogInformation("SPY data found in memory cache");
+                return cached;
+            }
+
+            CachedWeeklySeries? cachedFromDb = null;
+            try
+            {
+                cachedFromDb = await _weeklyCollection
+                    .Find(x => x.Ticker == spySymbol)
+                    .FirstOrDefaultAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to read cached SPY weekly prices from MongoDB");
+            }
+
+            // If we have fresh data (same day), return it
+            if (cachedFromDb != null &&
+                cachedFromDb.Points != null &&
+                cachedFromDb.Points.Count > 0 &&
+                IsSameDay(cachedFromDb.LastUpdatedUtc))
+            {
+                var fresh = cachedFromDb.Points
+                    .OrderBy(p => p.Date)
+                    .ToList()
+                    .AsReadOnly();
+
+                _cache.Set(cacheKey, fresh, TimeSpan.FromHours(24)); // Cache for 24 hours
+                _logger.LogInformation("SPY data found in MongoDB cache ({Count} points)", fresh.Count);
+                return fresh;
+            }
+
+            // Fetch from API with full output size
+            List<PricePoint> list;
+            try
+            {
+                list = await FetchWeeklyFromApi(spySymbol, useFullOutput: true);
+                _logger.LogInformation("Successfully fetched {Count} SPY price points from Alpha Vantage", list.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch SPY weekly prices from Alpha Vantage: {Message}", ex.Message);
+                throw;
+            }
+
+            // Filter to last 2 years if needed
+            var twoYearsAgo = DateTime.UtcNow.AddYears(-2);
+            var filteredList = list.Where(p => p.Date >= twoYearsAgo).ToList();
+            
+            if (filteredList.Count < list.Count)
+            {
+                _logger.LogInformation("Filtered SPY data from {Total} to {Filtered} points (last 2 years)", 
+                    list.Count, filteredList.Count);
+                list = filteredList;
+            }
+
+            // Save to MongoDB
+            try
+            {
+                var existing = await _weeklyCollection
+                    .Find(x => x.Ticker == spySymbol)
+                    .FirstOrDefaultAsync();
+
+                if (existing != null && string.IsNullOrEmpty(existing.Id))
+                {
+                    await _weeklyCollection.DeleteOneAsync(x => x.Ticker == spySymbol);
+                }
+
+                var filter = Builders<CachedWeeklySeries>.Filter.Eq(x => x.Ticker, spySymbol);
+                var update = Builders<CachedWeeklySeries>.Update
+                    .Set(x => x.Ticker, spySymbol)
+                    .Set(x => x.Points, list)
+                    .Set(x => x.LastUpdatedUtc, DateTime.UtcNow);
+                
+                var result = await _weeklyCollection.UpdateOneAsync(
+                    filter,
+                    update,
+                    new UpdateOptions { IsUpsert = true });
+                
+                if (result.UpsertedId != null)
+                {
+                    _logger.LogInformation("Successfully saved SPY weekly prices to MongoDB ({Count} points). New Id: {Id}", 
+                        list.Count, result.UpsertedId);
+                }
+                else if (result.ModifiedCount > 0)
+                {
+                    _logger.LogInformation("Successfully updated SPY weekly prices in MongoDB ({Count} points)", list.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save SPY weekly prices to MongoDB, but continuing with in-memory cache. Error: {Message}", 
+                    ex.Message);
+            }
+
+            var readonlyList = list.AsReadOnly();
+            _cache.Set(cacheKey, readonlyList, TimeSpan.FromHours(24)); // Cache for 24 hours
+            return readonlyList;
+        }
     }
 }

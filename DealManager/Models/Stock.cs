@@ -19,12 +19,16 @@ namespace DealManager.Models
         public bool Sp500Member { get; set; }
         public bool AverageWeekVol { get; set; }
 
-        public bool BetaVolatility { get; set; }
+        [JsonPropertyName("betaVolatility")]
+        public string? BetaVolatility { get; set; }
 
         [JsonPropertyName("regular_volume")]
         public string? RegularVolume { get; set; }
 
         [JsonPropertyName("sync_sp500")]
         public string? SyncSp500 { get; set; }
+
+        [JsonPropertyName("atr")]
+        public string? Atr { get; set; }
     }
 }

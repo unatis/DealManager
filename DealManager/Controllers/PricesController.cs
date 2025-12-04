@@ -429,4 +429,157 @@ public class PricesController : ControllerBase
             return $"${volumeInDollars / 1_000:F2}K";
         return $"${volumeInDollars:F2}";
     }
+
+    [HttpGet("{ticker}/atr")]
+    public async Task<IActionResult> GetAtr(string ticker, [FromQuery] int period = 14)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        if (period <= 0 || period > 100)
+            return BadRequest("Period must be between 1 and 100");
+
+        try
+        {
+            _logger.LogInformation("Calculating ATR for {Ticker} with period {Period}", ticker, period);
+            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            
+            if (priceData.Count == 0)
+                return NotFound("No data for this ticker");
+
+            // Calculate ATR
+            var atrResult = AtrCalculator.CalculateAtr(priceData, period);
+            
+            _logger.LogInformation(
+                "ATR calculated for {Ticker}: ATR={AtrValue:F4}, ATR%={AtrPercent:F2}%, Period={Period}, CandlesUsed={CandlesUsed}",
+                ticker, atrResult.AtrValue, atrResult.AtrPercent, atrResult.Period, atrResult.CandlesUsed);
+
+            return Ok(new
+            {
+                atr = atrResult.AtrValue.ToString("F4"),
+                atrPercent = atrResult.AtrPercent?.ToString("F2"),
+                period = atrResult.Period,
+                candlesUsed = atrResult.CandlesUsed,
+                latestClose = atrResult.LatestClose.ToString("F2"),
+                trueRangesCount = atrResult.TrueRangesCount
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid argument for ATR calculation for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Cannot calculate ATR for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate ATR for {Ticker}. Exception: {ExceptionType}, Message: {Message}", 
+                ticker, ex.GetType().Name, ex.Message);
+            return StatusCode(500, $"Internal error: {ex.Message}");
+        }
+    }
+
+    [HttpPost("spy/fetch")]
+    public async Task<IActionResult> FetchSpyData()
+    {
+        try
+        {
+            _logger.LogInformation("Manual SPY data fetch requested");
+            var spyData = await _alpha.FetchSpyWeeklyDataAsync();
+            
+            _logger.LogInformation("SPY data fetch completed: {Count} data points", spyData.Count);
+            
+            return Ok(new
+            {
+                success = true,
+                ticker = "SPY",
+                dataPoints = spyData.Count,
+                dateRange = new
+                {
+                    from = spyData.Min(p => p.Date).ToString("yyyy-MM-dd"),
+                    to = spyData.Max(p => p.Date).ToString("yyyy-MM-dd")
+                },
+                message = $"Successfully fetched and saved {spyData.Count} SPY weekly data points"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch SPY data: {Message}", ex.Message);
+            return StatusCode(500, new
+            {
+                success = false,
+                error = ex.Message
+            });
+        }
+    }
+
+    [HttpGet("{ticker}/beta")]
+    public async Task<IActionResult> GetBeta(string ticker)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        try
+        {
+            _logger.LogInformation("Calculating Beta for {Ticker} against SPY", ticker);
+
+            // Получаем недельные данные актива
+            var assetData = await _alpha.GetWeeklyAsync(ticker);
+            if (assetData.Count == 0)
+                return NotFound($"No weekly data found for {ticker}");
+
+            // Получаем недельные данные SPY (бенчмарк)
+            var spyData = await _alpha.GetWeeklyAsync("SPY");
+            if (spyData.Count == 0)
+                return StatusCode(503, "SPY benchmark data is not available. Please ensure SPY data has been fetched.");
+
+            // Конвертируем PricePoint в WeeklyCandle
+            var assetCandles = BetaService.ToWeeklyCandles(assetData);
+            var spyCandles = BetaService.ToWeeklyCandles(spyData);
+
+            // Рассчитываем Beta и Correlation
+            var result = BetaService.CalculateBetaAndCorrelation(assetCandles, spyCandles);
+
+            // Calculate volatility category from beta
+            int volatilityCategory;
+            try
+            {
+                volatilityCategory = VolatilityCategory.FromBeta(result.Beta);
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid beta value for volatility category calculation: {Beta}", result.Beta);
+                volatilityCategory = 0; // Use 0 to indicate invalid/unavailable
+            }
+
+            _logger.LogInformation("Beta calculation for {Ticker}: Beta={Beta:F4}, Correlation={Correlation:F4}, VolatilityCategory={VolCat}, Points={Points}",
+                ticker, result.Beta, result.Correlation, volatilityCategory, result.PointsUsed);
+
+            return Ok(new
+            {
+                ticker = ticker,
+                benchmark = "SPY",
+                beta = result.Beta,
+                correlation = result.Correlation,
+                volatilityCategory = volatilityCategory,
+                pointsUsed = result.PointsUsed,
+                assetDataPoints = assetData.Count,
+                benchmarkDataPoints = spyData.Count
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Beta calculation error for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate Beta for {Ticker}. Exception: {ExceptionType}, Message: {Message}",
+                ticker, ex.GetType().Name, ex.Message);
+            return StatusCode(500, $"Internal error: {ex.Message}");
+        }
+    }
 }
