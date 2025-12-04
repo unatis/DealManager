@@ -25,12 +25,21 @@
                 Cash:
                 <span id="portfolioValue" class="portfolio-display">0</span>
             </div>
-            <button id="newDealBtn">New Deal</button>
-            <button id="logoutBtn" class="secondary">Logout</button>
-            <!--<button id="importBtn" class="secondary">Import</button>
-    <button id="exportBtn" class="secondary">Export</button>-->
+            <button id="newDealBtn" class="desktop-btn">New Deal</button>
+            <button id="logoutBtn" class="secondary desktop-btn">Logout</button>
+            <!-- Hamburger menu button for mobile -->
+            <button id="menuToggle" class="menu-toggle" aria-label="Menu">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
         </div>
     </header>
+    <!-- Mobile menu -->
+    <div id="mobileMenu" class="mobile-menu">
+        <button id="newDealBtnMobile" class="mobile-menu-btn">New Deal</button>
+        <button id="logoutBtnMobile" class="mobile-menu-btn secondary">Logout</button>
+    </div>
 
     <main>
         <!-- Left: stocks list -->

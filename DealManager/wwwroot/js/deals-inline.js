@@ -316,6 +316,75 @@ if (elements.logoutBtn) {
     });
 }
 
+// ========== HAMBURGER MENU ==========
+
+const menuToggle = document.getElementById('menuToggle');
+const mobileMenu = document.getElementById('mobileMenu');
+const mobileMenuOverlay = document.createElement('div');
+mobileMenuOverlay.className = 'mobile-menu-overlay';
+document.body.appendChild(mobileMenuOverlay);
+
+// Mobile menu buttons (clone functionality from desktop buttons)
+const newDealBtnMobile = document.getElementById('newDealBtnMobile');
+const logoutBtnMobile = document.getElementById('logoutBtnMobile');
+
+if (menuToggle && mobileMenu) {
+    menuToggle.addEventListener('click', () => {
+        const isOpen = mobileMenu.classList.contains('open');
+        
+        if (isOpen) {
+            closeMobileMenu();
+        } else {
+            openMobileMenu();
+        }
+    });
+    
+    // Close menu when clicking overlay
+    mobileMenuOverlay.addEventListener('click', closeMobileMenu);
+    
+    // Close menu on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
+            closeMobileMenu();
+        }
+    });
+}
+
+function openMobileMenu() {
+    if (mobileMenu) {
+        mobileMenu.classList.add('open');
+        mobileMenuOverlay.classList.add('active');
+        if (menuToggle) menuToggle.classList.add('active');
+        document.body.style.overflow = 'hidden'; // Prevent background scrolling
+    }
+}
+
+function closeMobileMenu() {
+    if (mobileMenu) {
+        mobileMenu.classList.remove('open');
+        mobileMenuOverlay.classList.remove('active');
+        if (menuToggle) menuToggle.classList.remove('active');
+        document.body.style.overflow = ''; // Restore scrolling
+    }
+}
+
+// Wire up mobile menu buttons to same functionality as desktop buttons
+if (newDealBtnMobile && elements.newDealBtn) {
+    newDealBtnMobile.addEventListener('click', () => {
+        // Trigger the same action as desktop New Deal button
+        elements.newDealBtn.click();
+        closeMobileMenu();
+    });
+}
+
+if (logoutBtnMobile && elements.logoutBtn) {
+    logoutBtnMobile.addEventListener('click', () => {
+        // Trigger the same action as desktop Logout button
+        elements.logoutBtn.click();
+        closeMobileMenu();
+    });
+}
+
 // ========== INLINE FORM GENERATION ==========
 
 function createDealFormHTML(deal = null, isNew = false) {
