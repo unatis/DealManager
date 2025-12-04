@@ -323,11 +323,10 @@ function createDealFormHTML(deal = null, isNew = false) {
                
                 <label>Shares amount to buy at stage 1<input type="text" name="amount_tobuy_stage_1" value="${escapeHtml(deal?.amount_tobuy_stage_1 || '')}" placeholder=""></label>
                 <label>Shares amount to buy at stage 2<input type="text" name="amount_tobuy_stage_2" value="${escapeHtml(deal?.amount_tobuy_stage_2 || '')}" placeholder=""></label>
-                <label>Shares amount to buy at stage 3<input type="text" name="amount_tobuy_stage_3" value="${escapeHtml(deal?.amount_tobuy_stage_3 || '')}" placeholder=""></label>
-                <label>What is your take profit price?<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
-                <label>What is your take profit in %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
-                <label>What is your stop loss price?<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
-                <label>What is your stop loss in %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
+                <label>Take profit<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
+                <label>Take profit %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
+                <label>Stop loss<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
+                <label>Stop loss %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
 
                 <label>
                     You're afraid it will be too late?

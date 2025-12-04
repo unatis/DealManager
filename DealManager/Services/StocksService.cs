@@ -9,7 +9,9 @@ namespace DealManager.Services
 
         public StocksService(MongoSettings settings)
         {
-            var client = new MongoClient(settings.ConnectionString);
+            var clientSettings = MongoClientSettings.FromConnectionString(settings.ConnectionString);
+            clientSettings.AllowInsecureTls = true;
+            var client = new MongoClient(clientSettings);
             var db = client.GetDatabase(settings.Database);
             _stocks = db.GetCollection<Stock>(settings.StocksCollection);
         }
@@ -42,6 +44,23 @@ namespace DealManager.Services
             return _stocks
                 .Find(s => s.OwnerId == userId && s.Ticker == norm)
                 .AnyAsync();
+        }
+
+        public async Task UpdateAsync(string id, string ownerId, Stock stock)
+        {
+            var filter = Builders<Stock>.Filter.And(
+                Builders<Stock>.Filter.Eq(s => s.Id, id),
+                Builders<Stock>.Filter.Eq(s => s.OwnerId, ownerId)
+            );
+            
+            await _stocks.ReplaceOneAsync(filter, stock);
+        }
+
+        public Task<Stock?> GetByIdAsync(string id, string ownerId)
+        {
+            return _stocks
+                .Find(s => s.Id == id && s.OwnerId == ownerId)
+                .FirstOrDefaultAsync();
         }
     }
 }

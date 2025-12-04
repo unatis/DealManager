@@ -35,7 +35,7 @@ namespace DealManager.Controllers
         }
 
         // DTO, который будем принимать с фронта
-        public record StockDto(string Ticker, string? Desc, bool Sp500Member, string? RegularVolume);
+        public record StockDto(string Ticker, string? Desc, bool Sp500Member, string? RegularVolume, string? SyncSp500);
 
         [HttpGet]
         public async Task<ActionResult<List<Stock>>> GetAll()
@@ -56,7 +56,8 @@ namespace DealManager.Controllers
                 Ticker = dto.Ticker,
                 Desc = dto.Desc,
                 Sp500Member = dto.Sp500Member,
-                RegularVolume = dto.RegularVolume
+                RegularVolume = dto.RegularVolume,
+                SyncSp500 = dto.SyncSp500
             };
 
             await _service.CreateAsync(stock);
@@ -111,6 +112,35 @@ namespace DealManager.Controllers
             if (warning == null)
                 return NotFound();
             return warning;
+        }
+
+        [HttpPut("{id}")]
+        public async Task<ActionResult<Stock>> Update(string id, StockDto dto)
+        {
+            var userId = GetUserId();
+            
+            var stock = await _service.GetByIdAsync(id, userId);
+            if (stock == null) return NotFound();
+
+            stock.Ticker = dto.Ticker;
+            stock.Desc = dto.Desc;
+            stock.Sp500Member = dto.Sp500Member;
+            stock.RegularVolume = dto.RegularVolume;
+            stock.SyncSp500 = dto.SyncSp500;
+
+            await _service.UpdateAsync(id, userId, stock);
+            
+            // Update warning if regular_volume is "1"
+            if (dto.RegularVolume == "1")
+            {
+                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: true);
+            }
+            else
+            {
+                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: false);
+            }
+            
+            return Ok(stock);
         }
     }
 }

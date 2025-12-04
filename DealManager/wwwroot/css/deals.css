@@ -194,11 +194,32 @@ h3 {
     grid-column: 1 / -1;
 }
 
+/* Stock details form - single column layout */
+.stock-details-form .stock-details-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 20px;
+}
+
 .deal-form-inline label {
     display: flex;
     flex-direction: column;
     font-size: 16px;
     color: #0b1724;
+}
+
+.deal-form-inline label.inline-checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.deal-form-inline label.inline-checkbox > input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    flex-shrink: 0;
 }
 
 .deal-form-inline label > input,
@@ -359,6 +380,25 @@ select[name="regular_volume"].volume-200m option:not(:checked) {
 /* General rule for all unselected options */
 select[name="regular_volume"] option:not(:checked) {
     color: #0b1724; /* default text color */
+}
+
+/* Colored borders and text for read-only regular_volume input in stock details */
+input.volume-50m-readonly {
+    border: 2px solid #dc2626 !important; /* red */
+    color: #dc2626 !important;
+    background: #f6f8fb !important;
+}
+
+input.volume-100m-readonly {
+    border: 2px solid #eab308 !important; /* yellow */
+    color: #ca8a04 !important;
+    background: #f6f8fb !important;
+}
+
+input.volume-200m-readonly {
+    border: 2px solid #22c55e !important; /* green */
+    color: #16a34a !important;
+    background: #f6f8fb !important;
 }
 
 /* Volume warning icon in deal-item stock title */

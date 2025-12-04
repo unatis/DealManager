@@ -56,9 +56,6 @@ namespace DealManager.Models
         [JsonPropertyName("amount_tobuy_stage_2")]
         public string? Amount_tobuy_stage_2 { get; set; }
 
-        [JsonPropertyName("amount_tobuy_stage_3")]
-        public string? Amount_tobuy_stage_3 { get; set; }
-
         [JsonPropertyName("take_profit")]
         public string? TakeProfit { get; set; }
 
