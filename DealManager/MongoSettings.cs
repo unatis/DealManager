@@ -8,5 +8,6 @@
         public string StocksCollection { get; set; } = "stocks";
         public string QuotesCollection { get; set; } = "quotes";
         public string WeeklyPricesCollection { get; set; } = "weekly_prices";
+        public string WarningsCollection { get; set; } = "warnings";
     }
 }

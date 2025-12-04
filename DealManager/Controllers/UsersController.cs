@@ -24,6 +24,16 @@ public class UsersController : ControllerBase
 
     public record PortfolioRequest(double Portfolio);
 
+    [HttpGet("portfolio")]
+    public async Task<ActionResult<PortfolioRequest>> GetPortfolio()
+    {
+        var userId = GetUserId();
+        if (userId == null) return Unauthorized();
+
+        var portfolio = await _users.GetPortfolioAsync(userId);
+        return Ok(new PortfolioRequest((double)portfolio));
+    }
+
     [HttpPut("portfolio")]
     public async Task<IActionResult> UpdatePortfolio([FromBody] PortfolioRequest request)
     {
@@ -34,5 +44,7 @@ public class UsersController : ControllerBase
         return NoContent();
     }
 }
+
+
 
 

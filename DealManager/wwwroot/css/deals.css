@@ -56,7 +56,24 @@ button {
     border-radius: 8px;
     color: white;
     cursor: pointer;
-    font-weight: 600
+    font-weight: 600;
+    pointer-events: auto;
+    position: relative;
+    z-index: 1;
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+#addStockBtn {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    z-index: 10;
+    position: relative;
+    margin-bottom: 30px;
 }
 
 main {
@@ -177,11 +194,32 @@ h3 {
     grid-column: 1 / -1;
 }
 
+/* Stock details form - single column layout */
+.stock-details-form .stock-details-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 20px;
+}
+
 .deal-form-inline label {
     display: flex;
     flex-direction: column;
     font-size: 16px;
     color: #0b1724;
+}
+
+.deal-form-inline label.inline-checkbox {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.deal-form-inline label.inline-checkbox > input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    flex-shrink: 0;
 }
 
 .deal-form-inline label > input,
@@ -291,6 +329,123 @@ select.has-down-selected option[value="Down"] {
 input.has-stop-loss-error {
     border: 2px solid #dc2626;
     color: #dc2626;
+}
+
+/* Colored borders for regular_volume select based on selected option */
+select[name="regular_volume"].volume-50m {
+    border: 2px solid #dc2626; /* red */
+    /* Color only applied to selected option, not the select element */
+}
+
+select[name="regular_volume"].volume-50m option:checked {
+    color: #dc2626;
+    background-color: #fff;
+}
+
+/* Ensure unselected options have regular color */
+select[name="regular_volume"].volume-50m option:not(:checked) {
+    color: #0b1724; /* default text color */
+}
+
+select[name="regular_volume"].volume-100m {
+    border: 2px solid #eab308; /* yellow */
+    /* Color only applied to selected option, not the select element */
+}
+
+select[name="regular_volume"].volume-100m option:checked {
+    color: #ca8a04;
+    background-color: #fff;
+}
+
+/* Ensure unselected options have regular color */
+select[name="regular_volume"].volume-100m option:not(:checked) {
+    color: #0b1724; /* default text color */
+}
+
+select[name="regular_volume"].volume-200m {
+    border: 2px solid #22c55e; /* green */
+    /* Color only applied to selected option, not the select element */
+}
+
+select[name="regular_volume"].volume-200m option:checked {
+    color: #16a34a;
+    background-color: #fff;
+}
+
+/* Ensure unselected options have regular color */
+select[name="regular_volume"].volume-200m option:not(:checked) {
+    color: #0b1724; /* default text color */
+}
+
+/* General rule for all unselected options */
+select[name="regular_volume"] option:not(:checked) {
+    color: #0b1724; /* default text color */
+}
+
+/* Colored borders and text for read-only regular_volume input in stock details */
+input.volume-50m-readonly {
+    border: 2px solid #dc2626 !important; /* red */
+    color: #dc2626 !important;
+    background: #f6f8fb !important;
+}
+
+input.volume-100m-readonly {
+    border: 2px solid #eab308 !important; /* yellow */
+    color: #ca8a04 !important;
+    background: #f6f8fb !important;
+}
+
+input.volume-200m-readonly {
+    border: 2px solid #22c55e !important; /* green */
+    color: #16a34a !important;
+    background: #f6f8fb !important;
+}
+
+/* Volume warning icon in deal-item stock title */
+.volume-warning-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    border-radius: 50%;
+    background-color: #dc2626;
+    color: #fff;
+    font-weight: bold;
+    font-size: 14px;
+    margin-left: 6px;
+    cursor: help;
+    position: relative;
+    vertical-align: middle;
+}
+
+.volume-warning-icon:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    background: #0b1724;
+    color: #fff;
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.volume-warning-icon:hover::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 2px);
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #0b1724;
+    z-index: 1001;
+    pointer-events: none;
 }
 
 /* все элементы формы внутри label тянутся на всю ширину */
@@ -526,4 +681,29 @@ label.inline-checkbox > input[type="checkbox"] {
     display: flex;
     justify-content: center;
     margin-top: 16px;
+}
+
+/* Loading spinner - matches login button style */
+.loading-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(6, 182, 212, 0.3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: var(--muted);
 }

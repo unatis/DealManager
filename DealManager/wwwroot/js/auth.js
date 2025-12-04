@@ -103,7 +103,7 @@ function setButtonLoading(button, isLoading) {
         button.innerHTML = '<span class="loading-spinner"></span> Loading...';
     } else {
         button.disabled = false;
-        const originalText = button.dataset.originalText || 'Sign in';
+        const originalText = button.dataset.originalText || (button.id === 'btnSignUp' ? 'Sign up' : 'Sign in');
         button.textContent = originalText;
         delete button.dataset.originalText;
     }

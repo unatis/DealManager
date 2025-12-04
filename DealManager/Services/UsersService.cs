@@ -27,5 +27,28 @@ namespace DealManager.Services
             _users.UpdateOneAsync(
                 u => u.Id == userId,
                 Builders<AppUser>.Update.Set(u => u.Portfolio, portfolio));
+
+        public async Task<bool> DeductPortfolioAsync(string userId, decimal amount)
+        {
+            if (amount <= 0) return false;
+
+            var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            if (user == null) return false;
+
+            var currentPortfolio = (decimal)user.Portfolio;
+            var newPortfolio = Math.Max(0, currentPortfolio - amount);
+
+            await _users.UpdateOneAsync(
+                u => u.Id == userId,
+                Builders<AppUser>.Update.Set(u => u.Portfolio, (double)newPortfolio));
+
+            return true;
+        }
+
+        public async Task<decimal> GetPortfolioAsync(string userId)
+        {
+            var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            return user != null ? (decimal)user.Portfolio : 0;
+        }
     }
 }

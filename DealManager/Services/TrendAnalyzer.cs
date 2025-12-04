@@ -405,6 +405,7 @@ namespace DealManager.Services
         }
 
         // Сила уровня: касания * бонус за обе стороны * близость к цене * свежесть
+        // Сила уровня: касания * бонус за обе стороны * близость к цене * свежесть
         private static double ComputeSrScore(
             decimal levelPrice,
             int highTouches,
@@ -419,20 +420,32 @@ namespace DealManager.Services
             // бонус, если уровень отрабатывался и как хай, и как лоу
             var bothSidesBonus = 1.0 + 0.3 * Math.Min(highTouches, lowTouches);
 
+            // --- штраф за расстояние от текущей цены ---
             double distanceWeight = 1.0;
-            if (lastClose > 0)
+            double distance = 0.0;
+
+            if (lastClose > 0m)
             {
-                var distance = (double)Math.Abs(levelPrice - lastClose) / (double)lastClose;
-                // чем дальше от текущей цены, тем меньше вес
-                distanceWeight = 1.0 / (1.0 + distance * 5.0);
+                // относительное расстояние от текущей цены
+                distance = (double)Math.Abs(levelPrice - lastClose) / (double)lastClose;
+
+                // экспоненциальный штраф:
+                // близко к цене (5–15%) -> вес высокий
+                // далеко (50–70%) -> вес почти ноль
+                const double distanceCoeff = 8.0; // можно крутить
+                distanceWeight = Math.Exp(-distance * distanceCoeff);
             }
 
-            // "возраст" уровня в барах
-            var age = Math.Max(1, totalBars - lastIndex);
-            // чем свежее, тем больше вес
-            var timeWeight = 1.0 / (1.0 + age / 52.0); // 52 бара условно ~год
+            // --- штраф за "возраст" уровня ---
+            var ageBars = Math.Max(1, totalBars - lastIndex); // сколько баров назад был последний пивот
+            const double halfLifeBars = 40.0; // чем меньше, тем сильнее душим старые уровни
 
+            // экспоненциальный распад по времени
+            double timeWeight = Math.Exp(-ageBars / halfLifeBars);
+
+            // Итоговый скор
             return touches * bothSidesBonus * distanceWeight * timeWeight;
         }
+
     }
 }

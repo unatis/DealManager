@@ -4,6 +4,9 @@ let deals = [];
 let dealsLoaded = false;
 let expandedDealId = null; // Track which deal is currently expanded
 let newDealRow = null; // Track if there's a new deal row being created
+let stocksCache = []; // Cache stocks data for checking regular_volume
+// warningsCache is now a window property to share with stocks.js
+window.warningsCache = window.warningsCache || [];
 
 // ---------- элементы DOM ----------
 const elements = {
@@ -32,7 +35,7 @@ function setPriceError(containerEl, message) {
     }
 }
 
-// Calculate total sum: share_price * amount_tobuy
+// Calculate total sum: share_price * amount_tobuy_stage_1
 function calculateTotalSum(sharePrice, amountToBuy) {
     const price = parseFloat(String(sharePrice || '').replace(',', '.')) || 0;
     const amount = parseFloat(String(amountToBuy || '').replace(',', '.')) || 0;
@@ -163,11 +166,47 @@ async function loadStocksForDeals() {
         }
 
         const stocks = await res.json();
-        return stocks || [];
+        stocksCache = stocks || []; // Update cache
+        return stocksCache;
     } catch (err) {
         console.error(err);
+        stocksCache = [];
         return [];
     }
+}
+
+// Function to get stock by ticker from cache
+function getStockByTicker(ticker) {
+    if (!ticker || !stocksCache || stocksCache.length === 0) return null;
+    return stocksCache.find(s => s.ticker === ticker) || null;
+}
+
+// Function to load warnings from server
+async function loadWarnings() {
+    try {
+        const res = await fetch('/api/stocks/warnings', {
+            headers: authHeaders()
+        });
+
+        if (!res.ok) {
+            throw new Error('Failed to load warnings');
+        }
+
+        const warnings = await res.json();
+        window.warningsCache = warnings || [];
+        return window.warningsCache;
+    } catch (err) {
+        console.error(err);
+        window.warningsCache = [];
+        return [];
+    }
+}
+
+// Function to get warning by ticker from cache
+function getWarningByTicker(ticker) {
+    const cache = window.warningsCache || [];
+    if (!ticker || !cache || cache.length === 0) return null;
+    return cache.find(w => w.ticker === ticker?.toUpperCase()) || null;
 }
 
 // ========== ЗАГРУЗКА СДЕЛОК ==========
@@ -199,7 +238,15 @@ async function loadDeals() {
 
         deals = await res.json();
         dealsLoaded = true;
+        
+        // Load stocks and warnings to cache for volume indicator
+        await loadStocksForDeals();
+        await loadWarnings();
+        
         renderAll();
+        
+        // Calculate and display portfolio risk after loading deals
+        await calculateAndDisplayPortfolioRisk();
     } catch (e) {
         console.error('Load deals error', e);
         dealsLoaded = true;
@@ -274,15 +321,12 @@ function createDealFormHTML(deal = null, isNew = false) {
 
                 <label>Share price<input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder=""></label>
                
-                <label>Shares amount to buy total<input type="text" name="amount_tobuy" value="${escapeHtml(deal?.amount_tobuy || '')}" placeholder=""></label>
-
                 <label>Shares amount to buy at stage 1<input type="text" name="amount_tobuy_stage_1" value="${escapeHtml(deal?.amount_tobuy_stage_1 || '')}" placeholder=""></label>
                 <label>Shares amount to buy at stage 2<input type="text" name="amount_tobuy_stage_2" value="${escapeHtml(deal?.amount_tobuy_stage_2 || '')}" placeholder=""></label>
-                <label>Shares amount to buy at stage 3<input type="text" name="amount_tobuy_stage_3" value="${escapeHtml(deal?.amount_tobuy_stage_3 || '')}" placeholder=""></label>
-                <label>What is your take profit price?<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
-                <label>What is your take profit in %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
-                <label>What is your stop loss price?<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
-                <label>What is your stop loss in %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
+                <label>Take profit<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
+                <label>Take profit %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
+                <label>Stop loss<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
+                <label>Stop loss %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
 
                 <label>
                     You're afraid it will be too late?
@@ -431,8 +475,23 @@ function createDealFormHTML(deal = null, isNew = false) {
                 <label class="full">Deal details description<textarea name="notes">${escapeHtml(deal?.notes || '')}</textarea></label>
 
                 <div class="full form-actions">
-                    <button type="submit">${isNew ? 'Create deal' : 'Save changes'}</button>
-                    ${isEdit && !deal?.closed ? `<button type="button" class="secondary close-deal-btn">Close deal</button>` : ''}
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 50px; flex-wrap: wrap;">
+                            ${isNew ? `
+                            <button type="submit">Create deal</button>
+                            <label class="inline-checkbox" style="display: flex; align-items: center; font-size: 14px; cursor: pointer; margin: 0; flex-direction: row; gap: 0;">
+                                <input type="checkbox" name="planned_future" style="cursor: pointer; margin: 0; flex-shrink: 0; margin-right: 10px; width: auto !important;">
+                                <span style="white-space: nowrap;">Planned future deal</span>
+                            </label>
+                            ` : deal?.planned_future ? `
+                            <button type="button" class="activate-deal-btn">Create deal</button>
+                            <button type="submit" class="secondary">Save changes</button>
+                            ` : `
+                            <button type="submit">Save changes</button>
+                            `}
+                        </div>
+                        ${isEdit && !deal?.closed ? `<button type="button" class="secondary close-deal-btn">Close deal</button>` : ''}
+                    </div>
                 </div>
             </div>
         </form>
@@ -468,7 +527,7 @@ function renderAll() {
     elements.openList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyOpen.textContent = 'Загружаем сделки...';
+        elements.emptyOpen.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0 && !newDealRow) {
         elements.emptyOpen.textContent =
@@ -510,7 +569,8 @@ function renderAll() {
     elements.closedList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyClosed.style.display = 'none';
+        elements.emptyClosed.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
+        elements.emptyClosed.style.display = 'block';
     } else if (closed.length === 0) {
         elements.emptyClosed.style.display = 'block';
     } else {
@@ -536,14 +596,36 @@ function createDealRow(deal, isNew) {
     summary.className = 'deal-summary';
     
     // Calculate and format total sum for display
-    const totalSum = calculateTotalSum(deal?.share_price, deal?.amount_tobuy);
+    const totalSum = calculateTotalSum(deal?.share_price, deal?.amount_tobuy_stage_1);
     const totalSumFormatted = formatTotalSum(totalSum || deal?.total_sum);
     const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
     
+    // Add planned future indicator next to date
+    const plannedFutureLabel = deal?.planned_future ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>' : '';
+    
+    // Check if stock has regular_share_volume warning and add indicator
+    let volumeIndicator = '';
+    if (deal?.stock) {
+        // First check warnings cache (preferred method)
+        const warning = getWarningByTicker(deal.stock);
+        if (warning && warning.regular_share_volume) {
+            volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
+        } else {
+            // Fallback: check stock's regular_volume field (for backward compatibility)
+            const stock = getStockByTicker(deal.stock);
+            if (stock) {
+                const regularVolume = stock.regular_volume || stock.RegularVolume;
+                if (regularVolume === '1' || regularVolume === 1) {
+                    volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
+                }
+            }
+        }
+    }
+    
     summary.innerHTML = `
         <div class="meta">
-            <strong>${escapeHtml(deal?.stock || 'New Deal')}${totalSumDisplay}</strong>
-            ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}</span>` : ''}
+            <strong>${escapeHtml(deal?.stock || 'New Deal')}${volumeIndicator}${totalSumDisplay}</strong>
+            ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}${plannedFutureLabel}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
         </div>
         ${deal ? `
@@ -640,6 +722,34 @@ async function setupDealRowHandlers(row, deal, isNew) {
             await handleDealSubmit(form, deal, isNew);
         });
 
+        // Activate deal button (for planned deals)
+        const activateBtn = form.querySelector('.activate-deal-btn');
+        if (activateBtn) {
+            activateBtn.addEventListener('click', async () => {
+                if (!deal || !deal.id) return;
+                
+                // Change planned_future from true to false
+                const updatedDeal = { ...deal, planned_future: false };
+                
+                try {
+                    await saveDealToServer(updatedDeal, true);
+                    
+                    // If deal has total_sum, deduct from portfolio (since it's now active)
+                    if (updatedDeal.total_sum) {
+                        await refreshPortfolioFromServer();
+                    }
+                    
+                    await loadDeals();
+                    
+                    // Calculate and display portfolio risk after activating deal
+                    await calculateAndDisplayPortfolioRisk();
+                } catch (e) {
+                    console.error(e);
+                    alert('Не удалось активировать сделку');
+                }
+            });
+        }
+
         // Close deal button
         const closeBtn = form.querySelector('.close-deal-btn');
         if (closeBtn) {
@@ -705,8 +815,8 @@ function setupStockSelectListener(form, dealId) {
     // Restore the value (should be empty for new deals, or the ticker for existing deals)
     newSelect.value = currentValue;
 
-    newSelect.addEventListener('change', async (e) => {
-        const ticker = e.target.value;
+    // Function to load data for a ticker
+    const loadDataForTicker = async (ticker) => {
         if (ticker && ticker.trim() !== '') {
             const formContainer = form.closest('.deal-form-container');
             console.log('Loading data for ticker:', ticker);
@@ -727,6 +837,10 @@ function setupStockSelectListener(form, dealId) {
                 }),
                 loadSupportResistance(ticker, form).catch(err => {
                     console.error('loadSupportResistance failed:', err);
+                    return null;
+                }),
+                loadAverageWeeklyVolume(ticker).catch(err => {
+                    console.error('loadAverageWeeklyVolume failed:', err);
                     return null;
                 })
             ]);
@@ -755,6 +869,21 @@ function setupStockSelectListener(form, dealId) {
             }
             setPriceError(formContainer, '');
         }
+    };
+
+    // Add change event listener
+    newSelect.addEventListener('change', async (e) => {
+        const ticker = e.target.value;
+        await loadDataForTicker(ticker);
+    });
+
+    // Also listen to input event (for when user types in a select with search/autocomplete)
+    newSelect.addEventListener('input', async (e) => {
+        const ticker = e.target.value;
+        // Only trigger if value actually changed (to avoid duplicate calls)
+        if (ticker !== currentValue) {
+            await loadDataForTicker(ticker);
+        }
     });
     
     // Setup listeners for monthly_dir and weekly_dir selects to add red border when "Down" is selected
@@ -773,9 +902,18 @@ async function handleDealSubmit(form, deal, isNew) {
         obj[k] = v;
     }
 
+    // Get planned future checkbox state from form (only for new deals)
+    if (isNew) {
+        const formCheckbox = form.querySelector('input[name="planned_future"]');
+        obj.planned_future = formCheckbox ? formCheckbox.checked : false;
+    } else {
+        // For existing deals, keep the current planned_future status (cannot be changed)
+        obj.planned_future = deal?.planned_future || false;
+    }
+
     // Calculate and include total sum
     const sharePrice = obj.share_price || '';
-    const amountToBuy = obj.amount_tobuy || '';
+    const amountToBuy = obj.amount_tobuy_stage_1 || '';
     const totalSum = calculateTotalSum(sharePrice, amountToBuy);
     if (totalSum) {
         obj.total_sum = totalSum;
@@ -788,9 +926,10 @@ async function handleDealSubmit(form, deal, isNew) {
     try {
         await saveDealToServer(obj, !isNew);
         
-        // Deduct total sum from portfolio for new deals
-        if (isNew && totalSum) {
-            await deductPortfolio(totalSum);
+        // Portfolio deduction is now handled server-side in DealsController
+        // Just refresh the portfolio display from server after deal creation
+        if (isNew) {
+            await refreshPortfolioFromServer();
         }
         
         if (isNew) {
@@ -798,67 +937,100 @@ async function handleDealSubmit(form, deal, isNew) {
         }
         expandedDealId = null;
         await loadDeals();
+        
+        // Calculate and display portfolio risk after deal save
+        await calculateAndDisplayPortfolioRisk();
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить сделку');
     }
 }
 
-// Function to deduct deal total from portfolio
-async function deductPortfolio(totalSum) {
-    if (!totalSum) return;
+// Function to refresh portfolio value from server
+// Portfolio deduction is now handled server-side for security
+async function refreshPortfolioFromServer() {
+    if (!portfolioSpan) return;
     
-    const totalSumValue = parseFloat(String(totalSum).replace(',', '.')) || 0;
-    if (totalSumValue <= 0) {
-        console.log('Skipping portfolio deduction: totalSum is zero or invalid');
-        return;
-    }
-    
-    // Get current portfolio value from localStorage (preferred) or UI
-    let currentPortfolio = 0;
-    const stored = localStorage.getItem('portfolio');
-    if (stored != null && stored !== '') {
-        const num = parseFloat(String(stored).replace(',', '.')) || 0;
-        currentPortfolio = num;
-    } else if (portfolioSpan) {
-        // Fallback to UI element value (remove any formatting)
-        const currentText = portfolioSpan.textContent.trim();
-        const cleanedText = currentText.replace(/[$,]/g, '').replace(',', '.');
-        currentPortfolio = parseFloat(cleanedText) || 0;
-    }
-    
-    // Calculate new portfolio
-    const newPortfolio = Math.max(0, currentPortfolio - totalSumValue); // Ensure non-negative
-    
-    // Update localStorage
-    localStorage.setItem('portfolio', String(newPortfolio));
-    
-    // Update UI
-    if (portfolioSpan) {
-        portfolioSpan.textContent = newPortfolio.toFixed(2);
-    }
-    
-    // Update database
     try {
         const res = await fetch('/api/users/portfolio', {
-            method: 'PUT',
+            method: 'GET',
             headers: {
-                'Content-Type': 'application/json',
                 ...authHeaders()
-            },
-            body: JSON.stringify({ portfolio: newPortfolio })
+            }
         });
         
-        if (!res.ok) {
-            console.error('Failed to update portfolio after deal creation', res.status);
-            const errorText = await res.text().catch(() => '');
-            console.error('Error response:', errorText);
+        if (res.ok) {
+            const data = await res.json();
+            const portfolioValue = data.portfolio || 0;
+            
+            // Update localStorage
+            localStorage.setItem('portfolio', String(portfolioValue));
+            
+            // Update UI
+            portfolioSpan.textContent = Number(portfolioValue).toFixed(2);
+            
+            console.log('Portfolio refreshed from server:', portfolioValue);
         } else {
-            console.log(`Portfolio updated: $${currentPortfolio.toFixed(2)} - $${totalSumValue.toFixed(2)} = $${newPortfolio.toFixed(2)}`);
+            console.warn('Failed to refresh portfolio from server', res.status);
         }
     } catch (e) {
-        console.error('Error updating portfolio after deal creation', e);
+        console.error('Error refreshing portfolio from server', e);
     }
+}
+
+// Function to calculate and display portfolio risk percentage
+async function calculateAndDisplayPortfolioRisk() {
+    try {
+        const res = await fetch('/api/deals/risk-percent', {
+            method: 'GET',
+            headers: {
+                ...authHeaders()
+            }
+        });
+
+        if (res.ok) {
+            const riskPercent = await res.json();
+            
+            // Find or create risk display element
+            let riskDisplay = document.getElementById('portfolioRiskDisplay');
+            if (!riskDisplay) {
+                // Create display element near portfolio value
+                riskDisplay = document.createElement('span');
+                riskDisplay.id = 'portfolioRiskDisplay';
+                riskDisplay.className = 'portfolio-risk';
+                riskDisplay.style.marginLeft = '12px';
+                riskDisplay.style.color = 'var(--muted)';
+                riskDisplay.style.fontSize = '14px';
+                
+                // Insert after portfolio span
+                if (portfolioSpan && portfolioSpan.parentNode) {
+                    portfolioSpan.parentNode.insertBefore(riskDisplay, portfolioSpan.nextSibling);
+                }
+            }
+            
+            // Update display
+            riskDisplay.textContent = `Risk: ${riskPercent.toFixed(2)}%`;
+            
+            // Add warning class if risk is high (>10%)
+            if (riskPercent > 10) {
+                riskDisplay.style.color = '#dc2626'; // red
+                riskDisplay.style.fontWeight = '600';
+            } else if (riskPercent > 5) {
+                riskDisplay.style.color = '#f59e0b'; // orange
+                riskDisplay.style.fontWeight = '500';
+            } else {
+                riskDisplay.style.color = 'var(--muted)';
+                riskDisplay.style.fontWeight = 'normal';
+            }
+            
+            return riskPercent;
+        } else {
+            console.warn('Failed to get portfolio risk percent', res.status);
+        }
+    } catch (e) {
+        console.error('Error calculating portfolio risk', e);
+    }
+    return null;
 }
 
 // Function to fetch previous week's low and high prices
@@ -1041,6 +1213,27 @@ async function loadTrends(ticker, form) {
     } catch (err) {
         console.error('Error loading trends for', ticker, ':', err);
     }
+}
+
+async function loadAverageWeeklyVolume(ticker) {
+    if (!ticker || !ticker.trim()) return null;
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/average-volume`, {
+            headers: authHeaders()
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            console.log(`Average weekly volume for ${ticker}: ${data.averageVolumeFormatted} (${data.averageVolumeInDollarsFormatted})`);
+            return data;
+        } else {
+            console.warn('Failed to get average weekly volume', res.status);
+        }
+    } catch (err) {
+        console.error('Error loading average weekly volume', err);
+    }
+    return null;
 }
 
 async function loadSupportResistance(ticker, form) {
@@ -1235,16 +1428,23 @@ function setupSharePriceListener(form) {
 // Setup total sum calculation and update row title
 function setupTotalSumCalculator(row, form, deal) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
-    const amountToBuyInput = form.querySelector('input[name="amount_tobuy"]');
+    const amountToBuyInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
     const stockSelect = form.querySelector('.deal-stock-select');
     const summary = row.querySelector('.deal-summary');
     
     if (!sharePriceInput || !amountToBuyInput || !summary) return;
     
-    // Function to update the row title with total sum
+    // Remove existing listeners by cloning
+    const newSharePriceInput = sharePriceInput.cloneNode(true);
+    sharePriceInput.parentNode.replaceChild(newSharePriceInput, sharePriceInput);
+    
+    const newAmountToBuyInput = amountToBuyInput.cloneNode(true);
+    amountToBuyInput.parentNode.replaceChild(newAmountToBuyInput, amountToBuyInput);
+    
+    // Function to update the row title (deal-summary) with total sum
     const updateRowTitle = () => {
-        const sharePrice = sharePriceInput.value || '';
-        const amountToBuy = amountToBuyInput.value || '';
+        const sharePrice = newSharePriceInput.value || '';
+        const amountToBuy = newAmountToBuyInput.value || '';
         const totalSum = calculateTotalSum(sharePrice, amountToBuy);
         const totalSumFormatted = formatTotalSum(totalSum);
         const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
@@ -1267,12 +1467,11 @@ function setupTotalSumCalculator(row, form, deal) {
         row.dataset.totalSum = totalSum || '';
     };
     
-    // Remove existing listeners by cloning
-    const newSharePriceInput = sharePriceInput.cloneNode(true);
-    sharePriceInput.parentNode.replaceChild(newSharePriceInput, sharePriceInput);
-    
-    const newAmountToBuyInput = amountToBuyInput.cloneNode(true);
-    amountToBuyInput.parentNode.replaceChild(newAmountToBuyInput, amountToBuyInput);
+    // Function to calculate and display total sum in the row title (deal-summary)
+    const calculateAndDisplayTotalSum = () => {
+        // Update row title which shows the total sum in the deal-summary element
+        updateRowTitle();
+    };
     
     // Add event listeners for share_price
     newSharePriceInput.addEventListener('input', () => {
@@ -1282,16 +1481,26 @@ function setupTotalSumCalculator(row, form, deal) {
         }, 300);
     });
     
+    // Calculate and display total sum when share_price loses focus (blur)
+    newSharePriceInput.addEventListener('blur', () => {
+        calculateAndDisplayTotalSum();
+    });
+    
     newSharePriceInput.addEventListener('change', () => {
         updateRowTitle();
     });
     
-    // Add event listeners for amount_tobuy
+    // Add event listeners for amount_tobuy_stage_1
     newAmountToBuyInput.addEventListener('input', () => {
         clearTimeout(newAmountToBuyInput._totalSumTimeout);
         newAmountToBuyInput._totalSumTimeout = setTimeout(() => {
             updateRowTitle();
         }, 300);
+    });
+    
+    // Calculate and display total sum when field loses focus (blur)
+    newAmountToBuyInput.addEventListener('blur', () => {
+        calculateAndDisplayTotalSum();
     });
     
     newAmountToBuyInput.addEventListener('change', () => {
@@ -1312,6 +1521,62 @@ function setupTotalSumCalculator(row, form, deal) {
     
     // Initial calculation
     updateRowTitle();
+    
+    // Setup risk calculation when total_sum or stop_loss_prcnt changes
+    setupRiskCalculator(form);
+}
+
+// Setup risk calculator for real-time updates when editing deal data
+function setupRiskCalculator(form) {
+    const totalSumInput = form.querySelector('input[name="total_sum"]');
+    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const amountToBuyInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
+    
+    // Debounce function for risk calculation
+    let riskCalculationTimeout = null;
+    const calculateRisk = async () => {
+        clearTimeout(riskCalculationTimeout);
+        riskCalculationTimeout = setTimeout(async () => {
+            // Calculate and display portfolio risk after user edits deal data
+            await calculateAndDisplayPortfolioRisk();
+        }, 1000); // Wait 1 second after user stops typing
+    };
+    
+    // Add listeners to total_sum if it exists (calculated field)
+    if (totalSumInput) {
+        totalSumInput.addEventListener('input', calculateRisk);
+        totalSumInput.addEventListener('change', async () => {
+            await calculateAndDisplayPortfolioRisk();
+        });
+    }
+    
+    // Add listeners to stop_loss_prcnt
+    if (stopLossPrcntInput) {
+        stopLossPrcntInput.addEventListener('input', calculateRisk);
+        stopLossPrcntInput.addEventListener('change', async () => {
+            await calculateAndDisplayPortfolioRisk();
+        });
+    }
+    
+    // Also listen to share_price and amount_tobuy_stage_1 since they affect total_sum
+    if (sharePriceInput) {
+        sharePriceInput.addEventListener('change', async () => {
+            // Wait a bit for total_sum to be recalculated
+            setTimeout(async () => {
+                await calculateAndDisplayPortfolioRisk();
+            }, 500);
+        });
+    }
+    
+    if (amountToBuyInput) {
+        amountToBuyInput.addEventListener('change', async () => {
+            // Wait a bit for total_sum to be recalculated
+            setTimeout(async () => {
+                await calculateAndDisplayPortfolioRisk();
+            }, 500);
+        });
+    }
 }
 
 function escapeHtml(str) {
@@ -1382,8 +1647,19 @@ elements.newDealBtn.addEventListener('click', async () => {
     }
 });
 
+// Listen for stocks updated event to reload cache
+window.addEventListener('stocksUpdated', async () => {
+    await loadStocksForDeals();
+    await loadWarnings(); // Also reload warnings
+    renderAll(); // Re-render deals to show updated indicators
+});
+
 // ======== СТАРТ =========
-loadDeals();
+(async function init() {
+    await loadDeals();
+    // Calculate and display portfolio risk on page load
+    await calculateAndDisplayPortfolioRisk();
+})();
 
 document.addEventListener('keydown', e => {
     if (e.key === 'n' && (e.ctrlKey || e.metaKey)) {
