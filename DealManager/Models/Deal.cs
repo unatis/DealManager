@@ -25,6 +25,9 @@ namespace DealManager.Models
         [JsonPropertyName("closedAt")]
         public DateTime? ClosedAt { get; set; }
 
+        [JsonPropertyName("planned_future")]
+        public bool PlannedFuture { get; set; } = false;
+
         [JsonPropertyName("date")]
         public string Date { get; set; } = "";
 
@@ -67,9 +70,6 @@ namespace DealManager.Models
 
         [JsonPropertyName("stop_loss")]
         public string? StopLoss { get; set; }
-
-        [JsonPropertyName("amount_tobuy")]
-        public string? AmountToBuy { get; set; }
 
         [JsonPropertyName("total_sum")]
         public string? TotalSum { get; set; }
