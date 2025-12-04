@@ -300,22 +300,28 @@ function createStockRow(stock) {
     const summary = document.createElement('div');
     summary.className = 'deal-summary';
     
-    // Check if stock has warning
+    // Check if stock has warnings
     const warning = getWarningByTicker(stock.ticker);
-    const hasWarning = warning && warning.regular_share_volume;
+    const hasVolumeWarning = warning && warning.regular_share_volume;
+    const hasSp500Warning = warning && warning.sp500_member;
     
-    // Also check stock's regular_volume as fallback
+    // Also check stock's fields as fallback
     const regularVolume = stock.regular_volume || stock.RegularVolume;
-    const hasVolumeWarning = hasWarning || (regularVolume === '1' || regularVolume === 1);
+    const hasVolumeWarningFallback = hasVolumeWarning || (regularVolume === '1' || regularVolume === 1);
+    const hasSp500WarningFallback = hasSp500Warning || (!stock.sp500Member && !stock.Sp500Member);
     
-    // Add warning icon if needed
-    const warningIcon = hasVolumeWarning 
-        ? `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`
+    // Add warning icons if needed
+    const volumeWarningIcon = hasVolumeWarningFallback 
+        ? `<span class="volume-warning-icon" data-tooltip="Regular share volume: Small (around 50M per week)">!</span>`
+        : '';
+        
+    const sp500WarningIcon = hasSp500WarningFallback
+        ? `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`
         : '';
     
     summary.innerHTML = `
         <div class="meta">
-            <strong>${stock.ticker}${warningIcon}</strong>
+            <strong>${stock.ticker}${volumeWarningIcon}${sp500WarningIcon}</strong>
             <div class="small">${stock.desc || ''}</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -396,7 +402,7 @@ function createStockDetailsHTML(stock) {
 
                 <label class="inline-checkbox">
                     <input type="checkbox" ${stock.sp500Member || stock.Sp500Member ? 'checked' : ''} disabled style="cursor: default;" />
-                    <span>S&P 500 member</span>
+                    <span class="${!stock.sp500Member && !stock.Sp500Member ? 'sp500-not-member' : ''}">S&P 500 member</span>
                 </label>
 
                 <label>

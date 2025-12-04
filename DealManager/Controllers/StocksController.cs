@@ -62,16 +62,16 @@ namespace DealManager.Controllers
 
             await _service.CreateAsync(stock);
             
-            // Save warning if regular_volume is "1" (red/50M option)
-            if (dto.RegularVolume == "1")
-            {
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: true);
-            }
-            else
-            {
-                // Remove warning if regular_volume is not "1"
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: false);
-            }
+            // Save warnings - call once with both parameters
+            bool regularVolumeWarning = dto.RegularVolume == "1";
+            bool sp500Warning = !dto.Sp500Member; // Warning if NOT a member
+            
+            await _warningsService.UpsertWarningAsync(
+                userId, 
+                dto.Ticker, 
+                regularShareVolume: regularVolumeWarning,
+                sp500Member: sp500Warning
+            );
             
             return CreatedAtAction(nameof(GetAll), new { id = stock.Id }, stock);
         }
@@ -130,15 +130,16 @@ namespace DealManager.Controllers
 
             await _service.UpdateAsync(id, userId, stock);
             
-            // Update warning if regular_volume is "1"
-            if (dto.RegularVolume == "1")
-            {
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: true);
-            }
-            else
-            {
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: false);
-            }
+            // Update warnings - call once with both parameters
+            bool regularVolumeWarning = dto.RegularVolume == "1";
+            bool sp500Warning = !dto.Sp500Member; // Warning if NOT a member
+            
+            await _warningsService.UpsertWarningAsync(
+                userId, 
+                dto.Ticker, 
+                regularShareVolume: regularVolumeWarning,
+                sp500Member: sp500Warning
+            );
             
             return Ok(stock);
         }

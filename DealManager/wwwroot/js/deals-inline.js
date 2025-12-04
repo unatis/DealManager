@@ -688,20 +688,30 @@ function createDealRow(deal, isNew) {
     // Add planned future indicator next to date
     const plannedFutureLabel = deal?.planned_future ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>' : '';
     
-    // Check if stock has regular_share_volume warning and add indicator
+    // Check if stock has warnings and add indicators
     let volumeIndicator = '';
+    let sp500Indicator = '';
     if (deal?.stock) {
         // First check warnings cache (preferred method)
         const warning = getWarningByTicker(deal.stock);
-        if (warning && warning.regular_share_volume) {
-            volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
+        if (warning) {
+            if (warning.regular_share_volume) {
+                volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: Small (around 50M per week)">!</span>`;
+            }
+            if (warning.sp500_member) {
+                sp500Indicator = `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`;
+            }
         } else {
-            // Fallback: check stock's regular_volume field (for backward compatibility)
+            // Fallback: check stock's fields (for backward compatibility)
             const stock = getStockByTicker(deal.stock);
             if (stock) {
                 const regularVolume = stock.regular_volume || stock.RegularVolume;
                 if (regularVolume === '1' || regularVolume === 1) {
-                    volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
+                    volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: Small (around 50M per week)">!</span>`;
+                }
+                // Check S&P 500 member status
+                if (!stock.sp500Member && !stock.Sp500Member) {
+                    sp500Indicator = `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`;
                 }
             }
         }
@@ -709,7 +719,7 @@ function createDealRow(deal, isNew) {
     
     summary.innerHTML = `
         <div class="meta">
-            <strong>${escapeHtml(deal?.stock || 'New Deal')}${volumeIndicator}${totalSumDisplay}</strong>
+            <strong>${escapeHtml(deal?.stock || 'New Deal')}${volumeIndicator}${sp500Indicator}${totalSumDisplay}</strong>
             ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}${plannedFutureLabel}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
         </div>

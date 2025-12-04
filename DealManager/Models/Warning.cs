@@ -22,6 +22,10 @@ namespace DealManager.Models
         [JsonPropertyName("regular_share_volume")]
         public bool RegularShareVolume { get; set; } = false;
 
+        [BsonElement("sp500_member")]
+        [JsonPropertyName("sp500_member")]
+        public bool Sp500Member { get; set; } = false;
+
         [BsonElement("createdAt")]
         [JsonPropertyName("createdAt")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

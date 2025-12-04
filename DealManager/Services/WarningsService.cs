@@ -16,7 +16,7 @@ namespace DealManager.Services
             _warnings = db.GetCollection<Warning>(settings.WarningsCollection);
         }
 
-        public async Task UpsertWarningAsync(string ownerId, string ticker, bool regularShareVolume)
+        public async Task UpsertWarningAsync(string ownerId, string ticker, bool? regularShareVolume = null, bool? sp500Member = null)
         {
             var filter = Builders<Warning>.Filter.And(
                 Builders<Warning>.Filter.Eq(w => w.OwnerId, ownerId),
@@ -26,9 +26,19 @@ namespace DealManager.Services
             var update = Builders<Warning>.Update
                 .Set(w => w.OwnerId, ownerId)
                 .Set(w => w.Ticker, ticker.ToUpperInvariant())
-                .Set(w => w.RegularShareVolume, regularShareVolume)
                 .Set(w => w.UpdatedAt, DateTime.UtcNow)
                 .SetOnInsert(w => w.CreatedAt, DateTime.UtcNow);
+
+            // Only update fields that are provided (not null)
+            if (regularShareVolume.HasValue)
+            {
+                update = update.Set(w => w.RegularShareVolume, regularShareVolume.Value);
+            }
+
+            if (sp500Member.HasValue)
+            {
+                update = update.Set(w => w.Sp500Member, sp500Member.Value);
+            }
 
             await _warnings.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true });
         }
