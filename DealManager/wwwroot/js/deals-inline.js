@@ -43,6 +43,22 @@ function calculateTotalSum(sharePrice, amountToBuy) {
     return total > 0 ? total.toFixed(2) : null;
 }
 
+// Function to set button loading state with spinner (similar to login button)
+function setButtonLoading(button, isLoading) {
+    if (isLoading) {
+        if (!button.dataset.originalText) {
+            button.dataset.originalText = button.textContent.trim();
+        }
+        button.disabled = true;
+        button.innerHTML = '<span class="loading-spinner"></span> Loading...';
+    } else {
+        button.disabled = false;
+        const originalText = button.dataset.originalText || 'Save changes';
+        button.textContent = originalText;
+        delete button.dataset.originalText;
+    }
+}
+
 // Format total sum for display
 function formatTotalSum(totalSum) {
     if (!totalSum) return '';
@@ -297,6 +313,75 @@ if (elements.logoutBtn) {
         localStorage.removeItem('email');
         localStorage.removeItem('userName');
         window.location.href = '/login.html';
+    });
+}
+
+// ========== HAMBURGER MENU ==========
+
+const menuToggle = document.getElementById('menuToggle');
+const mobileMenu = document.getElementById('mobileMenu');
+const mobileMenuOverlay = document.createElement('div');
+mobileMenuOverlay.className = 'mobile-menu-overlay';
+document.body.appendChild(mobileMenuOverlay);
+
+// Mobile menu buttons (clone functionality from desktop buttons)
+const newDealBtnMobile = document.getElementById('newDealBtnMobile');
+const logoutBtnMobile = document.getElementById('logoutBtnMobile');
+
+if (menuToggle && mobileMenu) {
+    menuToggle.addEventListener('click', () => {
+        const isOpen = mobileMenu.classList.contains('open');
+        
+        if (isOpen) {
+            closeMobileMenu();
+        } else {
+            openMobileMenu();
+        }
+    });
+    
+    // Close menu when clicking overlay
+    mobileMenuOverlay.addEventListener('click', closeMobileMenu);
+    
+    // Close menu on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
+            closeMobileMenu();
+        }
+    });
+}
+
+function openMobileMenu() {
+    if (mobileMenu) {
+        mobileMenu.classList.add('open');
+        mobileMenuOverlay.classList.add('active');
+        if (menuToggle) menuToggle.classList.add('active');
+        document.body.style.overflow = 'hidden'; // Prevent background scrolling
+    }
+}
+
+function closeMobileMenu() {
+    if (mobileMenu) {
+        mobileMenu.classList.remove('open');
+        mobileMenuOverlay.classList.remove('active');
+        if (menuToggle) menuToggle.classList.remove('active');
+        document.body.style.overflow = ''; // Restore scrolling
+    }
+}
+
+// Wire up mobile menu buttons to same functionality as desktop buttons
+if (newDealBtnMobile && elements.newDealBtn) {
+    newDealBtnMobile.addEventListener('click', () => {
+        // Trigger the same action as desktop New Deal button
+        elements.newDealBtn.click();
+        closeMobileMenu();
+    });
+}
+
+if (logoutBtnMobile && elements.logoutBtn) {
+    logoutBtnMobile.addEventListener('click', () => {
+        // Trigger the same action as desktop Logout button
+        elements.logoutBtn.click();
+        closeMobileMenu();
     });
 }
 
@@ -674,6 +759,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
     if (form) {
         setupTrendSelectListeners(form);
         setupSharePriceListener(form);
+        setupStopLossListener(form);
         setupTotalSumCalculator(row, form, deal);
     }
 
@@ -711,6 +797,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 setupStockSelectListener(form, dealId);
                 setupTrendSelectListeners(form);
                 setupSharePriceListener(form);
+                setupStopLossListener(form);
             }
         }
     });
@@ -891,39 +978,44 @@ function setupStockSelectListener(form, dealId) {
 }
 
 async function handleDealSubmit(form, deal, isNew) {
-    const formData = new FormData(form);
-    const obj = {
-        id: deal?.id || null,
-        closed: deal?.closed || false,
-        closedAt: deal?.closedAt || null
-    };
-
-    for (const [k, v] of formData.entries()) {
-        obj[k] = v;
-    }
-
-    // Get planned future checkbox state from form (only for new deals)
-    if (isNew) {
-        const formCheckbox = form.querySelector('input[name="planned_future"]');
-        obj.planned_future = formCheckbox ? formCheckbox.checked : false;
-    } else {
-        // For existing deals, keep the current planned_future status (cannot be changed)
-        obj.planned_future = deal?.planned_future || false;
-    }
-
-    // Calculate and include total sum
-    const sharePrice = obj.share_price || '';
-    const amountToBuy = obj.amount_tobuy_stage_1 || '';
-    const totalSum = calculateTotalSum(sharePrice, amountToBuy);
-    if (totalSum) {
-        obj.total_sum = totalSum;
-    }
-
-    if (!obj.date) {
-        obj.date = new Date().toISOString().slice(0, 10);
-    }
-
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (!submitButton) return;
+    
     try {
+        setButtonLoading(submitButton, true);
+        
+        const formData = new FormData(form);
+        const obj = {
+            id: deal?.id || null,
+            closed: deal?.closed || false,
+            closedAt: deal?.closedAt || null
+        };
+
+        for (const [k, v] of formData.entries()) {
+            obj[k] = v;
+        }
+
+        // Get planned future checkbox state from form (only for new deals)
+        if (isNew) {
+            const formCheckbox = form.querySelector('input[name="planned_future"]');
+            obj.planned_future = formCheckbox ? formCheckbox.checked : false;
+        } else {
+            // For existing deals, keep the current planned_future status (cannot be changed)
+            obj.planned_future = deal?.planned_future || false;
+        }
+
+        // Calculate and include total sum
+        const sharePrice = obj.share_price || '';
+        const amountToBuy = obj.amount_tobuy_stage_1 || '';
+        const totalSum = calculateTotalSum(sharePrice, amountToBuy);
+        if (totalSum) {
+            obj.total_sum = totalSum;
+        }
+
+        if (!obj.date) {
+            obj.date = new Date().toISOString().slice(0, 10);
+        }
+
         await saveDealToServer(obj, !isNew);
         
         // Portfolio deduction is now handled server-side in DealsController
@@ -943,6 +1035,8 @@ async function handleDealSubmit(form, deal, isNew) {
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить сделку');
+    } finally {
+        setButtonLoading(submitButton, false);
     }
 }
 
@@ -1331,6 +1425,32 @@ async function calculateStopLoss(form) {
     }
 }
 
+// Calculate stop loss percentage from share price and stop loss value
+function calculateStopLossPercentage(form) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const stopLossInput = form.querySelector('input[name="stop_loss"]');
+    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    
+    if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) return;
+    
+    const sharePrice = parseFloat(String(sharePriceInput.value || '').replace(',', '.'));
+    const stopLoss = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
+    
+    // Both values must be valid numbers
+    if (isNaN(sharePrice) || sharePrice <= 0 || isNaN(stopLoss) || stopLoss <= 0) {
+        return; // Invalid values
+    }
+    
+    // Calculate percentage: ((share_price - stop_loss) / share_price) * 100
+    const percentage = ((sharePrice - stopLoss) / sharePrice) * 100;
+    stopLossPrcntInput.value = percentage.toFixed(2);
+    
+    // Check and apply error styling if needed
+    updateStopLossErrorClass(stopLossPrcntInput, percentage);
+    
+    console.log(`Stop loss percentage recalculated: ${percentage.toFixed(2)}% (Share: ${sharePrice}, Stop Loss: ${stopLoss})`);
+}
+
 function updateSelectDownClass(select) {
     if (!select) return;
     if (select.value === 'Down') {
@@ -1423,6 +1543,29 @@ function setupSharePriceListener(form) {
             }
         });
     }
+}
+
+function setupStopLossListener(form) {
+    const stopLossInput = form.querySelector('input[name="stop_loss"]');
+    
+    if (!stopLossInput) return;
+    
+    // Remove existing listeners by cloning
+    const newInput = stopLossInput.cloneNode(true);
+    stopLossInput.parentNode.replaceChild(newInput, stopLossInput);
+    
+    // Add listeners for both 'input' (real-time) and 'change' (on blur)
+    newInput.addEventListener('input', () => {
+        // Debounce to avoid too many calculations while typing
+        clearTimeout(newInput._stopLossTimeout);
+        newInput._stopLossTimeout = setTimeout(() => {
+            calculateStopLossPercentage(form);
+        }, 500); // Wait 500ms after user stops typing
+    });
+    
+    newInput.addEventListener('change', () => {
+        calculateStopLossPercentage(form);
+    });
 }
 
 // Setup total sum calculation and update row title
