@@ -182,7 +182,7 @@ public class PricesController : ControllerBase
                 string.Join(" | ", priceData.Select(p => $"Date:{p.Date:yyyy-MM-dd} H:{p.High} L:{p.Low}")));
 
             // Try with relaxed parameters first (lower minTotalTouches to find more levels)
-            var levels = _trendAnalyzer.DetectSupportResistanceLevels(priceData, minHighTouches: 1, minLowTouches: 1, minTotalTouches: 2, maxLevels: 10);
+            var levels = _trendAnalyzer.DetectSupportResistanceLevels(priceData, minHighTouches: 1, minLowTouches: 1, minTotalTouches: 4, maxLevels: 0);
             _logger.LogInformation("Found {Count} support/resistance levels for {Ticker} with minTotalTouches=2. Levels: {Levels}", 
                 levels.Count, ticker, string.Join(", ", levels.Select(l => $"{l.Level:F2} (Touches:{l.TotalTouches})")));
 
@@ -190,7 +190,7 @@ public class PricesController : ControllerBase
             if (levels.Count < 2)
             {
                 _logger.LogWarning("Only found {Count} levels with minTotalTouches=2, trying with minTotalTouches=1", levels.Count);
-                levels = _trendAnalyzer.DetectSupportResistanceLevels(priceData, minHighTouches: 1, minLowTouches: 1, minTotalTouches: 1, maxLevels: 10);
+                levels = _trendAnalyzer.DetectSupportResistanceLevels(priceData, minHighTouches: 1, minLowTouches: 1, minTotalTouches: 2, maxLevels: 0);
                 _logger.LogInformation("Found {Count} support/resistance levels with minTotalTouches=1. Levels: {Levels}", 
                     levels.Count, string.Join(", ", levels.Select(l => $"{l.Level:F2} (Touches:{l.TotalTouches})")));
             }

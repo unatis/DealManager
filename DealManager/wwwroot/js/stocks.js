@@ -8,6 +8,7 @@ const stockList = document.getElementById('stockList');
 const emptyStockEl = document.getElementById('emptyStock');
 
 let stocks = [];
+let stocksLoaded = false;
 
 // локальный вариант authHeaders (такой же, как в deals.js)
 function authHeaders() {
@@ -18,6 +19,9 @@ function authHeaders() {
 // ====== API ======
 
 async function loadStocks() {
+    stocksLoaded = false;
+    renderStocks(); // Show loading state
+    
     try {
         const res = await fetch('/api/stocks', {
             headers: authHeaders()
@@ -25,11 +29,15 @@ async function loadStocks() {
         if (!res.ok) throw new Error('Failed to load stocks');
 
         stocks = await res.json();
+        stocksLoaded = true;
         renderStocks();
     } catch (e) {
         console.error(e);
-        document.getElementById('emptyStock').textContent = 'Не удалось загрузить акции';
-        document.getElementById('emptyStock').style.display = 'block';
+        stocksLoaded = true;
+        if (emptyStockEl) {
+            emptyStockEl.textContent = 'Не удалось загрузить акции';
+            emptyStockEl.style.display = 'block';
+        }
     }
 }
 
@@ -68,6 +76,21 @@ async function deleteStockOnServer(id) {
 
 // ====== Модалка акций ======
 
+function setButtonLoading(button, isLoading) {
+    if (isLoading) {
+        if (!button.dataset.originalText) {
+            button.dataset.originalText = button.textContent.trim();
+        }
+        button.disabled = true;
+        button.innerHTML = '<span class="loading-spinner"></span> Loading...';
+    } else {
+        button.disabled = false;
+        const originalText = button.dataset.originalText || 'Save stock';
+        button.textContent = originalText;
+        delete button.dataset.originalText;
+    }
+}
+
 addStockBtn.addEventListener('click', () => {
     stockModal.style.display = 'flex';
 });
@@ -89,7 +112,12 @@ stockForm.addEventListener('submit', async e => {
 
     if (!ticker) return;
 
+    const submitButton = stockForm.querySelector('button[type="submit"]');
+    if (!submitButton) return;
+
     try {
+        setButtonLoading(submitButton, true);
+        
         await saveStockToServer({
             ticker,
             desc,
@@ -98,6 +126,7 @@ stockForm.addEventListener('submit', async e => {
             betaVolatility
         });
 
+        setButtonLoading(submitButton, false);
         stockModal.style.display = 'none';
         stockForm.reset();
 
@@ -106,6 +135,7 @@ stockForm.addEventListener('submit', async e => {
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить акцию');
+        setButtonLoading(submitButton, false);
     }
 });
 
@@ -114,8 +144,19 @@ stockForm.addEventListener('submit', async e => {
 function renderStocks() {
     stockList.innerHTML = '';
 
+    if (!stocksLoaded) {
+        if (emptyStockEl) {
+            emptyStockEl.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем акции...</span></div>';
+            emptyStockEl.style.display = 'block';
+        }
+        return;
+    }
+
     if (!stocks.length) {
-        if (emptyStockEl) emptyStockEl.style.display = 'block';
+        if (emptyStockEl) {
+            emptyStockEl.textContent = 'Нет акций';
+            emptyStockEl.style.display = 'block';
+        }
         return;
     }
     if (emptyStockEl) emptyStockEl.style.display = 'none';

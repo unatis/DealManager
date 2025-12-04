@@ -468,7 +468,7 @@ function renderAll() {
     elements.openList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyOpen.textContent = 'Загружаем сделки...';
+        elements.emptyOpen.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0 && !newDealRow) {
         elements.emptyOpen.textContent =
@@ -510,7 +510,8 @@ function renderAll() {
     elements.closedList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyClosed.style.display = 'none';
+        elements.emptyClosed.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
+        elements.emptyClosed.style.display = 'block';
     } else if (closed.length === 0) {
         elements.emptyClosed.style.display = 'block';
     } else {
