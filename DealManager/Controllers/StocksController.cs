@@ -34,8 +34,27 @@ namespace DealManager.Controllers
             return userId;
         }
 
+        private bool IsAtrHighRisk(string? atr)
+        {
+            if (string.IsNullOrWhiteSpace(atr))
+                return false;
+
+            // Parse ATR string format: "2.3456 (1.23%)" or just "2.3456"
+            // Extract percentage from parentheses
+            var match = System.Text.RegularExpressions.Regex.Match(atr, @"\(([\d.]+)%\)");
+            if (match.Success && match.Groups.Count > 1)
+            {
+                if (double.TryParse(match.Groups[1].Value, out double percent))
+                {
+                    return percent > 10.0;
+                }
+            }
+
+            return false;
+        }
+
         // DTO, который будем принимать с фронта
-        public record StockDto(string Ticker, string? Desc, bool Sp500Member, string? RegularVolume, string? SyncSp500);
+        public record StockDto(string Ticker, string? Desc, bool Sp500Member, string? RegularVolume, string? SyncSp500, string? BetaVolatility, string? Atr);
 
         [HttpGet]
         public async Task<ActionResult<List<Stock>>> GetAll()
@@ -50,6 +69,8 @@ namespace DealManager.Controllers
         {
             var userId = GetUserId();
 
+            Console.WriteLine($"[Stock Create] Received BetaVolatility: '{dto.BetaVolatility}'");
+
             var stock = new Stock
             {
                 OwnerId = userId,
@@ -57,21 +78,35 @@ namespace DealManager.Controllers
                 Desc = dto.Desc,
                 Sp500Member = dto.Sp500Member,
                 RegularVolume = dto.RegularVolume,
-                SyncSp500 = dto.SyncSp500
+                SyncSp500 = dto.SyncSp500,
+                BetaVolatility = dto.BetaVolatility,
+                Atr = dto.Atr
             };
+
+            Console.WriteLine($"[Stock Create] Stock.BetaVolatility before save: '{stock.BetaVolatility}'");
 
             await _service.CreateAsync(stock);
             
-            // Save warning if regular_volume is "1" (red/50M option)
-            if (dto.RegularVolume == "1")
-            {
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: true);
-            }
-            else
-            {
-                // Remove warning if regular_volume is not "1"
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: false);
-            }
+            Console.WriteLine($"[Stock Create] Stock.BetaVolatility after save: '{stock.BetaVolatility}'");
+            
+            // Save warnings - call once with all parameters
+            // Use StockId for unique identification (allows multiple stocks with same ticker)
+            bool regularVolumeWarning = dto.RegularVolume == "1";
+            bool sp500Warning = !dto.Sp500Member; // Warning if NOT a member
+            bool atrWarning = IsAtrHighRisk(dto.Atr); // Warning if ATR > 10%
+            bool syncSp500Warning = dto.SyncSp500 == "no"; // Warning if NOT synchronized
+            bool betaVolatilityWarning = dto.BetaVolatility == "3"; // Warning if High volatility
+            
+            await _warningsService.UpsertWarningAsync(
+                userId, 
+                dto.Ticker, 
+                regularShareVolume: regularVolumeWarning,
+                sp500Member: sp500Warning,
+                atrHighRisk: atrWarning,
+                syncSp500No: syncSp500Warning,
+                betaVolatilityHigh: betaVolatilityWarning,
+                stockId: stock.Id  // Pass StockId for unique identification
+            );
             
             return CreatedAtAction(nameof(GetAll), new { id = stock.Id }, stock);
         }
@@ -88,9 +123,10 @@ namespace DealManager.Controllers
             await _service.DeleteAsync(id, userId);
             
             // Also delete warning if stock exists
+            // Use StockId for deletion to ensure correct warning is deleted
             if (stock != null)
             {
-                await _warningsService.DeleteWarningAsync(userId, stock.Ticker);
+                await _warningsService.DeleteWarningAsync(userId, stock.Ticker, stockId: id);
             }
             
             return NoContent();
@@ -127,18 +163,29 @@ namespace DealManager.Controllers
             stock.Sp500Member = dto.Sp500Member;
             stock.RegularVolume = dto.RegularVolume;
             stock.SyncSp500 = dto.SyncSp500;
+            stock.BetaVolatility = dto.BetaVolatility;
+            stock.Atr = dto.Atr;
 
             await _service.UpdateAsync(id, userId, stock);
             
-            // Update warning if regular_volume is "1"
-            if (dto.RegularVolume == "1")
-            {
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: true);
-            }
-            else
-            {
-                await _warningsService.UpsertWarningAsync(userId, dto.Ticker, regularShareVolume: false);
-            }
+            // Update warnings - call once with all parameters
+            // Use StockId for unique identification (allows multiple stocks with same ticker)
+            bool regularVolumeWarning = dto.RegularVolume == "1";
+            bool sp500Warning = !dto.Sp500Member; // Warning if NOT a member
+            bool atrWarning = IsAtrHighRisk(dto.Atr); // Warning if ATR > 10%
+            bool syncSp500Warning = dto.SyncSp500 == "no"; // Warning if NOT synchronized
+            bool betaVolatilityWarning = dto.BetaVolatility == "3"; // Warning if High volatility
+            
+            await _warningsService.UpsertWarningAsync(
+                userId, 
+                dto.Ticker, 
+                regularShareVolume: regularVolumeWarning,
+                sp500Member: sp500Warning,
+                atrHighRisk: atrWarning,
+                syncSp500No: syncSp500Warning,
+                betaVolatilityHigh: betaVolatilityWarning,
+                stockId: id  // Pass StockId for unique identification
+            );
             
             return Ok(stock);
         }

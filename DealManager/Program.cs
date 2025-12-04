@@ -72,6 +72,9 @@ internal class Program
         builder.Services.AddMemoryCache();
         builder.Services.AddHttpClient<AlphaVantageService>();
 
+        // Register background service for SPY data fetch on startup
+        builder.Services.AddHostedService<SpyDataBackgroundService>();
+
         builder.Services.AddAuthorization();
 
         builder.Services.AddControllers();

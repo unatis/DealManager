@@ -66,6 +66,17 @@ function formatTotalSum(totalSum) {
     return num > 0 ? `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
 }
 
+// Helper function to check if ATR is high risk (> 10%) from ATR string
+function isAtrHighRiskFromString(atrString) {
+    if (!atrString) return false;
+    const match = atrString.match(/\(([\d.]+)%\)/);
+    if (match && match[1]) {
+        const percent = parseFloat(match[1]);
+        return !isNaN(percent) && percent > 10.0;
+    }
+    return false;
+}
+
 // ---------- редирект если нет токена ----------
 const token = localStorage.getItem('token');
 if (!token) {
@@ -688,28 +699,62 @@ function createDealRow(deal, isNew) {
     // Add planned future indicator next to date
     const plannedFutureLabel = deal?.planned_future ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>' : '';
     
-    // Check if stock has regular_share_volume warning and add indicator
+    // Check if stock has warnings and add indicators
     let volumeIndicator = '';
+    let sp500Indicator = '';
+    let atrIndicator = '';
+    let syncSp500Indicator = '';
+    let betaVolatilityIndicator = '';
     if (deal?.stock) {
         // First check warnings cache (preferred method)
         const warning = getWarningByTicker(deal.stock);
-        if (warning && warning.regular_share_volume) {
-            volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
-        } else {
-            // Fallback: check stock's regular_volume field (for backward compatibility)
-            const stock = getStockByTicker(deal.stock);
-            if (stock) {
-                const regularVolume = stock.regular_volume || stock.RegularVolume;
-                if (regularVolume === '1' || regularVolume === 1) {
-                    volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: <span style='color: #dc2626; font-weight: 600;'>Small (around 50M per week)</span>">!</span>`;
-                }
+        if (warning) {
+            if (warning.regular_share_volume) {
+                volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: Small (around 50M per week)">!</span>`;
+            }
+            if (warning.sp500_member) {
+                sp500Indicator = `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`;
+            }
+            if (warning.atr_high_risk) {
+                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`;
+            }
+            if (warning.sync_sp500_no) {
+                syncSp500Indicator = `<span class="volume-warning-icon" data-tooltip="Is share movement synchronized with S&amp;P500?: No">!</span>`;
+            }
+            if (warning.beta_volatility_high) {
+                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`;
+            }
+        }
+        
+        // Fallback: check stock's fields (for backward compatibility)
+        const stock = getStockByTicker(deal.stock);
+        if (stock) {
+            const regularVolume = stock.regular_volume || stock.RegularVolume;
+            if (regularVolume === '1' || regularVolume === 1) {
+                volumeIndicator = `<span class="volume-warning-icon" data-tooltip="Regular share volume: Small (around 50M per week)">!</span>`;
+            }
+            // Check S&P 500 member status
+            if (!stock.sp500Member && !stock.Sp500Member) {
+                sp500Indicator = `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`;
+            }
+            // Check ATR high risk
+            if (isAtrHighRiskFromString(stock.atr || stock.Atr)) {
+                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`;
+            }
+            // Check sync SP500
+            if (stock.sync_sp500 === 'no' || stock.SyncSp500 === 'no') {
+                syncSp500Indicator = `<span class="volume-warning-icon" data-tooltip="Is share movement synchronized with S&amp;P500?: No">!</span>`;
+            }
+            // Check beta volatility high
+            if (stock.betaVolatility === '3' || stock.BetaVolatility === '3' || stock.betaVolatility === 3) {
+                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`;
             }
         }
     }
     
     summary.innerHTML = `
         <div class="meta">
-            <strong>${escapeHtml(deal?.stock || 'New Deal')}${volumeIndicator}${totalSumDisplay}</strong>
+            <strong>${escapeHtml(deal?.stock || 'New Deal')}${volumeIndicator}${sp500Indicator}${atrIndicator}${syncSp500Indicator}${betaVolatilityIndicator}${totalSumDisplay}</strong>
             ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}${plannedFutureLabel}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
         </div>
