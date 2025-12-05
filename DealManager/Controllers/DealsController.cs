@@ -153,5 +153,15 @@ namespace DealManager.Controllers
             var riskPercent = await _riskService.CalculatePortfolioRiskPercentAsync(userId);
             return Ok(riskPercent);
         }
+
+        [HttpGet("risk-percent-inshares")]
+        public async Task<ActionResult<decimal>> GetInSharesRiskPercent()
+        {
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
+
+            var riskPercent = await _riskService.CalculateInSharesRiskPercentAsync(userId);
+            return Ok(riskPercent);
+        }
     }
 }
