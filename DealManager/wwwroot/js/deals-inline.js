@@ -779,8 +779,10 @@ function createDealRow(deal, isNew) {
         </div>
         ${deal ? `
         <div class="chips" style="min-width:140px;justify-content:flex-end">
-            <div class="badge">TP:${escapeHtml(deal.take_profit || '-')}</div>
-            <div class="badge">SL:${escapeHtml(deal.stop_loss || '-')}</div>
+            <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
+            <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
+            <div class="badge movement-metric-tooltip" data-tooltip="Take Profit">TP:${escapeHtml(deal.take_profit || '-')}</div>
+            ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP%:${escapeHtml(deal.take_profit_prcnt)}</div>` : ''}
         </div>
         ` : ''}
     `;
