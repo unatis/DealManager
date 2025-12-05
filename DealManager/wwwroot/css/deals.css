@@ -1189,3 +1189,14 @@ label.inline-checkbox > input[type="checkbox"] {
     background: white;
     outline: none;
 }
+
+/* Reward to Risk color coding */
+.badge.reward-risk-red {
+    background-color: #ef4444 !important; /* Red */
+    color: white !important;
+}
+
+.badge.reward-risk-yellow {
+    background-color: #f59e0b !important; /* Yellow/Orange */
+    color: white !important;
+}

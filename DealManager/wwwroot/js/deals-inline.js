@@ -1323,7 +1323,21 @@ function createDealRow(deal, isNew) {
             ${deal.stop_loss_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Stop Loss Percentage">SL:${escapeHtml(deal.stop_loss_prcnt)}%</div>` : ''}
             <div class="badge movement-metric-tooltip" data-tooltip="Take Profit">TP:${escapeHtml(deal.take_profit || '-')}</div>
             ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP:${escapeHtml(deal.take_profit_prcnt)}%</div>` : ''}
-            ${deal.reward_to_risk ? `<div class="badge movement-metric-tooltip" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(deal.reward_to_risk)}</div>` : ''}
+            ${deal.reward_to_risk ? (() => {
+                // Extract numeric value from "1:4.3" format
+                const ratioMatch = deal.reward_to_risk.match(/1:([\d.]+)/);
+                const ratioValue = ratioMatch ? parseFloat(ratioMatch[1]) : 0;
+                
+                // Determine color class based on ratio
+                let colorClass = '';
+                if (ratioValue <= 1.0) {
+                    colorClass = 'reward-risk-red'; // Red for 1:1 or worse
+                } else if (ratioValue <= 2.0) {
+                    colorClass = 'reward-risk-yellow'; // Yellow for 1:2 or worse (but better than 1:1)
+                }
+                
+                return `<div class="badge movement-metric-tooltip ${colorClass}" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(deal.reward_to_risk)}</div>`;
+            })() : ''}
         </div>
         ` : ''}
     `;
