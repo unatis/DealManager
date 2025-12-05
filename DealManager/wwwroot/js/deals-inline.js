@@ -43,6 +43,24 @@ function calculateTotalSum(sharePrice, amountToBuy) {
     return total > 0 ? total.toFixed(2) : null;
 }
 
+// Function to format total sum for display
+function formatTotalSum(totalSum) {
+    if (!totalSum) return null;
+    const num = parseFloat(String(totalSum).replace(',', '.'));
+    if (isNaN(num) || num <= 0) return null;
+    return `$${num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+}
+
+// Function to escape HTML special characters
+function escapeHtml(str) {
+    return String(str || '').replace(/[&<>"]/g, s => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;'
+    }[s]));
+}
+
 // Function to set button loading state with spinner (similar to login button)
 function setButtonLoading(button, isLoading) {
     if (isLoading) {
@@ -575,6 +593,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <div style="display: flex; align-items: center; gap: 50px; flex-wrap: wrap;">
                             ${isNew ? `
                             <button type="submit">Create deal</button>
+                            <button type="button" class="cancel-deal-btn secondary" style="margin-left: 12px;">Cancel</button>
                             <label class="inline-checkbox" style="display: flex; align-items: center; font-size: 14px; cursor: pointer; margin: 0; flex-direction: row; gap: 0;">
                                 <input type="checkbox" name="planned_future" style="cursor: pointer; margin: 0; flex-shrink: 0; margin-right: 10px; width: auto !important;">
                                 <span style="white-space: nowrap;">Planned future deal</span>
@@ -765,6 +784,61 @@ function createDealRow(deal, isNew) {
         </div>
         ` : ''}
     `;
+    
+    // Add movement metrics to the title (load asynchronously)
+    // Only for open deals (not closed, and not new deals - new deals will get metrics when stock is selected)
+    const titleElement = summary.querySelector('strong');
+    if (titleElement && deal?.stock && deal?.id && !deal?.closed && !isNew) {
+        console.log('Adding movement metrics for deal stock:', deal.stock);
+        
+        // Store deal ID and stock ticker on the row for later retrieval
+        const dealId = deal?.id || 'new';
+        row.dataset.dealStock = deal.stock;
+        
+        // Load movement metrics asynchronously and append directly to title when ready
+        loadMovementMetrics(deal.stock).then(metrics => {
+            console.log('Movement metrics received for', deal.stock, ':', metrics);
+            
+            // Re-find the title element from the row (in case DOM was re-rendered)
+            const currentRow = document.querySelector(`[data-deal-id="${dealId}"]`);
+            if (!currentRow) {
+                console.warn('Deal row not found for', dealId);
+                return;
+            }
+            
+            const currentSummary = currentRow.querySelector('.deal-summary');
+            const currentTitle = currentSummary?.querySelector('strong');
+            
+            if (!currentTitle) {
+                console.warn('Title element not found in row for', deal.stock);
+                return;
+            }
+            
+            // Check if metrics already added (avoid duplicates)
+            if (currentTitle.querySelector('.movement-metrics-display')) {
+                console.log('Movement metrics already displayed for', deal.stock);
+                return;
+            }
+            
+            if (metrics) {
+                const formatted = formatMovementMetrics(metrics);
+                console.log('Formatted movement metrics:', formatted);
+                
+                // Create and append the metrics display
+                const metricsDisplay = document.createElement('span');
+                metricsDisplay.className = 'movement-metrics-display';
+                metricsDisplay.innerHTML = formatted;
+                currentTitle.appendChild(metricsDisplay);
+                console.log('Movement metrics inserted into DOM successfully');
+            } else {
+                console.log('No movement metrics available for', deal.stock);
+            }
+        }).catch(err => {
+            console.error('Error loading movement metrics for', deal.stock, ':', err);
+        });
+    }
+    // Note: Movement metrics are only shown for open deals with selected stock
+    // This is expected behavior for new deals (no stock selected yet) or closed deals
 
     // Expanded form view
     const formContainer = document.createElement('div');
@@ -805,7 +879,21 @@ async function setupDealRowHandlers(row, deal, isNew) {
         setupTrendSelectListeners(form);
         setupSharePriceListener(form);
         setupStopLossListener(form);
+        setupTakeProfitListener(form);
         setupTotalSumCalculator(row, form, deal);
+        
+        // Cancel button for new deals
+        if (isNew) {
+            const cancelBtn = form.querySelector('.cancel-deal-btn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => {
+                    // Close the deal row without saving
+                    newDealRow = null;
+                    expandedDealId = null;
+                    renderAll();
+                });
+            }
+        }
     }
 
     // Toggle expand/collapse on summary click
@@ -896,7 +984,404 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 }
             });
         }
+    }
+}
 
+// Setup total sum calculator that updates title when share_price or amount_tobuy_stage_1 changes
+function setupTotalSumCalculator(row, form, deal) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const amountInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
+    const summary = row.querySelector('.deal-summary');
+    
+    if (!sharePriceInput || !amountInput || !summary) return;
+    
+    const updateTotalSum = () => {
+        const sharePrice = sharePriceInput.value || '';
+        const amount = amountInput.value || '';
+        const totalSum = calculateTotalSum(sharePrice, amount);
+        const totalSumFormatted = formatTotalSum(totalSum);
+        const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
+        
+        const titleElement = summary.querySelector('strong');
+        if (!titleElement) return;
+        
+        // Store current HTML to preserve everything (including metrics that might be loading)
+        const currentHTML = titleElement.innerHTML;
+        
+        // Find all elements we need to preserve from DOM
+        const movementMetricsElements = Array.from(titleElement.querySelectorAll('.movement-metrics-display'));
+        const warningIcons = Array.from(titleElement.querySelectorAll('.volume-warning-icon'));
+        
+        // Get ticker text - prefer deal.stock, otherwise extract from current content
+        const tickerText = deal?.stock || (() => {
+            const text = titleElement.textContent || '';
+            // Remove movement metrics pattern (including all arrows: ↑↓↔→)
+            return text.replace(/Move[↑↓↔→].*$/m, '')
+                       .replace(/\s*-\s*\$[\d,]+\.?\d*/g, '') // Remove total sum
+                       .replace(/[!]/g, '') // Remove warning icon markers
+                       .split(' - ')[0]
+                       .trim() || 'New Deal';
+        })();
+        
+        // Build new content in correct order
+        let newHTML = escapeHtml(tickerText);
+        
+        // Add warning icons
+        warningIcons.forEach(icon => {
+            newHTML += icon.outerHTML;
+        });
+        
+        // Add total sum
+        if (totalSumDisplay) {
+            newHTML += totalSumDisplay;
+        }
+        
+        // Add movement metrics - prefer from DOM if found, otherwise try to extract from HTML
+        if (movementMetricsElements.length > 0) {
+            // Metrics found in DOM - use them
+            movementMetricsElements.forEach(metric => {
+                newHTML += metric.outerHTML;
+            });
+        } else {
+            // Metrics not in DOM yet (might be loading) - try to preserve from original HTML
+            const metricsMatch = currentHTML.match(/<span[^>]*class="movement-metrics-display"[^>]*>[\s\S]*?<\/span>/);
+            if (metricsMatch) {
+                newHTML += metricsMatch[0];
+            }
+        }
+        
+        // Only update if changed (avoid unnecessary DOM updates)
+        if (titleElement.innerHTML !== newHTML) {
+            titleElement.innerHTML = newHTML;
+        }
+    };
+    
+    // Listen to input changes
+    sharePriceInput.addEventListener('input', updateTotalSum);
+    amountInput.addEventListener('input', updateTotalSum);
+}
+
+// Setup event listener for share price input to calculate stop loss and take profit percentages
+function setupSharePriceListener(form) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const stopLossInput = form.querySelector('input[name="stop_loss"]');
+    const takeProfitInput = form.querySelector('input[name="take_profit"]');
+    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
+    
+    if (!sharePriceInput) return;
+    
+    const calculatePercentages = () => {
+        const sharePriceStr = String(sharePriceInput.value || '').trim().replace(',', '.');
+        const sharePrice = parseFloat(sharePriceStr);
+        
+        console.log('setupSharePriceListener: calculatePercentages called', {
+            sharePriceStr,
+            sharePrice,
+            sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
+            takeProfitValue: takeProfitInput?.value
+        });
+        
+        if (isNaN(sharePrice) || sharePrice <= 0) {
+            // Only clear percentages if share price is explicitly invalid (not just empty)
+            // Don't clear if share price is just empty (might be loading)
+            if (sharePriceStr && (isNaN(sharePrice) || sharePrice <= 0)) {
+                console.log('setupSharePriceListener: Share price invalid, clearing percentages');
+                if (stopLossPrcntInput) stopLossPrcntInput.value = '';
+                if (takeProfitPrcntInput) takeProfitPrcntInput.value = '';
+            }
+            return;
+        }
+        
+        // Calculate stop loss percentage if stop loss is set
+        if (stopLossInput && stopLossInput.value) {
+            const stopLoss = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
+            if (!isNaN(stopLoss) && stopLoss > 0) {
+                const stopLossPrcnt = ((stopLoss - sharePrice) / sharePrice) * 100;
+                if (stopLossPrcntInput) {
+                    stopLossPrcntInput.value = stopLossPrcnt.toFixed(2);
+                }
+            }
+        }
+        
+        // Calculate take profit percentage if take profit is set
+        if (takeProfitInput && takeProfitInput.value) {
+            const takeProfitStr = String(takeProfitInput.value || '').trim().replace(',', '.');
+            if (takeProfitStr) {
+                const takeProfit = parseFloat(takeProfitStr);
+                if (!isNaN(takeProfit) && takeProfit > 0) {
+                    const takeProfitPrcnt = ((takeProfit - sharePrice) / sharePrice) * 100;
+                    if (takeProfitPrcntInput) {
+                        takeProfitPrcntInput.value = takeProfitPrcnt.toFixed(2);
+                    }
+                }
+            }
+        }
+    };
+    
+    // Listen to share price changes
+    sharePriceInput.addEventListener('input', calculatePercentages);
+    sharePriceInput.addEventListener('blur', calculatePercentages);
+    sharePriceInput.addEventListener('change', calculatePercentages);
+    
+    // Also listen to stop loss and take profit changes
+    if (stopLossInput) {
+        stopLossInput.addEventListener('input', calculatePercentages);
+        stopLossInput.addEventListener('blur', calculatePercentages);
+        stopLossInput.addEventListener('change', calculatePercentages);
+    }
+    
+    if (takeProfitInput) {
+        takeProfitInput.addEventListener('input', calculatePercentages);
+        takeProfitInput.addEventListener('blur', calculatePercentages);
+        takeProfitInput.addEventListener('change', calculatePercentages);
+    }
+    
+    // Calculate immediately if values are already present
+    // This will work for both new deals (after stock is selected) and existing deals
+    if (sharePriceInput.value) {
+        setTimeout(() => {
+            calculatePercentages();
+        }, 100);
+    }
+}
+
+// Setup event listener for stop loss input to calculate stop loss percentage
+function setupStopLossListener(form) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const stopLossInput = form.querySelector('input[name="stop_loss"]');
+    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    
+    if (!stopLossInput || !sharePriceInput) return;
+    
+    const calculateStopLossPercent = () => {
+        const sharePrice = parseFloat(String(sharePriceInput.value || '').replace(',', '.'));
+        const stopLoss = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
+        
+        if (isNaN(sharePrice) || sharePrice <= 0) {
+            if (stopLossPrcntInput) stopLossPrcntInput.value = '';
+            return;
+        }
+        
+        if (isNaN(stopLoss) || stopLoss <= 0) {
+            if (stopLossPrcntInput) stopLossPrcntInput.value = '';
+            return;
+        }
+        
+        const stopLossPrcnt = ((stopLoss - sharePrice) / sharePrice) * 100;
+        if (stopLossPrcntInput) {
+            stopLossPrcntInput.value = stopLossPrcnt.toFixed(2);
+        }
+    };
+    
+    stopLossInput.addEventListener('input', calculateStopLossPercent);
+    stopLossInput.addEventListener('blur', calculateStopLossPercent);
+}
+
+// Function to recalculate take profit percentage (can be called from anywhere)
+function recalculateTakeProfitPercent(form) {
+    if (!form) {
+        console.log('recalculateTakeProfitPercent: form is null');
+        return;
+    }
+    
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const takeProfitInput = form.querySelector('input[name="take_profit"]');
+    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
+    
+    console.log('recalculateTakeProfitPercent called:', {
+        hasSharePrice: !!sharePriceInput,
+        hasTakeProfit: !!takeProfitInput,
+        hasTakeProfitPrcnt: !!takeProfitPrcntInput,
+        sharePriceValue: sharePriceInput?.value,
+        takeProfitValue: takeProfitInput?.value
+    });
+    
+    if (!sharePriceInput || !takeProfitInput || !takeProfitPrcntInput) {
+        console.log('recalculateTakeProfitPercent: Missing inputs');
+        return;
+    }
+    
+    const sharePriceStr = String(sharePriceInput.value || '').trim().replace(',', '.');
+    const takeProfitStr = String(takeProfitInput.value || '').trim().replace(',', '.');
+    
+    console.log('recalculateTakeProfitPercent: Parsed strings:', {
+        sharePriceStr,
+        takeProfitStr,
+        sharePriceEmpty: !sharePriceStr,
+        takeProfitEmpty: !takeProfitStr
+    });
+    
+    // Only calculate if BOTH values are present
+    if (!sharePriceStr || !takeProfitStr) {
+        console.log('recalculateTakeProfitPercent: One or both values empty, skipping');
+        return;
+    }
+    
+    const sharePrice = parseFloat(sharePriceStr);
+    const takeProfit = parseFloat(takeProfitStr);
+    
+    console.log('recalculateTakeProfitPercent: Parsed numbers:', {
+        sharePrice,
+        takeProfit,
+        sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
+        takeProfitValid: !isNaN(takeProfit) && takeProfit > 0
+    });
+    
+    if (isNaN(sharePrice) || sharePrice <= 0 || isNaN(takeProfit) || takeProfit <= 0) {
+        console.log('recalculateTakeProfitPercent: Invalid numbers, skipping');
+        return;
+    }
+    
+    const takeProfitPrcnt = ((takeProfit - sharePrice) / sharePrice) * 100;
+    const formattedValue = takeProfitPrcnt.toFixed(2);
+    takeProfitPrcntInput.value = formattedValue;
+    console.log('✓ recalculateTakeProfitPercent: Set value to', formattedValue, '%');
+}
+
+// Setup event listener for take profit input to calculate take profit percentage
+function setupTakeProfitListener(form) {
+    const takeProfitInput = form.querySelector('input[name="take_profit"]');
+    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
+    
+    if (!takeProfitInput || !takeProfitPrcntInput) {
+        return;
+    }
+    
+    // Track if we're waiting for share price to load
+    let waitingForSharePrice = false;
+    let checkInterval = null;
+    
+    const calculateTakeProfitPercent = () => {
+        // Always query the DOM fresh to get the current value
+        // This ensures we get the latest value even if it was set asynchronously
+        const sharePriceInput = form.querySelector('input[name="share_price"]');
+        if (!sharePriceInput) {
+            console.log('calculateTakeProfitPercent: sharePriceInput not found in form');
+            return;
+        }
+        
+        const sharePriceStr = String(sharePriceInput.value || '').trim().replace(',', '.');
+        const takeProfitStr = String(takeProfitInput.value || '').trim().replace(',', '.');
+        
+        console.log('calculateTakeProfitPercent called:', {
+            sharePriceStr,
+            takeProfitStr,
+            sharePriceEmpty: !sharePriceStr,
+            takeProfitEmpty: !takeProfitStr,
+            sharePriceInputExists: !!sharePriceInput,
+            sharePriceInputValue: sharePriceInput.value
+        });
+        
+        // Only calculate if BOTH values are present
+        // Don't clear the field if only one is empty (user might be typing)
+        if (!sharePriceStr || !takeProfitStr) {
+            // If take profit is set but share price is empty, start checking periodically
+            if (takeProfitStr && !sharePriceStr && !waitingForSharePrice) {
+                console.log('calculateTakeProfitPercent: Take profit set but share price empty, starting periodic check');
+                waitingForSharePrice = true;
+                
+                // Clear any existing interval
+                if (checkInterval) {
+                    clearInterval(checkInterval);
+                }
+                
+                // Check every 200ms for up to 5 seconds (25 checks)
+                let checkCount = 0;
+                checkInterval = setInterval(() => {
+                    checkCount++;
+                    // Always query fresh from DOM
+                    const currentSharePriceInput = form.querySelector('input[name="share_price"]');
+                    const currentSharePrice = currentSharePriceInput ? String(currentSharePriceInput.value || '').trim() : '';
+                    const currentTakeProfit = String(takeProfitInput.value || '').trim();
+                    
+                    if (currentSharePrice && currentTakeProfit) {
+                        console.log('calculateTakeProfitPercent: Both values now available, calculating');
+                        clearInterval(checkInterval);
+                        checkInterval = null;
+                        waitingForSharePrice = false;
+                        calculateTakeProfitPercent();
+                    } else if (checkCount >= 25) {
+                        console.log('calculateTakeProfitPercent: Timeout waiting for share price');
+                        clearInterval(checkInterval);
+                        checkInterval = null;
+                        waitingForSharePrice = false;
+                    }
+                }, 200);
+            }
+            console.log('calculateTakeProfitPercent: One or both values empty, skipping');
+            return; // Don't clear, just return - let user finish typing
+        }
+        
+        // Stop checking if both values are now available
+        if (waitingForSharePrice && checkInterval) {
+            clearInterval(checkInterval);
+            checkInterval = null;
+            waitingForSharePrice = false;
+        }
+        
+        const sharePrice = parseFloat(sharePriceStr);
+        const takeProfit = parseFloat(takeProfitStr);
+        
+        console.log('calculateTakeProfitPercent: Parsed values:', {
+            sharePrice,
+            takeProfit,
+            sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
+            takeProfitValid: !isNaN(takeProfit) && takeProfit > 0
+        });
+        
+        if (isNaN(sharePrice) || sharePrice <= 0) {
+            console.log('calculateTakeProfitPercent: Share price invalid, clearing field');
+            takeProfitPrcntInput.value = '';
+            return;
+        }
+        
+        if (isNaN(takeProfit) || takeProfit <= 0) {
+            console.log('calculateTakeProfitPercent: Take profit invalid, clearing field');
+            takeProfitPrcntInput.value = '';
+            return;
+        }
+        
+        const takeProfitPrcnt = ((takeProfit - sharePrice) / sharePrice) * 100;
+        const formattedValue = takeProfitPrcnt.toFixed(2);
+        takeProfitPrcntInput.value = formattedValue;
+        console.log('✓ calculateTakeProfitPercent: Set value to', formattedValue, '%');
+    };
+    
+    // Add event listeners - always try to calculate
+    takeProfitInput.addEventListener('input', (e) => {
+        // Always try to calculate - the function will check if both values are present
+        calculateTakeProfitPercent();
+    });
+    takeProfitInput.addEventListener('blur', (e) => {
+        // Always try to calculate on blur
+        // This ensures calculation happens even if share price was loaded asynchronously
+        calculateTakeProfitPercent();
+    });
+    
+    // Also trigger calculation if share price changes (in case take profit is already set)
+    // We need to query the form fresh each time to get the current sharePriceInput
+    const sharePriceHandler = () => {
+        // Always try to calculate - the function will check if both values are present
+        console.log('sharePriceHandler: Share price changed, recalculating');
+        calculateTakeProfitPercent();
+    };
+    
+    // Find sharePriceInput fresh and attach listeners
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    if (sharePriceInput) {
+        sharePriceInput.addEventListener('input', sharePriceHandler);
+        sharePriceInput.addEventListener('blur', sharePriceHandler);
+        sharePriceInput.addEventListener('change', sharePriceHandler);
+    }
+    
+    // Calculate immediately if both values are already present and not empty
+    // This will work for both new deals (after stock is selected) and existing deals
+    if (sharePriceInput && sharePriceInput.value && takeProfitInput.value && 
+        sharePriceInput.value.trim() && takeProfitInput.value.trim()) {
+        setTimeout(() => {
+            calculateTakeProfitPercent();
+        }, 100);
     }
 }
 
@@ -947,37 +1432,60 @@ function setupStockSelectListener(form, dealId) {
     // Restore the value (should be empty for new deals, or the ticker for existing deals)
     newSelect.value = currentValue;
 
+    // Track the last loaded ticker to avoid duplicate calls
+    let lastLoadedTicker = currentValue;
+    let isLoading = false;
+
     // Function to load data for a ticker
     const loadDataForTicker = async (ticker) => {
+        // Skip if already loading the same ticker
+        if (isLoading && lastLoadedTicker === ticker) {
+            console.log('Skipping duplicate load for ticker:', ticker);
+            return;
+        }
+        
         if (ticker && ticker.trim() !== '') {
+            // Mark as loading and update last loaded ticker
+            isLoading = true;
+            lastLoadedTicker = ticker;
+            
             const formContainer = form.closest('.deal-form-container');
             console.log('Loading data for ticker:', ticker);
             
-            // Use Promise.allSettled so one failure doesn't stop the others
-            const results = await Promise.allSettled([
-                loadPreviousWeekLowPrice(ticker, form).catch(err => {
-                    console.error('loadPreviousWeekLowPrice failed:', err);
-                    return null;
-                }),
-                loadCurrentPrice(ticker, form).catch(err => {
-                    console.error('loadCurrentPrice failed:', err);
-                    return null;
-                }),
-                loadTrends(ticker, form).catch(err => {
-                    console.error('loadTrends failed:', err);
-                    return null;
-                }),
-                loadSupportResistance(ticker, form).catch(err => {
-                    console.error('loadSupportResistance failed:', err);
-                    return null;
-                }),
-                loadAverageWeeklyVolume(ticker).catch(err => {
-                    console.error('loadAverageWeeklyVolume failed:', err);
-                    return null;
-                })
-            ]);
-            
-            console.log('All requests completed:', results);
+            try {
+                // Use Promise.allSettled so one failure doesn't stop the others
+                const results = await Promise.allSettled([
+                    loadPreviousWeekLowPrice(ticker, form).catch(err => {
+                        console.error('loadPreviousWeekLowPrice failed:', err);
+                        return null;
+                    }),
+                    loadCurrentPrice(ticker, form).catch(err => {
+                        console.error('loadCurrentPrice failed:', err);
+                        return null;
+                    }),
+                    loadTrends(ticker, form).catch(err => {
+                        console.error('loadTrends failed:', err);
+                        return null;
+                    }),
+                    loadSupportResistance(ticker, form).catch(err => {
+                        console.error('loadSupportResistance failed:', err);
+                        return null;
+                    }),
+                    loadAverageWeeklyVolume(ticker).catch(err => {
+                        console.error('loadAverageWeeklyVolume failed:', err);
+                        return null;
+                    }),
+                    loadMovementMetricsAndDisplay(ticker, form).catch(err => {
+                        console.error('loadMovementMetricsAndDisplay failed:', err);
+                        return null;
+                    })
+                ]);
+                
+                console.log('All requests completed:', results);
+            } finally {
+                // Reset loading flag after all requests complete
+                isLoading = false;
+            }
         } else {
             // Clear price fields if stock is deselected
             const formContainer = form.closest('.deal-form-container');
@@ -1000,20 +1508,46 @@ function setupStockSelectListener(form, dealId) {
                 updateSelectDownClass(weeklySelect);
             }
             setPriceError(formContainer, '');
+            
+            // Clear movement metrics from title when stock is deselected
+            const dealRow = formContainer?.closest('.deal-row');
+            if (dealRow) {
+                const summary = dealRow.querySelector('.deal-summary');
+                const titleElement = summary?.querySelector('strong');
+                if (titleElement) {
+                    const metricsDisplay = titleElement.querySelector('.movement-metrics-display');
+                    if (metricsDisplay) {
+                        metricsDisplay.remove();
+                    }
+                    
+                    // Reset title to "New Deal" if no stock selected
+                    const stockSelect = form.querySelector('.deal-stock-select');
+                    if (stockSelect && !stockSelect.value) {
+                        const currentText = titleElement.textContent.split('!')[0].trim(); // Remove warning icons
+                        if (currentText && currentText !== 'New Deal') {
+                            titleElement.innerHTML = titleElement.innerHTML.replace(/^[^<]+/, 'New Deal');
+                        }
+                    }
+                }
+            }
         }
     };
 
     // Add change event listener
     newSelect.addEventListener('change', async (e) => {
         const ticker = e.target.value;
-        await loadDataForTicker(ticker);
+        // Only load if ticker changed from last loaded
+        if (ticker !== lastLoadedTicker) {
+            await loadDataForTicker(ticker);
+        }
     });
 
     // Also listen to input event (for when user types in a select with search/autocomplete)
+    // But skip if change event already handled it
     newSelect.addEventListener('input', async (e) => {
         const ticker = e.target.value;
-        // Only trigger if value actually changed (to avoid duplicate calls)
-        if (ticker !== currentValue) {
+        // Only trigger if value actually changed and not already loading
+        if (ticker !== lastLoadedTicker && !isLoading) {
             await loadDataForTicker(ticker);
         }
     });
@@ -1290,10 +1824,25 @@ async function loadCurrentPrice(ticker, form) {
         
         if (data && data.price !== undefined && data.price !== null) {
             const sharePriceInput = form.querySelector('input[name="share_price"]');
+            
             if (sharePriceInput) {
                 sharePriceInput.value = data.price.toString();
+                
+                // Trigger input event to ensure all listeners are notified
+                // This will trigger setupSharePriceListener's calculatePercentages
+                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Also trigger a small delay to ensure all event handlers have processed
+                setTimeout(() => {
+                    recalculateTakeProfitPercent(form);
+                }, 50);
+                
                 // Calculate stop loss after autofilling share price
                 await calculateStopLoss(form);
+                
+                // Recalculate take profit percentage if take profit is already set
+                recalculateTakeProfitPercent(form);
             }
             setPriceError(formContainer, '');
         }
@@ -1354,6 +1903,205 @@ async function loadTrends(ticker, form) {
     }
 }
 
+// Load movement metrics for a ticker
+async function loadMovementMetrics(ticker) {
+    if (!ticker) {
+        console.log('loadMovementMetrics: No ticker provided');
+        return null;
+    }
+    
+    try {
+        console.log('Loading movement metrics for ticker:', ticker);
+        const url = `/api/prices/${encodeURIComponent(ticker)}/movement-score?lookback=52`;
+        console.log('Request URL:', url);
+        
+        const res = await fetch(url, {
+            headers: { ...authHeaders() }
+        });
+        
+        console.log('Response status:', res.status, 'OK:', res.ok);
+        
+        if (!res.ok) {
+            const errorText = await res.text().catch(() => '');
+            console.warn('Failed to load movement metrics for', ticker, 'Status:', res.status, 'Error:', errorText);
+            
+            // If 404, the endpoint might not exist yet (needs app restart)
+            if (res.status === 404) {
+                console.warn('Endpoint not found - application may need to be restarted');
+            }
+            
+            return null;
+        }
+        
+        const data = await res.json();
+        console.log('Movement metrics loaded for', ticker, ':', JSON.stringify(data, null, 2));
+        
+        // Verify we have the expected fields
+        if (data && (data.speedPct !== undefined || data.strengthPct !== undefined)) {
+            console.log('Movement metrics data is valid');
+            return data;
+        } else {
+            console.warn('Movement metrics data missing expected fields:', data);
+            return null;
+        }
+    } catch (err) {
+        console.error('Error loading movement metrics for', ticker, ':', err);
+        return null;
+    }
+}
+
+// Format movement metrics for display
+function formatMovementMetrics(metrics) {
+    if (!metrics) {
+        console.log('formatMovementMetrics: No metrics provided');
+        return '';
+    }
+    
+    console.log('formatMovementMetrics: Processing metrics:', JSON.stringify(metrics, null, 2));
+    
+    // Handle both camelCase and potential variations
+    const direction = (metrics.direction === 1 || metrics.Direction === 1) ? '↑' : 
+                      (metrics.direction === -1 || metrics.Direction === -1) ? '↓' : '↔';
+    
+    // Determine arrow color based on direction
+    let arrowColor;
+    if (direction === '↑') {
+        arrowColor = '#22c55e'; // Green for up
+    } else if (direction === '↓') {
+        arrowColor = '#ef4444'; // Red for down
+    } else {
+        arrowColor = '#eab308'; // Yellow for flat
+    }
+    
+    const signed = (metrics.signedPct || metrics.SignedPct || 0);
+    const signedDisplay = signed > 0 ? `+${signed.toFixed(2)}` : signed.toFixed(2); // Add + for positive values
+    const speed = Math.round(metrics.speedPct || metrics.SpeedPct || 0);
+    const strength = Math.round(metrics.strengthPct || metrics.StrengthPct || 0);
+    const ease = Math.round(metrics.easeOfMovePct || metrics.EaseOfMovePct || 0);
+    const returnPctValue = metrics.returnPct || metrics.ReturnPct || 0;
+    const returnPct = returnPctValue ? (returnPctValue > 0 ? '+' : '') + returnPctValue.toFixed(2) : '0.00';
+    
+    // Helper function to color negative values red
+    const formatValue = (value) => {
+        const valueStr = String(value);
+        if (valueStr.startsWith('-') || parseFloat(valueStr) < 0) {
+            return `<span style="color: #ef4444;">${valueStr}</span>`;
+        }
+        return valueStr;
+    };
+    
+    // Helper function to format metric with tooltip (same style as risk icons)
+    // Tooltip is visible on both label and value
+    const formatMetric = (label, value, tooltip) => {
+        return `<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${label}</span>:<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${formatValue(value)}</span>%`;
+    };
+    
+    const formatted = `<span class="movement-metrics-display" style="font-size: 11px; color: #64748b; margin-left: 8px; font-weight: normal;">
+        <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span> | ${formatMetric('Mv', signedDisplay, 'This is a composite index of Speed, Strength and EaseOfMove.')} | ${formatMetric('Sp', speed, 'Speed: Normalized speed percentage relative to historical maximum in this direction.')} | ${formatMetric('St', strength, 'Strength: Normalized strength (|ΔP| * Volume) percentage relative to historical maximum.')} | ${formatMetric('E', ease, 'Ease: Normalized ease of movement (move / volume) percentage relative to historical maximum.')} | ${formatMetric('Ret', returnPct, 'Return: The raw return percentage of the last bar.')}
+    </span>`;
+    
+    console.log('formatMovementMetrics: Formatted result:', formatted);
+    return formatted;
+}
+
+// Track loading state to prevent duplicate calls
+const movementMetricsLoading = new Set();
+
+// Load and display movement metrics in the deal row title
+async function loadMovementMetricsAndDisplay(ticker, form) {
+    if (!ticker || !form) return;
+    
+    // Create a unique key for this deal row to track loading state
+    const formContainer = form.closest('.deal-form-container');
+    const dealRow = formContainer?.closest('.deal-row');
+    if (!dealRow) {
+        console.warn('Deal row not found for movement metrics');
+        return;
+    }
+    
+    const loadingKey = `${dealRow.dataset.dealId || 'new'}-${ticker}`;
+    
+    // Check if already loading or already loaded
+    if (movementMetricsLoading.has(loadingKey)) {
+        console.log('Movement metrics already loading for', ticker);
+        return;
+    }
+    
+    try {
+        movementMetricsLoading.add(loadingKey);
+        
+        const summary = dealRow.querySelector('.deal-summary');
+        const titleElement = summary?.querySelector('strong');
+        if (!titleElement) {
+            console.warn('Title element not found in deal row');
+            movementMetricsLoading.delete(loadingKey);
+            return;
+        }
+        
+        // Always remove ALL existing movement metrics first to prevent duplicates
+        const existingMetrics = titleElement.querySelectorAll('.movement-metrics-display');
+        existingMetrics.forEach(metric => metric.remove());
+        if (existingMetrics.length > 0) {
+            console.log('Removed', existingMetrics.length, 'existing movement metrics display(s)');
+        }
+        
+        // Update title from "New Deal" to ticker if needed
+        const currentTitleText = titleElement.textContent.trim().split('!')[0].trim(); // Get text without warning icons
+        if (currentTitleText === 'New Deal') {
+            // Get warning indicators if they exist (they might be added after)
+            const warningIcons = titleElement.querySelectorAll('.volume-warning-icon');
+            const warningHTML = Array.from(warningIcons).map(icon => icon.outerHTML).join('');
+            
+            // Clear current content and set ticker
+            titleElement.innerHTML = '';
+            const tickerText = document.createTextNode(ticker);
+            titleElement.appendChild(tickerText);
+            
+            // Append warning icons after ticker text
+            if (warningHTML) {
+                titleElement.insertAdjacentHTML('beforeend', warningHTML);
+            }
+            
+            console.log('Updated deal title to:', ticker);
+        }
+        
+        // Load metrics
+        const metrics = await loadMovementMetrics(ticker);
+        
+        // Final check - remove any metrics that might have been added during async operation
+        const metricsAddedDuringLoad = titleElement.querySelectorAll('.movement-metrics-display');
+        metricsAddedDuringLoad.forEach(metric => metric.remove());
+        
+        if (metrics) {
+            const formatted = formatMovementMetrics(metrics);
+            
+            // Append formatted HTML directly (it already contains the class)
+            titleElement.insertAdjacentHTML('beforeend', formatted);
+            
+            // Immediately check for and remove any duplicates that might have been created
+            const allMetrics = titleElement.querySelectorAll('.movement-metrics-display');
+            if (allMetrics.length > 1) {
+                console.warn('Found', allMetrics.length, 'movement metrics displays - removing duplicates');
+                // Keep only the first one, remove the rest
+                for (let i = 1; i < allMetrics.length; i++) {
+                    allMetrics[i].remove();
+                }
+            }
+            
+            console.log('Movement metrics displayed in deal title for', ticker);
+        } else {
+            console.log('No movement metrics available for', ticker);
+        }
+    } catch (err) {
+        console.error('Error loading movement metrics for deal title:', err);
+    } finally {
+        // Remove from loading set after a short delay to allow rendering
+        setTimeout(() => {
+            movementMetricsLoading.delete(loadingKey);
+        }, 100);
+    }
+}
+
 async function loadAverageWeeklyVolume(ticker) {
     if (!ticker || !ticker.trim()) return null;
 
@@ -1391,23 +2139,114 @@ async function loadSupportResistance(ticker, form) {
         const data = await res.json();
         console.log('Support/resistance data received for', ticker, ':', data);
         
-        // Set support_price to ALL found support levels (comma-separated)
+        // Set support_price to first two levels only
         const supportInput = form.querySelector('input[name="support_price"]');
-        if (supportInput && data.levels && data.levels.length > 0) {
-            // Use all levels found
-            supportInput.value = data.levels.map(l => parseFloat(l).toFixed(2)).join(', ');
-            console.log(`All support levels loaded for ${ticker}: ${supportInput.value} (${data.levels.length} levels)`);
+        if (supportInput && data.firstTwo && data.firstTwo.length > 0) {
+            // Use firstTwo - only the first two levels
+            supportInput.value = data.firstTwo.map(l => parseFloat(l).toFixed(2)).join(', ');
+            console.log(`First two support levels loaded for ${ticker}: ${supportInput.value}`);
         } else if (supportInput && data.supportPrice) {
-            // Fallback to supportPrice if levels array is not available
+            // Fallback to supportPrice if firstTwo is not available
             supportInput.value = data.supportPrice;
             console.log(`Support levels loaded for ${ticker}: ${data.supportPrice}`);
-        } else if (supportInput && data.firstTwo && data.firstTwo.length > 0) {
-            // Fallback: use firstTwo if available
-            supportInput.value = data.firstTwo.map(l => parseFloat(l).toFixed(2)).join(', ');
-            console.log(`Support levels loaded for ${ticker}: ${supportInput.value}`);
+        } else if (supportInput && data.levels && data.levels.length >= 2) {
+            // Fallback: use first two from levels array if firstTwo is not available
+            const firstTwoLevels = data.levels.slice(0, 2);
+            supportInput.value = firstTwoLevels.map(l => parseFloat(l).toFixed(2)).join(', ');
+            console.log(`First two support levels loaded from levels array for ${ticker}: ${supportInput.value}`);
+        } else if (supportInput && data.levels && data.levels.length > 0) {
+            // If only one level available, use it
+            supportInput.value = parseFloat(data.levels[0]).toFixed(2);
+            console.log(`Single support level loaded for ${ticker}: ${supportInput.value}`);
         }
     } catch (err) {
         console.error('Error loading support/resistance levels', err);
+    }
+}
+
+async function loadCurrentPrice(ticker, form) {
+    if (!ticker || !form) {
+        console.log('loadCurrentPrice: ticker or form is null', { ticker, form: !!form });
+        return;
+    }
+
+    const formContainer = form.closest('.deal-form-container');
+    setPriceError(formContainer, '');
+
+    console.log('loadCurrentPrice: Starting to load price for ticker:', ticker);
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+            headers: { ...authHeaders() }
+        });
+
+        console.log('loadCurrentPrice: API response status:', res.status);
+
+        if (!res.ok) {
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            if (sharePriceInput) sharePriceInput.value = '';
+            setPriceError(formContainer, 'Current price is temporarily unavailable (API quota reached).');
+            console.log('loadCurrentPrice: API request failed, clearing share price');
+            return;
+        }
+
+        const data = await res.json();
+        console.log('loadCurrentPrice: API response data:', data);
+        
+        if (data && data.price !== undefined && data.price !== null) {
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            console.log('loadCurrentPrice: sharePriceInput found:', !!sharePriceInput);
+            
+            if (sharePriceInput) {
+                const oldValue = sharePriceInput.value;
+                sharePriceInput.value = data.price.toString();
+                console.log('✓ Share price set to:', data.price.toString(), '(was:', oldValue, ')');
+                
+                // Check if take profit is already set
+                const takeProfitInput = form.querySelector('input[name="take_profit"]');
+                const takeProfitValue = takeProfitInput?.value?.trim();
+                console.log('loadCurrentPrice: takeProfitValue after setting share price:', takeProfitValue);
+                
+                // Trigger input event to ensure all listeners are notified
+                // This will trigger setupSharePriceListener's calculatePercentages
+                console.log('loadCurrentPrice: Dispatching input and change events');
+                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Calculate stop loss after autofilling share price
+                await calculateStopLoss(form);
+                
+                // Recalculate take profit percentage if take profit is already set
+                // Use multiple delays to catch cases where take profit is entered after share price loads
+                console.log('loadCurrentPrice: Calling recalculateTakeProfitPercent after share price load');
+                recalculateTakeProfitPercent(form);
+                
+                // Also trigger recalculations with delays to catch late input
+                setTimeout(() => {
+                    console.log('loadCurrentPrice: Recalculating after 100ms delay');
+                    recalculateTakeProfitPercent(form);
+                }, 100);
+                
+                setTimeout(() => {
+                    console.log('loadCurrentPrice: Recalculating after 500ms delay');
+                    recalculateTakeProfitPercent(form);
+                }, 500);
+                
+                setTimeout(() => {
+                    console.log('loadCurrentPrice: Recalculating after 1000ms delay');
+                    recalculateTakeProfitPercent(form);
+                }, 1000);
+            } else {
+                console.warn('loadCurrentPrice: sharePriceInput not found in form');
+            }
+            setPriceError(formContainer, '');
+        } else {
+            console.warn('loadCurrentPrice: Invalid data received', data);
+        }
+    } catch (err) {
+        console.error('Error loading current price', err);
+        const formContainer = form.closest('.deal-form-container');
+        setPriceError(formContainer, 'Current price is temporarily unavailable (API error).');
     }
 }
 
@@ -1539,6 +2378,8 @@ function updateStopLossErrorClass(input, value) {
 function setupSharePriceListener(form) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    const takeProfitInput = form.querySelector('input[name="take_profit"]');
+    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
     
     if (!sharePriceInput) return;
     
@@ -1546,18 +2387,44 @@ function setupSharePriceListener(form) {
     const newInput = sharePriceInput.cloneNode(true);
     sharePriceInput.parentNode.replaceChild(newInput, sharePriceInput);
     
+    // Function to calculate percentages when share price changes
+    const calculatePercentages = () => {
+        // Calculate stop loss
+        calculateStopLoss(form);
+        
+        // Calculate take profit percentage if take profit is set
+        if (takeProfitInput && takeProfitInput.value && takeProfitPrcntInput) {
+            recalculateTakeProfitPercent(form);
+        }
+    };
+    
     // Add listeners for both 'input' (real-time) and 'change' (on blur)
     newInput.addEventListener('input', () => {
         // Debounce to avoid too many calculations while typing
         clearTimeout(newInput._stopLossTimeout);
         newInput._stopLossTimeout = setTimeout(() => {
-            calculateStopLoss(form);
+            calculatePercentages();
         }, 500); // Wait 500ms after user stops typing
     });
     
     newInput.addEventListener('change', () => {
-        calculateStopLoss(form);
+        calculatePercentages();
     });
+    
+    // Also trigger calculation if share price is already set and take profit is also set
+    if (newInput.value && takeProfitInput && takeProfitInput.value) {
+        setTimeout(() => {
+            calculatePercentages();
+        }, 100);
+    }
+    
+    // Also trigger calculation after a delay to catch cases where share price is loaded via API
+    // This ensures that if share price is set programmatically, the calculation still happens
+    setTimeout(() => {
+        if (newInput.value && takeProfitInput && takeProfitInput.value) {
+            calculatePercentages();
+        }
+    }, 500);
     
     // Also check stop loss % field when user manually changes it
     if (stopLossPrcntInput) {

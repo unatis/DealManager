@@ -582,4 +582,187 @@ public class PricesController : ControllerBase
             return StatusCode(500, $"Internal error: {ex.Message}");
         }
     }
+
+    [HttpGet("{ticker}/movement")]
+    public async Task<IActionResult> GetMovementMetrics(
+        string ticker,
+        [FromQuery] int? lookback = null,
+        [FromQuery] string? periods = null,
+        [FromQuery] double flatThresholdPct = 0.001)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        try
+        {
+            _logger.LogInformation("Calculating movement metrics for {Ticker}", ticker);
+            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            
+            if (priceData.Count == 0)
+                return NotFound("No data for this ticker");
+
+            // If periods are provided, calculate for multiple periods
+            if (!string.IsNullOrWhiteSpace(periods))
+            {
+                var periodList = periods
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(p => int.TryParse(p.Trim(), out var val) ? val : (int?)null)
+                    .Where(p => p.HasValue && p.Value >= 2)
+                    .Select(p => p!.Value)
+                    .ToList();
+
+                if (periodList.Count == 0)
+                    return BadRequest("Invalid periods format. Provide comma-separated integers (e.g., 26,52,104)");
+
+                var metrics = MoveAnalyzer.CalculateNormalizedMoveMetricsForPeriods(
+                    priceData,
+                    periodList,
+                    flatThresholdPct);
+
+                _logger.LogInformation(
+                    "Movement metrics calculated for {Ticker} for {PeriodCount} periods: {Periods}",
+                    ticker, metrics.Count, string.Join(", ", metrics.Keys));
+
+                return Ok(new
+                {
+                    ticker = ticker,
+                    periods = metrics.Select(kvp => new
+                    {
+                        lookback = kvp.Key,
+                        direction = kvp.Value.Direction,
+                        returnPct = Math.Round(kvp.Value.ReturnPct, 4),
+                        speedPct = Math.Round(kvp.Value.SpeedPct, 2),
+                        strengthPct = Math.Round(kvp.Value.StrengthPct, 2),
+                        easeOfMovePct = Math.Round(kvp.Value.EaseOfMovePct, 2)
+                    }).ToList()
+                });
+            }
+            // If single lookback is provided, calculate for that period
+            else if (lookback.HasValue)
+            {
+                if (lookback.Value < 2)
+                    return BadRequest("Lookback must be at least 2");
+
+                var metrics = MoveAnalyzer.CalculateNormalizedMoveMetricsForPeriod(
+                    priceData,
+                    lookback.Value,
+                    flatThresholdPct);
+
+                _logger.LogInformation(
+                    "Movement metrics calculated for {Ticker} with lookback={Lookback}: Direction={Direction}, Return={ReturnPct:F2}%, Speed={SpeedPct:F2}%, Strength={StrengthPct:F2}%, Ease={EasePct:F2}%",
+                    ticker, lookback.Value, metrics.Direction, metrics.ReturnPct, metrics.SpeedPct, metrics.StrengthPct, metrics.EaseOfMovePct);
+
+                return Ok(new
+                {
+                    ticker = ticker,
+                    lookback = lookback.Value,
+                    direction = metrics.Direction,
+                    returnPct = Math.Round(metrics.ReturnPct, 4),
+                    speedPct = Math.Round(metrics.SpeedPct, 2),
+                    strengthPct = Math.Round(metrics.StrengthPct, 2),
+                    easeOfMovePct = Math.Round(metrics.EaseOfMovePct, 2)
+                });
+            }
+            else
+            {
+                return BadRequest("Either 'lookback' or 'periods' query parameter is required");
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid argument for movement metrics calculation for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Cannot calculate movement metrics for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate movement metrics for {Ticker}. Exception: {ExceptionType}, Message: {Message}",
+                ticker, ex.GetType().Name, ex.Message);
+            return StatusCode(500, $"Internal error: {ex.Message}");
+        }
+    }
+
+    [HttpGet("{ticker}/movement-score")]
+    public async Task<IActionResult> GetMovementScore(
+        string ticker,
+        [FromQuery] int lookback = 26,
+        [FromQuery] double wSpeed = 2.0,
+        [FromQuery] double wStrength = 3.0,
+        [FromQuery] double wEase = 1.0,
+        [FromQuery] bool clampTo100 = false,
+        [FromQuery] double flatThresholdPct = 0.001)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        if (lookback < 2)
+            return BadRequest("Lookback must be at least 2");
+
+        try
+        {
+            _logger.LogInformation("Calculating movement score for {Ticker} with lookback={Lookback}", ticker, lookback);
+            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            
+            if (priceData.Count == 0)
+                return NotFound("No data for this ticker");
+
+            // Calculate normalized metrics first
+            var metrics = MoveAnalyzer.CalculateNormalizedMoveMetricsForPeriod(
+                priceData,
+                lookback,
+                flatThresholdPct);
+
+            // Combine metrics into a single score
+            var score = MoveScoreCombiner.Combine(
+                metrics,
+                wSpeed,
+                wStrength,
+                wEase,
+                clampTo100);
+
+            _logger.LogInformation(
+                "Movement score calculated for {Ticker}: Magnitude={MagnitudePct:F2}%, Signed={SignedPct:F2}%",
+                ticker, score.MagnitudePct, score.SignedPct);
+
+            return Ok(new
+            {
+                ticker = ticker,
+                lookback = lookback,
+                magnitudePct = Math.Round(score.MagnitudePct, 2),
+                signedPct = Math.Round(score.SignedPct, 2),
+                direction = metrics.Direction,
+                returnPct = Math.Round(metrics.ReturnPct, 4),
+                speedPct = Math.Round(metrics.SpeedPct, 2),
+                strengthPct = Math.Round(metrics.StrengthPct, 2),
+                easeOfMovePct = Math.Round(metrics.EaseOfMovePct, 2),
+                weights = new
+                {
+                    speed = wSpeed,
+                    strength = wStrength,
+                    ease = wEase
+                },
+                clampTo100 = clampTo100
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid argument for movement score calculation for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Cannot calculate movement score for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate movement score for {Ticker}. Exception: {ExceptionType}, Message: {Message}",
+                ticker, ex.GetType().Name, ex.Message);
+            return StatusCode(500, $"Internal error: {ex.Message}");
+        }
+    }
 }

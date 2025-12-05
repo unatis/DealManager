@@ -9,3 +9,4 @@ public class WeeklyCandle
     public decimal Close { get; set; }
 }
 
+
