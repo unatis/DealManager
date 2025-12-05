@@ -1280,8 +1280,10 @@ function createDealRow(deal, isNew) {
         <div class="chips" style="min-width:140px;justify-content:flex-end">
             <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
             <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
+            ${deal.stop_loss_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Stop Loss Percentage">SL:${escapeHtml(deal.stop_loss_prcnt)}%</div>` : ''}
             <div class="badge movement-metric-tooltip" data-tooltip="Take Profit">TP:${escapeHtml(deal.take_profit || '-')}</div>
-            ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP%:${escapeHtml(deal.take_profit_prcnt)}</div>` : ''}
+            ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP:${escapeHtml(deal.take_profit_prcnt)}%</div>` : ''}
+            ${deal.reward_to_risk ? `<div class="badge movement-metric-tooltip" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(deal.reward_to_risk)}</div>` : ''}
         </div>
         ` : ''}
     `;

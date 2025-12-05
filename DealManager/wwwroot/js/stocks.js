@@ -156,27 +156,87 @@ function setButtonLoading(button, isLoading) {
     }
 }
 
-// Check if button exists before adding event listener
-if (addStockBtn && stockModal) {
-    console.log('Setting up addStockBtn event listener');
-    addStockBtn.addEventListener('click', (e) => {
+// Function to open stock modal
+function openStockModal(e) {
+    if (e) {
         e.preventDefault();
         e.stopPropagation();
-        console.log('Add stock button clicked');
-        stockModal.style.display = 'flex';
-    });
+    }
+    console.log('Add stock button triggered');
+    const modal = document.getElementById('stockModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+// Setup event listeners - use multiple approaches for maximum compatibility
+function setupAddStockButton() {
+    const btn = document.getElementById('addStockBtn');
+    const modal = document.getElementById('stockModal');
     
-    // Also try mousedown as fallback
-    addStockBtn.addEventListener('mousedown', (e) => {
-        console.log('Add stock button mousedown');
-    });
+    if (!btn || !modal) {
+        console.error('addStockBtn or stockModal not found in DOM', {
+            addStockBtn: !!btn,
+            stockModal: !!modal
+        });
+        return;
+    }
+    
+    console.log('Setting up addStockBtn event listener');
+    
+    // Add click handler for desktop (capture phase to catch early)
+    btn.addEventListener('click', openStockModal, true);
+    
+    // Add touchstart handler for mobile devices (capture phase)
+    btn.addEventListener('touchstart', (e) => {
+        console.log('Add stock button touchstart');
+        openStockModal(e);
+    }, { passive: false, capture: true });
+    
+    // Add touchend as backup
+    btn.addEventListener('touchend', (e) => {
+        console.log('Add stock button touchend');
+        openStockModal(e);
+    }, { passive: false, capture: true });
+    
+    // Also add onclick as direct fallback
+    btn.onclick = openStockModal;
+    
+    // Ensure button is clickable with inline styles
+    btn.style.pointerEvents = 'auto';
+    btn.style.cursor = 'pointer';
+    btn.style.zIndex = '1000';
+    btn.style.position = 'relative';
+    btn.style.touchAction = 'manipulation';
+    btn.removeAttribute('disabled');
+    
+    console.log('addStockBtn event listeners set up', btn);
+}
+
+// Also use event delegation through aside panel as backup
+const asidePanel = document.querySelector('aside.panel');
+if (asidePanel) {
+    asidePanel.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'addStockBtn') {
+            console.log('Add stock button clicked via delegation');
+            openStockModal(e);
+        }
+    }, true);
+    
+    asidePanel.addEventListener('touchstart', (e) => {
+        if (e.target && e.target.id === 'addStockBtn') {
+            console.log('Add stock button touched via delegation');
+            openStockModal(e);
+        }
+    }, { passive: false, capture: true });
+}
+
+// Setup when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupAddStockButton);
 } else {
-    console.error('addStockBtn or stockModal not found in DOM', {
-        addStockBtn: !!addStockBtn,
-        stockModal: !!stockModal,
-        addStockBtnElement: addStockBtn,
-        stockModalElement: stockModal
-    });
+    // DOM already loaded, setup immediately
+    setTimeout(setupAddStockButton, 0);
 }
 
 if (closeStockModalBtn) {
@@ -1002,16 +1062,4 @@ if (betaVolatilitySelect) {
 }
 
 // ====== Старт ======
-// Ensure button is clickable on page load
-if (addStockBtn) {
-    // Remove any disabled attribute
-    addStockBtn.removeAttribute('disabled');
-    // Ensure it's visible and clickable
-    addStockBtn.style.pointerEvents = 'auto';
-    addStockBtn.style.cursor = 'pointer';
-    addStockBtn.style.zIndex = '10';
-    addStockBtn.style.position = 'relative';
-    console.log('addStockBtn initialized:', addStockBtn);
-}
-
 loadStocks();

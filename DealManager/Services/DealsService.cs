@@ -48,5 +48,17 @@ namespace DealManager.Services
 
             return result.DeletedCount == 1;
         }
+
+        // Helper method to calculate Reward-to-Risk ratio
+        public static double CalculateRewardToRisk(double entry, double stopLoss, double takeProfit)
+        {
+            double risk = entry - stopLoss;
+            double reward = takeProfit - entry;
+
+            if (risk <= 0 || reward <= 0)
+                return 0; // Invalid configuration
+
+            return reward / risk; // 3.0 -> "1 к 3"
+        }
     }
 }

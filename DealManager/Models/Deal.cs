@@ -1,6 +1,7 @@
 ﻿using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using System.Text.Json.Serialization;
+using DealManager.Services;
 
 namespace DealManager.Models
 {
@@ -130,6 +131,29 @@ namespace DealManager.Models
         [JsonPropertyName("green_candle_higher")]
         public string? GreenCandleHigher { get; set; }
 
+        [JsonIgnore]
+        public double? RewardToRiskRatio
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(SharePrice) || 
+                    string.IsNullOrWhiteSpace(StopLoss) || 
+                    string.IsNullOrWhiteSpace(TakeProfit))
+                    return null;
+
+                if (!double.TryParse(SharePrice, out var entry) ||
+                    !double.TryParse(StopLoss, out var stopLossValue) ||
+                    !double.TryParse(TakeProfit, out var takeProfitValue))
+                    return null;
+
+                return DealsService.CalculateRewardToRisk(entry, stopLossValue, takeProfitValue);
+            }
+        }
+
+        [JsonPropertyName("reward_to_risk")]
+        public string? RewardToRisk => RewardToRiskRatio.HasValue && RewardToRiskRatio.Value > 0
+            ? $"1:{RewardToRiskRatio.Value:F1}" 
+            : null;
         
     }
 }

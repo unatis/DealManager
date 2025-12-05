@@ -88,9 +88,16 @@ button:disabled {
 #addStockBtn {
     pointer-events: auto !important;
     cursor: pointer !important;
-    z-index: 10;
-    position: relative;
+    z-index: 1000 !important;
+    position: relative !important;
     margin-bottom: 30px;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+    min-height: 44px; /* Ensure minimum touch target size for mobile */
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 main {
@@ -854,12 +861,24 @@ label {
 
 /* Responsive: Hide desktop buttons and show hamburger on mobile */
 @media (max-width: 768px) {
+    header {
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 12px;
+        position: relative; /* For absolute positioning of menu toggle */
+    }
+    
     .desktop-btn {
         display: none !important;
     }
     
     .menu-toggle {
         display: flex;
+        position: absolute;
+        top: 14px; /* Match header padding */
+        right: 20px; /* Match header padding */
+        align-self: flex-start;
+        margin-top: 0;
     }
     
     .mobile-menu {
@@ -870,8 +889,22 @@ label {
         display: block;
     }
     
+    .brand {
+        align-items: flex-start; /* Align logo to top */
+        align-self: flex-start;
+    }
+    
+    .brand > div:not(.logo) {
+        display: none; /* Hide Share Manager text on mobile, keep logo */
+    }
+    
     .controls {
-        gap: 12px;
+        flex: 1; /* Take remaining space */
+        flex-direction: column; /* Display items as rows (vertically) */
+        gap: 4px; /* Reduced gap between rows */
+        align-items: center; /* Center the portfolio info rows */
+        justify-content: center; /* Center vertically */
+        min-height: 100%; /* Ensure it takes full height */
     }
     
     .user-info {
@@ -881,6 +914,31 @@ label {
     .portfolio-info {
         font-size: 12px;
         display: flex; /* Show portfolio info on mobile */
+        width: auto; /* Auto width instead of 100% */
+        justify-content: flex-start; /* Align items to the left */
+        align-items: center;
+        padding: 2px 0; /* Reduced vertical padding */
+        gap: 6px; /* Small gap between label and value */
+    }
+    
+    .portfolio-info .portfolio-display {
+        margin-left: 0; /* Remove auto margin */
+    }
+    
+    /* Ensure Add Stock button is clickable on mobile */
+    #addStockBtn {
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        min-height: 44px;
+        z-index: 100;
+        position: relative;
+    }
+    
+    /* Ensure aside panel doesn't block touch events */
+    aside.panel {
+        position: relative;
+        z-index: 1;
+        overflow: visible;
     }
 }
 
