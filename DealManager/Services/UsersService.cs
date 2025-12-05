@@ -50,5 +50,27 @@ namespace DealManager.Services
             var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
             return user != null ? (decimal)user.Portfolio : 0;
         }
+
+        public Task UpdateTotalSumAsync(string userId, double totalSum) =>
+            _users.UpdateOneAsync(
+                u => u.Id == userId,
+                Builders<AppUser>.Update.Set(u => u.TotalSum, totalSum));
+
+        public async Task<decimal> GetTotalSumAsync(string userId)
+        {
+            var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            return user != null ? (decimal)user.TotalSum : 0;
+        }
+
+        public Task UpdateInSharesAsync(string userId, double inShares) =>
+            _users.UpdateOneAsync(
+                u => u.Id == userId,
+                Builders<AppUser>.Update.Set(u => u.InShares, inShares));
+
+        public async Task<decimal> GetInSharesAsync(string userId)
+        {
+            var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            return user != null ? (decimal)user.InShares : 0;
+        }
     }
 }
