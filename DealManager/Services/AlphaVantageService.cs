@@ -99,6 +99,7 @@ namespace DealManager.Services
             if (_cache.TryGetValue(cacheKey, out IReadOnlyList<PricePoint>? cached) && cached != null)
             {
                 // Ensure data from memory cache is also saved to MongoDB
+                _logger.LogInformation("GetWeeklyAsync: Found {Symbol} in memory cache ({Count} points), ensuring MongoDB persistence", symbol, cached.Count);
                 await EnsureSavedToMongoDB(symbol, cached);
                 return cached;
             }
@@ -127,6 +128,7 @@ namespace DealManager.Services
                     .AsReadOnly();
 
                 _cache.Set(cacheKey, fresh, TimeSpan.FromMinutes(5));
+                _logger.LogInformation("GetWeeklyAsync: Found {Symbol} in MongoDB cache ({Count} points, same day), ensuring MongoDB persistence", symbol, fresh.Count);
                 // Ensure data is saved to MongoDB (refresh LastUpdatedUtc)
                 await EnsureSavedToMongoDB(symbol, fresh);
                 return fresh;
@@ -145,6 +147,7 @@ namespace DealManager.Services
             }
 
             // Save to MongoDB
+            _logger.LogInformation("GetWeeklyAsync: Saving {Symbol} to MongoDB ({Count} points from API)", symbol, list.Count);
             await EnsureSavedToMongoDB(symbol, list);
 
             var readonlyList = list.AsReadOnly();

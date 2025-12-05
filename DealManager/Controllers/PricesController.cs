@@ -35,9 +35,9 @@ public class PricesController : ControllerBase
 
         try
         {
-            _logger.LogInformation("Fetching weekly prices for {Ticker}", ticker);
+            _logger.LogInformation("Fetching weekly prices for {Ticker} - this will ensure data is saved to MongoDB", ticker);
             var data = await _alpha.GetWeeklyAsync(ticker);
-            _logger.LogInformation("Retrieved {Count} price points for {Ticker}", data.Count, ticker);
+            _logger.LogInformation("Retrieved {Count} price points for {Ticker} - data should now be persisted in MongoDB", data.Count, ticker);
             
             if (data.Count == 0)
                 return NotFound("No data for this ticker");
