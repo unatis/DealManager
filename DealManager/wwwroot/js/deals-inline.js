@@ -1163,7 +1163,36 @@ function renderAll() {
         });
     }
 
-    elements.openCount.textContent = open.length + (newDealRow ? 1 : 0);
+    const count = open.length + (newDealRow ? 1 : 0);
+    elements.openCount.textContent = count;
+    
+    // Add warning icon based on count
+    // Find the container div that holds the count
+    const countContainer = elements.openCount.parentElement;
+    if (countContainer) {
+        // Remove existing warning icon if any
+        const existingWarning = countContainer.querySelector('.count-warning-icon');
+        if (existingWarning) {
+            existingWarning.remove();
+        }
+        
+        // Add warning icon if count exceeds thresholds
+        if (count > 15) {
+            // Red warning for count > 15
+            const warningIcon = document.createElement('span');
+            warningIcon.className = 'count-warning-icon count-warning-red';
+            warningIcon.setAttribute('data-tooltip', `High number of open deals: ${count}. Consider closing some deals.`);
+            warningIcon.textContent = '!';
+            countContainer.appendChild(warningIcon);
+        } else if (count > 10) {
+            // Yellow warning for count > 10
+            const warningIcon = document.createElement('span');
+            warningIcon.className = 'count-warning-icon count-warning-yellow';
+            warningIcon.setAttribute('data-tooltip', `Many open deals: ${count}. Monitor your portfolio carefully.`);
+            warningIcon.textContent = '!';
+            countContainer.appendChild(warningIcon);
+        }
+    }
 
     // CLOSED deals
     let closed = deals.filter(d => d.closed);

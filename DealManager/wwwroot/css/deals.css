@@ -308,7 +308,7 @@ select.beta-volatility-high-readonly {
 .deal-form-inline label > input,
 .deal-form-inline label > select,
 .deal-form-inline label > textarea {
-    width: fit-content;
+    width: fit-content !important;
     max-width: 100%;
     box-sizing: border-box;
 }
@@ -505,6 +505,63 @@ input.volume-200m-readonly {
     z-index: 10000; /* Ensure icon is above other elements */
 }
 
+/* Count warning icon styles (similar to volume-warning-icon) */
+.count-warning-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    border-radius: 50%;
+    color: #fff;
+    font-weight: bold;
+    font-size: 14px;
+    margin-left: 6px;
+    cursor: help;
+    position: relative;
+    vertical-align: middle;
+    z-index: 10000;
+}
+
+.count-warning-red {
+    background-color: #dc2626; /* Red */
+}
+
+.count-warning-yellow {
+    background-color: #eab308; /* Yellow */
+}
+
+/* Tooltip for count warning icon */
+.count-warning-icon:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    background: #0b1724;
+    color: #fff;
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    white-space: normal;
+    z-index: 10001;
+    pointer-events: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    min-width: max-content;
+    max-width: calc(100vw - 20px);
+    word-wrap: break-word;
+}
+
+.count-warning-icon:hover::before {
+    content: '';
+    position: absolute;
+    left: 9px;
+    bottom: calc(100% + 2px);
+    border: 6px solid transparent;
+    border-top-color: #0b1724;
+    z-index: 10002;
+    pointer-events: none;
+}
+
 /* Tooltip positioned relative to deal-summary (stock row border) when icon is hovered */
 .deal-summary .meta .volume-warning-icon {
     position: relative;
@@ -616,10 +673,24 @@ input.volume-200m-readonly {
 }
 
 /* все элементы формы внутри label тянутся на всю ширину */
+/* BUT: deal-form-inline fields should use fit-content (overridden below) */
 label > input,
 label > select,
 label > textarea {
     width: 100%;
+}
+
+/* Ensure stock form fields use full width (except checkboxes) */
+.stock-details-form label > input:not([type="checkbox"]),
+.stock-details-form label > select,
+.stock-details-form label > textarea,
+.stock-form-grid label > input:not([type="checkbox"]),
+.stock-form-grid label > select,
+.stock-form-grid label > textarea,
+#stockForm label > input:not([type="checkbox"]),
+#stockForm label > select,
+#stockForm label > textarea {
+    width: 100% !important;
 }
 
 textarea {
@@ -1019,22 +1090,32 @@ label.inline-checkbox > input[type="checkbox"] {
 }
 
 /* чекбоксы в форме акций: иконка слева, текст справа */
-#stockForm label.inline-checkbox {
-    display: flex; /* переопределяем общий label */
-    flex-direction: row; /* в строку */
-    align-items: center;
+#stockForm label.inline-checkbox,
+.stock-form-grid label.inline-checkbox,
+.stock-details-form label.inline-checkbox {
+    display: flex !important; /* переопределяем общий label */
+    flex-direction: row !important; /* в строку */
+    align-items: center !important;
     gap: 8px;
+    width: 100%; /* Занимает всю ширину grid ячейки */
+    margin: 0; /* Убираем отступы */
 }
 
     /* сам чекбокс не растягиваем */
-    #stockForm label.inline-checkbox > input[type="checkbox"] {
-        width: auto;
+    #stockForm label.inline-checkbox > input[type="checkbox"],
+    .stock-form-grid label.inline-checkbox > input[type="checkbox"],
+    .stock-details-form label.inline-checkbox > input[type="checkbox"] {
+        width: auto !important;
         margin: 0;
+        flex-shrink: 0;
     }
 
     /* текст рядом с чекбоксом */
-    #stockForm label.inline-checkbox > span {
+    #stockForm label.inline-checkbox > span,
+    .stock-form-grid label.inline-checkbox > span,
+    .stock-details-form label.inline-checkbox > span {
         display: inline-block;
+        flex: 1; /* Текст занимает оставшееся пространство */
     }
 .stock-form-actions {
     display: flex;
