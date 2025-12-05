@@ -88,9 +88,16 @@ button:disabled {
 #addStockBtn {
     pointer-events: auto !important;
     cursor: pointer !important;
-    z-index: 10;
-    position: relative;
+    z-index: 1000 !important;
+    position: relative !important;
     margin-bottom: 30px;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+    min-height: 44px; /* Ensure minimum touch target size for mobile */
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 main {
@@ -214,10 +221,10 @@ h3 {
 
 .deal-form-inline .form-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 10px;
+    grid-template-columns: repeat(3, minmax(min-content, 1fr));
+    gap: 6px;
     align-items: start;
-    padding-bottom: 20px;
+    padding-bottom: 8px;
 }
 
 .deal-form-inline .form-grid .full {
@@ -238,6 +245,8 @@ h3 {
     flex-direction: column;
     font-size: 16px;
     color: #0b1724;
+    gap: 2px;
+    margin: 0;
 }
 
 .deal-form-inline label.inline-checkbox {
@@ -299,7 +308,9 @@ select.beta-volatility-high-readonly {
 .deal-form-inline label > input,
 .deal-form-inline label > select,
 .deal-form-inline label > textarea {
-    width: 100%;
+    width: fit-content !important;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .form-actions {
@@ -371,8 +382,8 @@ input[type=text],
 input[type=date],
 input[type=number],
 textarea {
-    padding: 8px;
-    border-radius: 8px;
+    padding: 2px 4px;
+    border-radius: 3px;
     border: 1px solid rgba(11,17,36,0.06);
     background: transparent;
     color: inherit;
@@ -380,8 +391,8 @@ textarea {
 
 /* селект — отдельный стиль, чтобы он выглядел именно как выпадающий список */
 select {
-    padding: 8px;
-    border-radius: 8px;
+    padding: 2px 4px;
+    border-radius: 3px;
     border: 1px solid rgba(11,17,36,0.06);
     background: #ffffff;
     color: inherit;
@@ -492,6 +503,63 @@ input.volume-200m-readonly {
     position: relative;
     vertical-align: middle;
     z-index: 10000; /* Ensure icon is above other elements */
+}
+
+/* Count warning icon styles (similar to volume-warning-icon) */
+.count-warning-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    border-radius: 50%;
+    color: #fff;
+    font-weight: bold;
+    font-size: 14px;
+    margin-left: 6px;
+    cursor: help;
+    position: relative;
+    vertical-align: middle;
+    z-index: 10000;
+}
+
+.count-warning-red {
+    background-color: #dc2626; /* Red */
+}
+
+.count-warning-yellow {
+    background-color: #eab308; /* Yellow */
+}
+
+/* Tooltip for count warning icon */
+.count-warning-icon:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    background: #0b1724;
+    color: #fff;
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    white-space: normal;
+    z-index: 10001;
+    pointer-events: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    min-width: max-content;
+    max-width: calc(100vw - 20px);
+    word-wrap: break-word;
+}
+
+.count-warning-icon:hover::before {
+    content: '';
+    position: absolute;
+    left: 9px;
+    bottom: calc(100% + 2px);
+    border: 6px solid transparent;
+    border-top-color: #0b1724;
+    z-index: 10002;
+    pointer-events: none;
 }
 
 /* Tooltip positioned relative to deal-summary (stock row border) when icon is hovered */
@@ -605,10 +673,24 @@ input.volume-200m-readonly {
 }
 
 /* все элементы формы внутри label тянутся на всю ширину */
+/* BUT: deal-form-inline fields should use fit-content (overridden below) */
 label > input,
 label > select,
 label > textarea {
     width: 100%;
+}
+
+/* Ensure stock form fields use full width (except checkboxes) */
+.stock-details-form label > input:not([type="checkbox"]),
+.stock-details-form label > select,
+.stock-details-form label > textarea,
+.stock-form-grid label > input:not([type="checkbox"]),
+.stock-form-grid label > select,
+.stock-form-grid label > textarea,
+#stockForm label > input:not([type="checkbox"]),
+#stockForm label > select,
+#stockForm label > textarea {
+    width: 100% !important;
 }
 
 textarea {
@@ -742,6 +824,25 @@ label {
         background: rgba(6, 182, 212, 0.08);
     }
 
+/* Risk level colors for portfolio risk field */
+.portfolio-display.risk-low {
+    color: #22c55e; /* Green for low risk (< 5%) */
+}
+
+.portfolio-display.risk-medium {
+    color: #eab308; /* Yellow/Orange for medium risk (5-10%) */
+}
+
+.portfolio-display.risk-high {
+    color: #dc2626; /* Red for high risk (> 10%) */
+    font-weight: 700; /* Bolder for high risk */
+}
+
+/* Read-only portfolio fields should not have hover effect */
+.portfolio-display.readonly:hover {
+    background: transparent;
+}
+
 .portfolio-input {
     font: inherit;
     padding: 2px 6px;
@@ -831,12 +932,24 @@ label {
 
 /* Responsive: Hide desktop buttons and show hamburger on mobile */
 @media (max-width: 768px) {
+    header {
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 12px;
+        position: relative; /* For absolute positioning of menu toggle */
+    }
+    
     .desktop-btn {
         display: none !important;
     }
     
     .menu-toggle {
         display: flex;
+        position: absolute;
+        top: 14px; /* Match header padding */
+        right: 20px; /* Match header padding */
+        align-self: flex-start;
+        margin-top: 0;
     }
     
     .mobile-menu {
@@ -847,8 +960,22 @@ label {
         display: block;
     }
     
+    .brand {
+        align-items: flex-start; /* Align logo to top */
+        align-self: flex-start;
+    }
+    
+    .brand > div:not(.logo) {
+        display: none; /* Hide Share Manager text on mobile, keep logo */
+    }
+    
     .controls {
-        gap: 12px;
+        flex: 1; /* Take remaining space */
+        flex-direction: column; /* Display items as rows (vertically) */
+        gap: 4px; /* Reduced gap between rows */
+        align-items: center; /* Center the portfolio info rows */
+        justify-content: center; /* Center vertically */
+        min-height: 100%; /* Ensure it takes full height */
     }
     
     .user-info {
@@ -858,6 +985,31 @@ label {
     .portfolio-info {
         font-size: 12px;
         display: flex; /* Show portfolio info on mobile */
+        width: auto; /* Auto width instead of 100% */
+        justify-content: flex-start; /* Align items to the left */
+        align-items: center;
+        padding: 2px 0; /* Reduced vertical padding */
+        gap: 6px; /* Small gap between label and value */
+    }
+    
+    .portfolio-info .portfolio-display {
+        margin-left: 0; /* Remove auto margin */
+    }
+    
+    /* Ensure Add Stock button is clickable on mobile */
+    #addStockBtn {
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        min-height: 44px;
+        z-index: 100;
+        position: relative;
+    }
+    
+    /* Ensure aside panel doesn't block touch events */
+    aside.panel {
+        position: relative;
+        z-index: 1;
+        overflow: visible;
     }
 }
 
@@ -938,22 +1090,32 @@ label.inline-checkbox > input[type="checkbox"] {
 }
 
 /* чекбоксы в форме акций: иконка слева, текст справа */
-#stockForm label.inline-checkbox {
-    display: flex; /* переопределяем общий label */
-    flex-direction: row; /* в строку */
-    align-items: center;
+#stockForm label.inline-checkbox,
+.stock-form-grid label.inline-checkbox,
+.stock-details-form label.inline-checkbox {
+    display: flex !important; /* переопределяем общий label */
+    flex-direction: row !important; /* в строку */
+    align-items: center !important;
     gap: 8px;
+    width: 100%; /* Занимает всю ширину grid ячейки */
+    margin: 0; /* Убираем отступы */
 }
 
     /* сам чекбокс не растягиваем */
-    #stockForm label.inline-checkbox > input[type="checkbox"] {
-        width: auto;
+    #stockForm label.inline-checkbox > input[type="checkbox"],
+    .stock-form-grid label.inline-checkbox > input[type="checkbox"],
+    .stock-details-form label.inline-checkbox > input[type="checkbox"] {
+        width: auto !important;
         margin: 0;
+        flex-shrink: 0;
     }
 
     /* текст рядом с чекбоксом */
-    #stockForm label.inline-checkbox > span {
+    #stockForm label.inline-checkbox > span,
+    .stock-form-grid label.inline-checkbox > span,
+    .stock-details-form label.inline-checkbox > span {
         display: inline-block;
+        flex: 1; /* Текст занимает оставшееся пространство */
     }
 .stock-form-actions {
     display: flex;
@@ -984,4 +1146,46 @@ label.inline-checkbox > input[type="checkbox"] {
     justify-content: center;
     padding: 20px;
     color: var(--muted);
+}
+
+/* Portfolio display fields - editable inline */
+.portfolio-info {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.portfolio-display {
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    text-align: right;
+    display: inline-block;
+}
+
+.portfolio-display:hover {
+    background-color: rgba(6, 182, 212, 0.1);
+}
+
+/* Readonly portfolio display (like Risk) */
+.portfolio-display.readonly {
+    cursor: default;
+}
+
+.portfolio-display.readonly:hover {
+    background-color: transparent;
+}
+
+.portfolio-input {
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 14px;
+    width: 80px;
+    text-align: right;
+    background: white;
+    outline: none;
 }

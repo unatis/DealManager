@@ -22,5 +22,7 @@ namespace DealManager.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public double Portfolio { get; set; } = 0.0;
+        public double TotalSum { get; set; } = 0.0;
+        public double InShares { get; set; } = 0.0;
     }
 }

@@ -101,6 +101,308 @@ if (!token) {
     window.location.href = '/login.html';
 }
 
+// ---------- заголовки авторизации ----------
+function authHeaders() {
+    const token = localStorage.getItem('token');
+    if (!token) return {};
+    return { Authorization: `Bearer ${token}` };
+}
+
+// ========== PORTFOLIO inline edit ==========
+// Helper function to setup inline editing for portfolio fields
+function setupPortfolioField(spanElement, localStorageKey, apiEndpoint, fieldName) {
+    console.log('setupPortfolioField called:', { fieldName, element: spanElement, id: spanElement?.id });
+    if (!spanElement) {
+        console.error('setupPortfolioField: spanElement is null/undefined');
+        return;
+    }
+
+    // Initialize from localStorage
+    (function initField() {
+        const stored = localStorage.getItem(localStorageKey);
+        if (stored != null) {
+            const num = Number(stored);
+            spanElement.textContent = isNaN(num) ? stored : num.toFixed(2);
+        }
+    })();
+
+    spanElement.addEventListener('click', () => {
+        console.log('CLICK EVENT: Clicked on portfolio field:', fieldName, 'element:', spanElement);
+        console.log('CLICK EVENT: Current data-editing value:', spanElement.dataset.editing);
+        
+        // If already editing, try to clean up and reset
+        if (spanElement.dataset.editing === '1') {
+            console.log('CLICK EVENT: Already editing, cleaning up...');
+            // Remove any existing input
+            const existingInput = spanElement.querySelector('input.portfolio-input');
+            if (existingInput && existingInput.parentNode === spanElement) {
+                console.log('CLICK EVENT: Found existing input, removing it');
+                try {
+                    spanElement.removeChild(existingInput);
+                } catch (err) {
+                    console.warn('CLICK EVENT: Input already removed, continuing');
+                }
+            }
+            // Reset editing state
+            spanElement.dataset.editing = '';
+            console.log('CLICK EVENT: Reset data-editing, continuing with new edit');
+            // Continue to create new input below
+        }
+
+        const currentText = spanElement.textContent.trim();
+        const current = Number(currentText.replace(',', '.')) || 0;
+        console.log('CLICK EVENT: Current value:', { currentText, current });
+
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = '0.01';
+        input.min = '0';
+        input.value = current.toString();
+        input.className = 'portfolio-input';
+
+        spanElement.textContent = '';
+        spanElement.appendChild(input);
+        spanElement.dataset.editing = '1';
+        console.log('CLICK EVENT: Input created and appended, fieldName:', fieldName);
+
+        input.focus();
+        input.select();
+
+        const finish = async (save) => {
+            console.log('finish called:', { save, fieldName, editing: spanElement.dataset.editing });
+            if (spanElement.dataset.editing !== '1') {
+                console.log('finish: Not editing, returning');
+                return;
+            }
+            
+            // Remove input from DOM first
+            if (input && input.parentNode === spanElement) {
+                try {
+                    spanElement.removeChild(input);
+                    console.log('finish: Input removed from DOM');
+                } catch (err) {
+                    console.warn('finish: Input already removed from DOM:', err);
+                }
+            } else if (input) {
+                console.log('finish: Input exists but is not a child of spanElement');
+            }
+            
+            // Clear editing state
+            spanElement.dataset.editing = '';
+
+            let newVal = current;
+            if (save) {
+                const parsed = Number(input.value.replace(',', '.'));
+                newVal = isNaN(parsed) ? current : parsed;
+                console.log('finish: Parsed value:', { inputValue: input.value, parsed, newVal, current });
+            }
+
+            // Set new value
+            spanElement.textContent = newVal.toFixed(2);
+            console.log('finish: Updated spanElement.textContent to:', newVal.toFixed(2));
+
+            if (save) {
+                localStorage.setItem(localStorageKey, String(newVal));
+                console.log('finish: Saved to localStorage, fieldName:', fieldName, 'isPortfolio:', fieldName === 'portfolio');
+
+                // If Cash was updated, recalculate Total Sum immediately (before saving to DB)
+                if (fieldName === 'portfolio') {
+                    console.log('finish: Cash field detected, calling calculateAndUpdateTotalSum...');
+                    // Wait for next tick to ensure DOM is updated, then calculate
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    console.log('finish: About to call calculateAndUpdateTotalSum');
+                    await calculateAndUpdateTotalSum();
+                    console.log('finish: calculateAndUpdateTotalSum completed');
+                    // Refresh Risk value after Total Sum is updated
+                    await calculateAndDisplayPortfolioRisk();
+                } else {
+                    console.log('finish: Not portfolio field, skipping Total Sum calculation');
+                }
+
+                try {
+                    // Use PascalCase for API request (matching C# record property names)
+                    const pascalFieldName = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+                    const requestBody = {};
+                    requestBody[pascalFieldName] = newVal;
+                    const res = await fetch(apiEndpoint, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...authHeaders()
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
+                    if (!res.ok) {
+                        console.error(`Failed to save ${fieldName}`, res.status);
+                    } else {
+                        console.log(`${fieldName} saved to DB:`, newVal);
+                        // Total Sum already recalculated and saved above
+                    }
+                } catch (e) {
+                    console.error(`Error saving ${fieldName}`, e);
+                }
+            }
+        };
+
+        input.addEventListener('blur', async (e) => {
+            console.log('BLUR EVENT: Input blur triggered for field:', fieldName, 'element:', input);
+            console.log('BLUR EVENT: Current data-editing:', spanElement.dataset.editing);
+            console.log('BLUR EVENT: Input value:', input.value);
+            
+            // Ensure we finish editing even if something went wrong
+            try {
+                // Check if we're still in editing mode
+                if (spanElement.dataset.editing === '1') {
+                    console.log('BLUR EVENT: Calling finish(true)...');
+                    await finish(true);
+                    console.log('BLUR EVENT: finish(true) completed');
+                } else {
+                    console.log('BLUR EVENT: Not in editing mode, but cleaning up anyway');
+                    // Clean up anyway
+                    if (input && input.parentNode === spanElement) {
+                        const currentValue = input.value || spanElement.textContent;
+                        spanElement.removeChild(input);
+                        spanElement.textContent = currentValue;
+                        spanElement.dataset.editing = '';
+                    }
+                }
+                
+                // Additional call to ensure Total Sum is recalculated after blur if it's Cash field
+                if (fieldName === 'portfolio') {
+                    console.log('BLUR EVENT: Portfolio field, scheduling additional recalculation...');
+                    setTimeout(async () => {
+                        console.log('BLUR EVENT: Executing delayed calculateAndUpdateTotalSum');
+                        await calculateAndUpdateTotalSum();
+                        console.log('BLUR EVENT: Delayed calculateAndUpdateTotalSum completed');
+                        // Refresh Risk value after Total Sum is updated
+                        await calculateAndDisplayPortfolioRisk();
+                    }, 200);
+                } else {
+                    console.log('BLUR EVENT: Not portfolio field, fieldName is:', fieldName);
+                }
+            } catch (err) {
+                console.error('BLUR EVENT: Error in blur handler:', err);
+                // Force cleanup on error
+                try {
+                    if (input && input.parentNode === spanElement) {
+                        spanElement.removeChild(input);
+                        spanElement.dataset.editing = '';
+                    }
+                } catch (cleanupErr) {
+                    console.error('BLUR EVENT: Error during cleanup:', cleanupErr);
+                }
+            }
+        });
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                console.log('ENTER EVENT: Enter key pressed for field:', fieldName);
+                e.preventDefault();
+                try {
+                    await finish(true);
+                    console.log('ENTER EVENT: finish(true) completed');
+                    // Additional call to ensure Total Sum is recalculated after Enter if it's Cash field
+                    if (fieldName === 'portfolio') {
+                        console.log('ENTER EVENT: Portfolio field, scheduling additional recalculation...');
+                        setTimeout(async () => {
+                            console.log('ENTER EVENT: Executing delayed calculateAndUpdateTotalSum');
+                            await calculateAndUpdateTotalSum();
+                            console.log('ENTER EVENT: Delayed calculateAndUpdateTotalSum completed');
+                            // Refresh Risk value after Total Sum is updated
+                            await calculateAndDisplayPortfolioRisk();
+                        }, 200);
+                    } else {
+                        console.log('ENTER EVENT: Not portfolio field, fieldName is:', fieldName);
+                    }
+                } catch (err) {
+                    console.error('ENTER EVENT: Error in Enter handler:', err);
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                finish(false);
+            }
+        });
+    });
+}
+
+// Initialize portfolio fields when DOM is ready
+function initPortfolioFields() {
+    console.log('initPortfolioFields: Starting initialization...');
+    const portfolioSpan = document.getElementById('portfolioValue');
+    const totalSumSpan = document.getElementById('totalSumValue');
+    const inSharesSpan = document.getElementById('inSharesValue');
+
+    console.log('initPortfolioFields: Found elements:', {
+        portfolioSpan: !!portfolioSpan,
+        totalSumSpan: !!totalSumSpan,
+        inSharesSpan: !!inSharesSpan
+    });
+
+    if (portfolioSpan) {
+        console.log('initPortfolioFields: Setting up portfolio field (Cash)');
+        setupPortfolioField(portfolioSpan, 'portfolio', '/api/users/portfolio', 'portfolio');
+    } else {
+        console.error('initPortfolioFields: portfolioSpan not found!');
+    }
+    // Total Sum is readonly - calculated automatically, no editing
+    // if (totalSumSpan) {
+    //     setupPortfolioField(totalSumSpan, 'totalSum', '/api/users/totalsum', 'totalSum');
+    // }
+    // In Shares is readonly - calculated automatically, no editing
+    // if (inSharesSpan) {
+    //     setupPortfolioField(inSharesSpan, 'inShares', '/api/users/inshares', 'inShares');
+    // }
+
+    // Load values from API on page load
+    async function loadPortfolioValues() {
+        try {
+            // Load portfolio
+            const portfolioRes = await fetch('/api/users/portfolio', {
+                headers: authHeaders()
+            });
+            if (portfolioRes.ok) {
+                const portfolioData = await portfolioRes.json();
+                const portfolio = portfolioData.portfolio ?? portfolioData.Portfolio;
+                if (portfolio !== undefined && portfolioSpan) {
+                    const val = Number(portfolio) || 0;
+                    portfolioSpan.textContent = val.toFixed(2);
+                    localStorage.setItem('portfolio', String(val));
+                }
+            }
+
+            // Total Sum is calculated automatically (Cash + In Shares), not loaded from DB
+
+            // Load inShares
+            const inSharesRes = await fetch('/api/users/inshares', {
+                headers: authHeaders()
+            });
+            if (inSharesRes.ok) {
+                const inSharesData = await inSharesRes.json();
+                const inShares = inSharesData.inShares ?? inSharesData.InShares;
+                if (inShares !== undefined && inSharesSpan) {
+                    const val = Number(inShares) || 0;
+                    inSharesSpan.textContent = val.toFixed(2);
+                    localStorage.setItem('inShares', String(val));
+                }
+            }
+            
+            // After loading all values, calculate Total Sum (Cash + In Shares)
+            await calculateAndUpdateTotalSum();
+        } catch (e) {
+            console.error('Error loading portfolio values', e);
+        }
+    }
+
+    // Load values when page loads
+    loadPortfolioValues();
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initPortfolioFields);
+} else {
+    initPortfolioFields();
+}
+
 // ---------- пользователь в шапке ----------
 (function initUserInfo() {
     if (!elements.userNameDisplay) return;
@@ -292,9 +594,141 @@ async function loadDeals() {
         
         // Calculate and display portfolio risk after loading deals
         await calculateAndDisplayPortfolioRisk();
+        
+        // Calculate total sum of all deals and update In Shares
+        await calculateAndUpdateInShares();
     } catch (e) {
         console.error('Load deals error', e);
         dealsLoaded = true;
+    }
+}
+
+// Calculate total sum of all deals and update In Shares field
+async function calculateAndUpdateInShares() {
+    try {
+        // Calculate total sum of only OPEN deals
+        let totalInShares = 0;
+        
+        deals.forEach(deal => {
+            // Skip closed deals
+            if (deal.closed) {
+                return;
+            }
+            
+            // Try to get total_sum from deal, or calculate it
+            let dealTotal = 0;
+            
+            if (deal.total_sum) {
+                // Use existing total_sum if available
+                dealTotal = parseFloat(String(deal.total_sum).replace(',', '.')) || 0;
+            } else {
+                // Calculate: share_price * amount_tobuy_stage_1
+                const sharePrice = parseFloat(String(deal.share_price || '').replace(',', '.')) || 0;
+                const amount = parseFloat(String(deal.amount_tobuy_stage_1 || '').replace(',', '.')) || 0;
+                dealTotal = sharePrice * amount;
+            }
+            
+            totalInShares += dealTotal;
+        });
+        
+        // Update In Shares field
+        const inSharesSpan = document.getElementById('inSharesValue');
+        if (inSharesSpan) {
+            const roundedTotal = Number(totalInShares.toFixed(2));
+            inSharesSpan.textContent = roundedTotal.toFixed(2);
+            localStorage.setItem('inShares', String(roundedTotal));
+            
+            // Save to database
+            try {
+                const res = await fetch('/api/users/inshares', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...authHeaders()
+                    },
+                    body: JSON.stringify({ InShares: roundedTotal })
+                });
+                if (!res.ok) {
+                    console.error('Failed to save In Shares', res.status);
+                } else {
+                    console.log('In Shares updated to:', roundedTotal);
+                }
+            } catch (e) {
+                console.error('Error saving In Shares', e);
+            }
+        }
+        
+        // After updating In Shares, calculate Total Sum (Cash + In Shares)
+        await calculateAndUpdateTotalSum();
+    } catch (e) {
+        console.error('Error calculating In Shares', e);
+    }
+}
+
+// Calculate and update Total Sum field (Cash + In Shares)
+async function calculateAndUpdateTotalSum() {
+    try {
+        console.log('calculateAndUpdateTotalSum: Starting calculation...');
+        const portfolioSpan = document.getElementById('portfolioValue');
+        const inSharesSpan = document.getElementById('inSharesValue');
+        const totalSumSpan = document.getElementById('totalSumValue');
+        
+        if (!portfolioSpan || !inSharesSpan || !totalSumSpan) {
+            console.error('calculateAndUpdateTotalSum: Missing required elements', {
+                portfolioSpan: !!portfolioSpan,
+                inSharesSpan: !!inSharesSpan,
+                totalSumSpan: !!totalSumSpan
+            });
+            return;
+        }
+        
+        // Get Cash value - read directly from textContent
+        const cashStr = portfolioSpan.textContent.trim().replace(',', '.');
+        const cash = parseFloat(cashStr) || 0;
+        console.log('calculateAndUpdateTotalSum: Cash value from DOM:', cashStr, 'parsed:', cash);
+        
+        // Get In Shares value
+        const inSharesStr = inSharesSpan.textContent.trim().replace(',', '.');
+        const inShares = parseFloat(inSharesStr) || 0;
+        console.log('calculateAndUpdateTotalSum: In Shares value from DOM:', inSharesStr, 'parsed:', inShares);
+        
+        // Calculate Total Sum = Cash + In Shares
+        const totalSum = cash + inShares;
+        const roundedTotal = Number(totalSum.toFixed(2));
+        
+        console.log('calculateAndUpdateTotalSum: Calculated values', {
+            cash,
+            inShares,
+            totalSum: roundedTotal,
+            oldTotalSum: totalSumSpan.textContent
+        });
+        
+        // Update Total Sum field
+        const oldValue = totalSumSpan.textContent;
+        totalSumSpan.textContent = roundedTotal.toFixed(2);
+        localStorage.setItem('totalSum', String(roundedTotal));
+        console.log('calculateAndUpdateTotalSum: Updated UI from', oldValue, 'to', roundedTotal.toFixed(2));
+        
+        // Save to database
+        try {
+            const res = await fetch('/api/users/totalsum', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...authHeaders()
+                },
+                body: JSON.stringify({ TotalSum: roundedTotal })
+            });
+            if (!res.ok) {
+                console.error('Failed to save Total Sum', res.status);
+            } else {
+                console.log('Total Sum updated to:', roundedTotal);
+            }
+        } catch (e) {
+            console.error('Error saving Total Sum', e);
+        }
+    } catch (e) {
+        console.error('Error calculating Total Sum', e);
     }
 }
 
@@ -316,6 +750,71 @@ async function saveDealToServer(deal, isEdit) {
         const text = await res.text().catch(() => '');
         console.error('Save failed', res.status, text);
         throw new Error(`Failed to save deal (${res.status})`);
+    }
+    
+    // After saving deal, recalculate In Shares, Cash, and Total Sum
+    // This happens on the server side (Cash is deducted), so we need to refresh from server
+    await refreshPortfolioFromServer();
+    await calculateAndUpdateInShares();
+    await calculateAndUpdateTotalSum();
+}
+
+// Refresh Cash (Portfolio) value from server
+async function refreshPortfolioFromServer() {
+    try {
+        const res = await fetch('/api/users/portfolio', {
+            headers: authHeaders()
+        });
+        if (res.ok) {
+            const portfolioData = await res.json();
+            const portfolio = portfolioData.portfolio ?? portfolioData.Portfolio;
+            if (portfolio !== undefined) {
+                const portfolioSpan = document.getElementById('portfolioValue');
+                if (portfolioSpan) {
+                    const val = Number(portfolio) || 0;
+                    portfolioSpan.textContent = val.toFixed(2);
+                    localStorage.setItem('portfolio', String(val));
+                }
+            }
+        }
+    } catch (e) {
+        console.error('Error refreshing portfolio from server', e);
+    }
+}
+
+// Handle deal form submission
+async function handleDealSubmit(form, deal, isNew) {
+    const formData = new FormData(form);
+    const dealData = {};
+    
+    // Collect all form fields
+    for (const [key, value] of formData.entries()) {
+        dealData[key] = value;
+    }
+    
+    // If editing, preserve the deal ID
+    if (deal && deal.id) {
+        dealData.id = deal.id;
+    }
+    
+    try {
+        await saveDealToServer(dealData, !!deal?.id);
+        
+        // Reload deals to show the updated list
+        await loadDeals();
+        
+        // Calculate and display portfolio risk after saving deal
+        await calculateAndDisplayPortfolioRisk();
+        
+        // If this was a new deal, close the form
+        if (isNew) {
+            newDealRow = null;
+            expandedDealId = null;
+            renderAll();
+        }
+    } catch (e) {
+        console.error('Error saving deal', e);
+        alert('Не удалось сохранить сделку');
     }
 }
 
@@ -664,7 +1163,36 @@ function renderAll() {
         });
     }
 
-    elements.openCount.textContent = open.length + (newDealRow ? 1 : 0);
+    const count = open.length + (newDealRow ? 1 : 0);
+    elements.openCount.textContent = count;
+    
+    // Add warning icon based on count
+    // Find the container div that holds the count
+    const countContainer = elements.openCount.parentElement;
+    if (countContainer) {
+        // Remove existing warning icon if any
+        const existingWarning = countContainer.querySelector('.count-warning-icon');
+        if (existingWarning) {
+            existingWarning.remove();
+        }
+        
+        // Add warning icon if count exceeds thresholds
+        if (count > 15) {
+            // Red warning for count > 15
+            const warningIcon = document.createElement('span');
+            warningIcon.className = 'count-warning-icon count-warning-red';
+            warningIcon.setAttribute('data-tooltip', `High number of open deals: ${count}. Consider closing some deals.`);
+            warningIcon.textContent = '!';
+            countContainer.appendChild(warningIcon);
+        } else if (count > 10) {
+            // Yellow warning for count > 10
+            const warningIcon = document.createElement('span');
+            warningIcon.className = 'count-warning-icon count-warning-yellow';
+            warningIcon.setAttribute('data-tooltip', `Many open deals: ${count}. Monitor your portfolio carefully.`);
+            warningIcon.textContent = '!';
+            countContainer.appendChild(warningIcon);
+        }
+    }
 
     // CLOSED deals
     let closed = deals.filter(d => d.closed);
@@ -781,8 +1309,10 @@ function createDealRow(deal, isNew) {
         <div class="chips" style="min-width:140px;justify-content:flex-end">
             <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
             <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
+            ${deal.stop_loss_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Stop Loss Percentage">SL:${escapeHtml(deal.stop_loss_prcnt)}%</div>` : ''}
             <div class="badge movement-metric-tooltip" data-tooltip="Take Profit">TP:${escapeHtml(deal.take_profit || '-')}</div>
-            ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP%:${escapeHtml(deal.take_profit_prcnt)}</div>` : ''}
+            ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP:${escapeHtml(deal.take_profit_prcnt)}%</div>` : ''}
+            ${deal.reward_to_risk ? `<div class="badge movement-metric-tooltip" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(deal.reward_to_risk)}</div>` : ''}
         </div>
         ` : ''}
     `;
@@ -2583,37 +3113,145 @@ function setupTotalSumCalculator(row, form, deal) {
     setupRiskCalculator(form);
 }
 
+// Calculate portfolio risk on client side (for new deals that aren't saved yet)
+async function calculatePortfolioRiskClientSide(form) {
+    try {
+        // Get current Total Sum value (Cash + In Shares)
+        const totalSumSpan = document.getElementById('totalSumValue');
+        if (!totalSumSpan) return 0;
+        
+        const totalSumStr = totalSumSpan.textContent.trim().replace(',', '.');
+        const totalSum = parseFloat(totalSumStr) || 0;
+        
+        if (totalSum <= 0) return 0;
+        
+        // Calculate total risk from all existing open deals
+        let totalRisk = 0;
+        
+        // Get all open deals (excluding closed ones)
+        const openDeals = deals.filter(d => !d.closed);
+        
+        for (const deal of openDeals) {
+            // Parse total_sum
+            let totalSum = 0;
+            if (deal.total_sum) {
+                totalSum = parseFloat(String(deal.total_sum).replace(',', '.')) || 0;
+            } else if (deal.share_price && deal.amount_tobuy_stage_1) {
+                // Calculate from share_price * amount_tobuy_stage_1
+                const sharePrice = parseFloat(String(deal.share_price).replace(',', '.')) || 0;
+                const amount = parseFloat(String(deal.amount_tobuy_stage_1).replace(',', '.')) || 0;
+                totalSum = sharePrice * amount;
+            }
+            
+            // Parse stop_loss_prcnt
+            let stopLossPercent = 0;
+            if (deal.stop_loss_prcnt) {
+                stopLossPercent = parseFloat(String(deal.stop_loss_prcnt).replace(',', '.')) || 0;
+            }
+            
+            // Calculate risk for this deal: total_sum * (stop_loss_percent / 100)
+            if (stopLossPercent > 0 && totalSum > 0) {
+                const dealRisk = totalSum * (stopLossPercent / 100);
+                totalRisk += dealRisk;
+            }
+        }
+        
+        // Add risk from the current form (new deal being created)
+        if (form) {
+            const totalSumInput = form.querySelector('input[name="total_sum"]');
+            const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const amountToBuyInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
+            
+            let formTotalSum = 0;
+            let formStopLossPercent = 0;
+            
+            // Get total_sum from form
+            if (totalSumInput && totalSumInput.value) {
+                formTotalSum = parseFloat(String(totalSumInput.value).replace(',', '.')) || 0;
+            } else if (sharePriceInput && amountToBuyInput && sharePriceInput.value && amountToBuyInput.value) {
+                // Calculate from share_price * amount_tobuy_stage_1
+                const sharePrice = parseFloat(String(sharePriceInput.value).replace(',', '.')) || 0;
+                const amount = parseFloat(String(amountToBuyInput.value).replace(',', '.')) || 0;
+                formTotalSum = sharePrice * amount;
+            }
+            
+            // Get stop_loss_prcnt from form
+            if (stopLossPrcntInput && stopLossPrcntInput.value) {
+                formStopLossPercent = parseFloat(String(stopLossPrcntInput.value).replace(',', '.')) || 0;
+            }
+            
+            // Add risk from current form deal
+            if (formStopLossPercent > 0 && formTotalSum > 0) {
+                const formDealRisk = formTotalSum * (formStopLossPercent / 100);
+                totalRisk += formDealRisk;
+            }
+        }
+        
+        // Calculate percentage: (total_risk / totalSum) * 100
+        const riskPercent = (totalRisk / totalSum) * 100;
+        return Math.round(riskPercent * 100) / 100; // Round to 2 decimal places
+    } catch (e) {
+        console.error('Error calculating portfolio risk client side', e);
+        return 0;
+    }
+}
+
 // Setup risk calculator for real-time updates when editing deal data
 function setupRiskCalculator(form) {
+    const dealId = form?.dataset?.dealId;
+    const isNewDeal = dealId === 'new';
+    
     const totalSumInput = form.querySelector('input[name="total_sum"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     const sharePriceInput = form.querySelector('input[name="share_price"]');
     const amountToBuyInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
     
+    // Function to calculate and display risk
+    const calculateAndDisplayRisk = async () => {
+        if (isNewDeal) {
+            // For new deals, calculate on client side
+            const riskPercent = await calculatePortfolioRiskClientSide(form);
+            const riskSpan = document.getElementById('portfolioRiskValue');
+            if (riskSpan) {
+                const riskValue = Number(riskPercent) || 0;
+                riskSpan.textContent = riskValue.toFixed(2) + '%';
+                
+                // Apply color classes based on risk level
+                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+                if (riskValue > 10) {
+                    riskSpan.classList.add('risk-high'); // Red color for high risk
+                } else if (riskValue > 5) {
+                    riskSpan.classList.add('risk-medium'); // Yellow/Orange color for medium risk
+                } else {
+                    riskSpan.classList.add('risk-low'); // Green color for low risk
+                }
+            }
+        } else {
+            // For existing deals, use server-side calculation
+            await calculateAndDisplayPortfolioRisk();
+        }
+    };
+    
     // Debounce function for risk calculation
     let riskCalculationTimeout = null;
-    const calculateRisk = async () => {
+    const calculateRisk = () => {
         clearTimeout(riskCalculationTimeout);
         riskCalculationTimeout = setTimeout(async () => {
-            // Calculate and display portfolio risk after user edits deal data
-            await calculateAndDisplayPortfolioRisk();
+            await calculateAndDisplayRisk();
         }, 1000); // Wait 1 second after user stops typing
     };
     
     // Add listeners to total_sum if it exists (calculated field)
     if (totalSumInput) {
         totalSumInput.addEventListener('input', calculateRisk);
-        totalSumInput.addEventListener('change', async () => {
-            await calculateAndDisplayPortfolioRisk();
-        });
+        totalSumInput.addEventListener('change', calculateAndDisplayRisk);
     }
     
     // Add listeners to stop_loss_prcnt
     if (stopLossPrcntInput) {
         stopLossPrcntInput.addEventListener('input', calculateRisk);
-        stopLossPrcntInput.addEventListener('change', async () => {
-            await calculateAndDisplayPortfolioRisk();
-        });
+        stopLossPrcntInput.addEventListener('change', calculateAndDisplayRisk);
     }
     
     // Also listen to share_price and amount_tobuy_stage_1 since they affect total_sum
@@ -2621,7 +3259,7 @@ function setupRiskCalculator(form) {
         sharePriceInput.addEventListener('change', async () => {
             // Wait a bit for total_sum to be recalculated
             setTimeout(async () => {
-                await calculateAndDisplayPortfolioRisk();
+                await calculateAndDisplayRisk();
             }, 500);
         });
     }
@@ -2630,9 +3268,24 @@ function setupRiskCalculator(form) {
         amountToBuyInput.addEventListener('change', async () => {
             // Wait a bit for total_sum to be recalculated
             setTimeout(async () => {
-                await calculateAndDisplayPortfolioRisk();
+                await calculateAndDisplayRisk();
             }, 500);
         });
+    }
+    
+    // Initial risk calculation if form already has values (for new deals)
+    if (isNewDeal) {
+        // Check if form has values that would affect risk calculation
+        const hasValues = (stopLossPrcntInput && stopLossPrcntInput.value) ||
+                          (totalSumInput && totalSumInput.value) ||
+                          (sharePriceInput && sharePriceInput.value && amountToBuyInput && amountToBuyInput.value);
+        
+        if (hasValues) {
+            // Wait a bit for form to be fully initialized
+            setTimeout(async () => {
+                await calculateAndDisplayRisk();
+            }, 300);
+        }
     }
 }
 
@@ -2710,6 +3363,52 @@ window.addEventListener('stocksUpdated', async () => {
     await loadWarnings(); // Also reload warnings
     renderAll(); // Re-render deals to show updated indicators
 });
+
+// Calculate and display portfolio risk percentage
+async function calculateAndDisplayPortfolioRisk() {
+    try {
+        const res = await fetch('/api/deals/risk-percent', {
+            headers: authHeaders()
+        });
+        
+        if (res.ok) {
+            const riskPercent = await res.json();
+            const riskSpan = document.getElementById('portfolioRiskValue');
+            if (riskSpan) {
+                const riskValue = Number(riskPercent) || 0;
+                riskSpan.textContent = riskValue.toFixed(2) + '%';
+                
+                // Apply color classes based on risk level
+                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+                if (riskValue > 10) {
+                    riskSpan.classList.add('risk-high'); // Red color for high risk
+                } else if (riskValue > 5) {
+                    riskSpan.classList.add('risk-medium'); // Yellow/Orange color for medium risk
+                } else {
+                    riskSpan.classList.add('risk-low'); // Green color for low risk
+                }
+            }
+        } else {
+            console.error('Failed to load portfolio risk', res.status);
+            const riskSpan = document.getElementById('portfolioRiskValue');
+            if (riskSpan) {
+                riskSpan.textContent = '0.00%';
+                // Reset classes on error
+                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+                riskSpan.classList.add('risk-low');
+            }
+        }
+    } catch (e) {
+        console.error('Error loading portfolio risk', e);
+        const riskSpan = document.getElementById('portfolioRiskValue');
+        if (riskSpan) {
+            riskSpan.textContent = '0.00%';
+            // Reset classes on error
+            riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+            riskSpan.classList.add('risk-low');
+        }
+    }
+}
 
 // ======== СТАРТ =========
 (async function init() {

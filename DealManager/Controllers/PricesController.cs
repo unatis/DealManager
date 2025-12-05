@@ -540,6 +540,18 @@ public class PricesController : ControllerBase
             var assetCandles = BetaService.ToWeeklyCandles(assetData);
             var spyCandles = BetaService.ToWeeklyCandles(spyData);
 
+            // Add detailed logging before calculation
+            _logger.LogInformation("Before Beta calculation - {Ticker}: {AssetCount} points, SPY: {SpyCount} points", 
+                ticker, assetCandles.Count, spyCandles.Count);
+            
+            if (assetCandles.Count > 0 && spyCandles.Count > 0)
+            {
+                _logger.LogInformation("Asset date range: {Start} to {End}", 
+                    assetCandles[0].Date, assetCandles[assetCandles.Count - 1].Date);
+                _logger.LogInformation("SPY date range: {Start} to {End}", 
+                    spyCandles[0].Date, spyCandles[spyCandles.Count - 1].Date);
+            }
+
             // Рассчитываем Beta и Correlation
             var result = BetaService.CalculateBetaAndCorrelation(assetCandles, spyCandles);
 

@@ -61,22 +61,23 @@ function authHeaders() {
 }
 
 // ========== PORTFOLIO inline edit ==========
-const portfolioSpan = document.getElementById('portfolioValue');
+// Helper function to setup inline editing for portfolio fields
+function setupPortfolioField(spanElement, localStorageKey, apiEndpoint, fieldName) {
+    if (!spanElement) return;
 
-// начальное значение из localStorage
-(function initPortfolio() {
-    const stored = localStorage.getItem('portfolio');
-    if (stored != null && portfolioSpan) {
-        const num = Number(stored);
-        portfolioSpan.textContent = isNaN(num) ? stored : num.toFixed(2);
-    }
-})();
+    // Initialize from localStorage
+    (function initField() {
+        const stored = localStorage.getItem(localStorageKey);
+        if (stored != null) {
+            const num = Number(stored);
+            spanElement.textContent = isNaN(num) ? stored : num.toFixed(2);
+        }
+    })();
 
-if (portfolioSpan) {
-    portfolioSpan.addEventListener('click', () => {
-        if (portfolioSpan.dataset.editing === '1') return;
+    spanElement.addEventListener('click', () => {
+        if (spanElement.dataset.editing === '1') return;
 
-        const currentText = portfolioSpan.textContent.trim();
+        const currentText = spanElement.textContent.trim();
         const current = Number(currentText.replace(',', '.')) || 0;
 
         const input = document.createElement('input');
@@ -86,16 +87,16 @@ if (portfolioSpan) {
         input.value = current.toString();
         input.className = 'portfolio-input';
 
-        portfolioSpan.textContent = '';
-        portfolioSpan.appendChild(input);
-        portfolioSpan.dataset.editing = '1';
+        spanElement.textContent = '';
+        spanElement.appendChild(input);
+        spanElement.dataset.editing = '1';
 
         input.focus();
         input.select();
 
         const finish = async (save) => {
-            if (portfolioSpan.dataset.editing !== '1') return;
-            portfolioSpan.dataset.editing = '';
+            if (spanElement.dataset.editing !== '1') return;
+            spanElement.dataset.editing = '';
 
             let newVal = current;
             if (save) {
@@ -103,25 +104,29 @@ if (portfolioSpan) {
                 newVal = isNaN(parsed) ? current : parsed;
             }
 
-            portfolioSpan.textContent = newVal.toFixed(2);
+            spanElement.textContent = newVal.toFixed(2);
 
             if (save) {
-                localStorage.setItem('portfolio', String(newVal));
+                localStorage.setItem(localStorageKey, String(newVal));
 
                 try {
-                    const res = await fetch('/api/users/portfolio', {
+                    // Use PascalCase for API request (matching C# record property names)
+                    const pascalFieldName = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+                    const requestBody = {};
+                    requestBody[pascalFieldName] = newVal;
+                    const res = await fetch(apiEndpoint, {
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
                             ...authHeaders()
                         },
-                        body: JSON.stringify({ portfolio: newVal })
+                        body: JSON.stringify(requestBody)
                     });
                     if (!res.ok) {
-                        console.error('Failed to save portfolio', res.status);
+                        console.error(`Failed to save ${fieldName}`, res.status);
                     }
                 } catch (e) {
-                    console.error('Error saving portfolio', e);
+                    console.error(`Error saving ${fieldName}`, e);
                 }
             }
         };
@@ -137,6 +142,70 @@ if (portfolioSpan) {
             }
         });
     });
+}
+
+const portfolioSpan = document.getElementById('portfolioValue');
+const totalSumSpan = document.getElementById('totalSumValue');
+const inSharesSpan = document.getElementById('inSharesValue');
+
+setupPortfolioField(portfolioSpan, 'portfolio', '/api/users/portfolio', 'portfolio');
+setupPortfolioField(totalSumSpan, 'totalSum', '/api/users/totalsum', 'totalSum');
+setupPortfolioField(inSharesSpan, 'inShares', '/api/users/inshares', 'inShares');
+
+// Load values from API on page load
+async function loadPortfolioValues() {
+    try {
+        // Load portfolio
+        const portfolioRes = await fetch('/api/users/portfolio', {
+            headers: authHeaders()
+        });
+        if (portfolioRes.ok) {
+            const portfolioData = await portfolioRes.json();
+            const portfolio = portfolioData.portfolio ?? portfolioData.Portfolio;
+            if (portfolio !== undefined && portfolioSpan) {
+                const val = Number(portfolio) || 0;
+                portfolioSpan.textContent = val.toFixed(2);
+                localStorage.setItem('portfolio', String(val));
+            }
+        }
+
+        // Load totalSum
+        const totalSumRes = await fetch('/api/users/totalsum', {
+            headers: authHeaders()
+        });
+        if (totalSumRes.ok) {
+            const totalSumData = await totalSumRes.json();
+            const totalSum = totalSumData.totalSum ?? totalSumData.TotalSum;
+            if (totalSum !== undefined && totalSumSpan) {
+                const val = Number(totalSum) || 0;
+                totalSumSpan.textContent = val.toFixed(2);
+                localStorage.setItem('totalSum', String(val));
+            }
+        }
+
+        // Load inShares
+        const inSharesRes = await fetch('/api/users/inshares', {
+            headers: authHeaders()
+        });
+        if (inSharesRes.ok) {
+            const inSharesData = await inSharesRes.json();
+            const inShares = inSharesData.inShares ?? inSharesData.InShares;
+            if (inShares !== undefined && inSharesSpan) {
+                const val = Number(inShares) || 0;
+                inSharesSpan.textContent = val.toFixed(2);
+                localStorage.setItem('inShares', String(val));
+            }
+        }
+    } catch (e) {
+        console.error('Error loading portfolio values', e);
+    }
+}
+
+// Load values when page loads
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadPortfolioValues);
+} else {
+    loadPortfolioValues();
 }
 
 // ========== STOCKS для сделок (select) ==========

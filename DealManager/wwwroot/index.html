@@ -25,6 +25,18 @@
                 Cash:
                 <span id="portfolioValue" class="portfolio-display">0</span>
             </div>
+            <div class="portfolio-info">
+                Total Sum:
+                <span id="totalSumValue" class="portfolio-display readonly">0</span>
+            </div>
+            <div class="portfolio-info">
+                In Shares:
+                <span id="inSharesValue" class="portfolio-display readonly">0</span>
+            </div>
+            <div class="portfolio-info">
+                Risk:
+                <span id="portfolioRiskValue" class="portfolio-display">0.00%</span>
+            </div>
             <button id="newDealBtn" class="desktop-btn">New Deal</button>
             <button id="logoutBtn" class="secondary desktop-btn">Logout</button>
             <!-- Hamburger menu button for mobile -->
@@ -44,7 +56,10 @@
     <main>
         <!-- Left: stocks list -->
         <aside class="panel">
-            <h3>Stocks</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h3 style="margin: 0;">Stocks</h3>
+                <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="stockCount">0</span></div>
+            </div>
             <button id="addStockBtn">Add stock</button>
             <div id="stockList" class="list"></div>
             <div id="emptyStock" class="empty" style="display: none;">Нет акций</div>

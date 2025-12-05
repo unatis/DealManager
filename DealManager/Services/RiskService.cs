@@ -37,7 +37,7 @@ namespace DealManager.Services
                 if (string.IsNullOrWhiteSpace(deal.TotalSum))
                     continue;
 
-                if (!decimal.TryParse(deal.TotalSum, out var totalSum))
+                if (!decimal.TryParse(deal.TotalSum, out var dealTotalSum))
                     continue;
 
                 // Parse stop_loss_prcnt
@@ -49,21 +49,21 @@ namespace DealManager.Services
                 }
 
                 // Calculate risk for this deal: total_sum * (stop_loss_percent / 100)
-                if (stopLossPercent > 0 && totalSum > 0)
+                if (stopLossPercent > 0 && dealTotalSum > 0)
                 {
-                    decimal dealRisk = totalSum * (stopLossPercent / 100);
+                    decimal dealRisk = dealTotalSum * (stopLossPercent / 100);
                     totalRisk += dealRisk;
                 }
             }
 
-            // Get current portfolio value
-            var portfolio = await _usersService.GetPortfolioAsync(userId);
+            // Get current Total Sum value (Cash + In Shares)
+            var totalSum = await _usersService.GetTotalSumAsync(userId);
 
-            if (portfolio <= 0)
+            if (totalSum <= 0)
                 return 0;
 
-            // Calculate percentage: (total_risk / portfolio) * 100
-            decimal riskPercent = (totalRisk / portfolio) * 100;
+            // Calculate percentage: (total_risk / totalSum) * 100
+            decimal riskPercent = (totalRisk / totalSum) * 100;
 
             return Math.Round(riskPercent, 2);
         }

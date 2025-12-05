@@ -56,7 +56,21 @@ public static class BetaService
         }
 
         if (alignedAssetCloses.Count < 3)
-            throw new InvalidOperationException("Недостаточно общих недель для расчёта беты и корреляции (нужно минимум 3 точки).");
+        {
+            // Enhanced error message with more context
+            var assetDateRange = asset.Count > 0 
+                ? $"from {asset[0].Date:yyyy-MM-dd} to {asset[asset.Count - 1].Date:yyyy-MM-dd}" 
+                : "no dates";
+            var benchDateRange = bench.Count > 0 
+                ? $"from {bench[0].Date:yyyy-MM-dd} to {bench[bench.Count - 1].Date:yyyy-MM-dd}" 
+                : "no dates";
+            
+            throw new InvalidOperationException(
+                $"Недостаточно общих недель для расчёта беты и корреляции (нужно минимум 3 точки). " +
+                $"Найдено совпадений: {alignedAssetCloses.Count}. " +
+                $"Актив: {asset.Count} точек ({assetDateRange}), " +
+                $"Бенчмарк: {bench.Count} точек ({benchDateRange})");
+        }
 
         // 3. Строим недельные лог-доходности
         var assetReturns = new List<double>();
@@ -151,5 +165,6 @@ public static class BetaService
         return pricePoints.Select(ToWeeklyCandle).ToList().AsReadOnly();
     }
 }
+
 
 
