@@ -1252,7 +1252,7 @@ function createDealRow(deal, isNew) {
     // Calculate and format total sum for display
     const totalSum = calculateTotalSum(deal?.share_price, deal?.amount_tobuy_stage_1);
     const totalSumFormatted = formatTotalSum(totalSum || deal?.total_sum);
-    const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
+    const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
     
     // Add planned future indicator next to date
     const plannedFutureLabel = deal?.planned_future ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>' : '';
@@ -1312,7 +1312,16 @@ function createDealRow(deal, isNew) {
     
     summary.innerHTML = `
         <div class="meta">
-            <strong>${escapeHtml(deal?.stock || 'New Deal')}${volumeIndicator}${sp500Indicator}${atrIndicator}${syncSp500Indicator}${betaVolatilityIndicator}${totalSumDisplay}</strong>
+            ${deal?.stock 
+                ? `<div class="deal-title-row">
+                    <div class="stock-name">
+                        <strong>${escapeHtml(deal.stock)}${volumeIndicator}${sp500Indicator}${atrIndicator}${syncSp500Indicator}${betaVolatilityIndicator}</strong>
+                    </div>
+                    ${totalSumDisplay ? `<div class="total-sum-display">${totalSumDisplay}</div>` : ''}
+                    <div class="movement-metrics-container"></div>
+                </div>`
+                : `<div class="new-deal-title"><strong>New Deal</strong></div>`
+            }
             ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}${plannedFutureLabel}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
         </div>
@@ -1320,7 +1329,21 @@ function createDealRow(deal, isNew) {
         <div class="chips" style="min-width:140px;justify-content:flex-end">
             <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
             <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
-            ${deal.stop_loss_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Stop Loss Percentage">SL:${escapeHtml(deal.stop_loss_prcnt)}%</div>` : ''}
+            ${deal.stop_loss_prcnt ? (() => {
+                // Extract numeric value from percentage string (e.g., "11.76" from "11.76%")
+                const slPercentMatch = deal.stop_loss_prcnt.match(/([\d.]+)/);
+                const slPercentValue = slPercentMatch ? parseFloat(slPercentMatch[1]) : 0;
+                
+                // Determine color class based on SL percentage
+                let colorClass = '';
+                if (slPercentValue > 10) {
+                    colorClass = 'sl-percent-red'; // Red for SL% > 10%
+                } else if (slPercentValue > 5) {
+                    colorClass = 'sl-percent-yellow'; // Yellow for SL% > 5% (but <= 10%)
+                }
+                
+                return `<div class="badge movement-metric-tooltip ${colorClass}" data-tooltip="Stop Loss Percentage">SL:${escapeHtml(deal.stop_loss_prcnt)}%</div>`;
+            })() : ''}
             <div class="badge movement-metric-tooltip" data-tooltip="Take Profit">TP:${escapeHtml(deal.take_profit || '-')}</div>
             ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP:${escapeHtml(deal.take_profit_prcnt)}%</div>` : ''}
             ${deal.reward_to_risk ? (() => {
@@ -1342,21 +1365,19 @@ function createDealRow(deal, isNew) {
         ` : ''}
     `;
     
-    // Add movement metrics to the title (load asynchronously)
+    // Add movement metrics near the price (load asynchronously)
     // Only for open deals (not closed, and not new deals - new deals will get metrics when stock is selected)
-    const titleElement = summary.querySelector('strong');
-    if (titleElement && deal?.stock && deal?.id && !deal?.closed && !isNew) {
+    if (deal?.stock && deal?.id && !deal?.closed && !isNew) {
         console.log('Adding movement metrics for deal stock:', deal.stock);
         
         // Store deal ID and stock ticker on the row for later retrieval
         const dealId = deal?.id || 'new';
         row.dataset.dealStock = deal.stock;
         
-        // Load movement metrics asynchronously and append directly to title when ready
         loadMovementMetrics(deal.stock).then(metrics => {
             console.log('Movement metrics received for', deal.stock, ':', metrics);
             
-            // Re-find the title element from the row (in case DOM was re-rendered)
+            // Re-find the row and summary (in case DOM was re-rendered)
             const currentRow = document.querySelector(`[data-deal-id="${dealId}"]`);
             if (!currentRow) {
                 console.warn('Deal row not found for', dealId);
@@ -1364,15 +1385,20 @@ function createDealRow(deal, isNew) {
             }
             
             const currentSummary = currentRow.querySelector('.deal-summary');
-            const currentTitle = currentSummary?.querySelector('strong');
-            
-            if (!currentTitle) {
-                console.warn('Title element not found in row for', deal.stock);
+            if (!currentSummary) {
+                console.warn('Summary element not found in row for', deal.stock);
                 return;
             }
             
-            // Check if metrics already added (avoid duplicates)
-            if (currentTitle.querySelector('.movement-metrics-display')) {
+            const metricsContainer = currentSummary.querySelector('.movement-metrics-container');
+            if (!metricsContainer) {
+                console.warn('movement-metrics-container not found for', deal.stock);
+                return;
+            }
+            
+            // Avoid duplicates
+            const existing = metricsContainer.querySelector('.movement-metrics-display');
+            if (existing) {
                 console.log('Movement metrics already displayed for', deal.stock);
                 return;
             }
@@ -1381,12 +1407,8 @@ function createDealRow(deal, isNew) {
                 const formatted = formatMovementMetrics(metrics);
                 console.log('Formatted movement metrics:', formatted);
                 
-                // Create and append the metrics display
-                const metricsDisplay = document.createElement('span');
-                metricsDisplay.className = 'movement-metrics-display';
-                metricsDisplay.innerHTML = formatted;
-                currentTitle.appendChild(metricsDisplay);
-                console.log('Movement metrics inserted into DOM successfully');
+                metricsContainer.innerHTML = formatted;
+                console.log('Movement metrics inserted into metrics container successfully');
             } else {
                 console.log('No movement metrics available for', deal.stock);
             }
@@ -1534,11 +1556,14 @@ async function setupDealRowHandlers(row, deal, isNew) {
             closeBtn.addEventListener('click', async () => {
                 const updatedDeal = { ...deal, closed: true, closedAt: new Date().toISOString() };
                 try {
+                    setButtonLoading(closeBtn, true);
                     await saveDealToServer(updatedDeal, true);
                     await loadDeals();
                 } catch (e) {
                     console.error(e);
                     alert('Не удалось закрыть сделку');
+                } finally {
+                    setButtonLoading(closeBtn, false);
                 }
             });
         }
@@ -1558,30 +1583,23 @@ function setupTotalSumCalculator(row, form, deal) {
         const amount = amountInput.value || '';
         const totalSum = calculateTotalSum(sharePrice, amount);
         const totalSumFormatted = formatTotalSum(totalSum);
-        const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
+        const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
         
-        const titleElement = summary.querySelector('strong');
+        const stockNameDiv = summary.querySelector('.stock-name');
+        const titleElement = stockNameDiv?.querySelector('strong');
         if (!titleElement) return;
         
-        // Store current HTML to preserve everything (including metrics that might be loading)
-        const currentHTML = titleElement.innerHTML;
+        // Always use deal.stock if available, don't extract from textContent
+        const tickerText = deal?.stock || 'New Deal';
         
-        // Find all elements we need to preserve from DOM
-        const movementMetricsElements = Array.from(titleElement.querySelectorAll('.movement-metrics-display'));
+        // Get warning icons from current DOM (movement metrics are now after price, not here)
         const warningIcons = Array.from(titleElement.querySelectorAll('.volume-warning-icon'));
         
-        // Get ticker text - prefer deal.stock, otherwise extract from current content
-        const tickerText = deal?.stock || (() => {
-            const text = titleElement.textContent || '';
-            // Remove movement metrics pattern (including all arrows: ↑↓↔→)
-            return text.replace(/Move[↑↓↔→].*$/m, '')
-                       .replace(/\s*-\s*\$[\d,]+\.?\d*/g, '') // Remove total sum
-                       .replace(/[!]/g, '') // Remove warning icon markers
-                       .split(' - ')[0]
-                       .trim() || 'New Deal';
-        })();
+        // Remove any movement metrics that might still be in stock name (cleanup)
+        const movementMetricsInStockName = titleElement.querySelectorAll('.movement-metrics-display');
+        movementMetricsInStockName.forEach(metric => metric.remove());
         
-        // Build new content in correct order
+        // Build new HTML with only ticker and warning icons (NO movement metrics, NO total sum)
         let newHTML = escapeHtml(tickerText);
         
         // Add warning icons
@@ -1589,28 +1607,26 @@ function setupTotalSumCalculator(row, form, deal) {
             newHTML += icon.outerHTML;
         });
         
-        // Add total sum
-        if (totalSumDisplay) {
-            newHTML += totalSumDisplay;
-        }
-        
-        // Add movement metrics - prefer from DOM if found, otherwise try to extract from HTML
-        if (movementMetricsElements.length > 0) {
-            // Metrics found in DOM - use them
-            movementMetricsElements.forEach(metric => {
-                newHTML += metric.outerHTML;
-            });
-        } else {
-            // Metrics not in DOM yet (might be loading) - try to preserve from original HTML
-            const metricsMatch = currentHTML.match(/<span[^>]*class="movement-metrics-display"[^>]*>[\s\S]*?<\/span>/);
-            if (metricsMatch) {
-                newHTML += metricsMatch[0];
-            }
-        }
-        
-        // Only update if changed (avoid unnecessary DOM updates)
+        // Update titleElement (without total sum, without movement metrics)
         if (titleElement.innerHTML !== newHTML) {
             titleElement.innerHTML = newHTML;
+        }
+        
+        // Update total sum in separate div
+        const metaDiv = summary.querySelector('.meta > div:first-child');
+        if (metaDiv) {
+            let totalSumDiv = metaDiv.querySelector('.total-sum-display');
+            if (totalSumDisplay) {
+                if (!totalSumDiv) {
+                    totalSumDiv = document.createElement('div');
+                    totalSumDiv.className = 'total-sum-display';
+                    metaDiv.appendChild(totalSumDiv);
+                }
+                totalSumDiv.textContent = totalSumDisplay;
+                totalSumDiv.style.display = '';
+            } else if (totalSumDiv) {
+                totalSumDiv.style.display = 'none';
+            }
         }
     };
     
@@ -2529,7 +2545,7 @@ function formatMovementMetrics(metrics) {
     } else if (direction === '↓') {
         arrowColor = '#ef4444'; // Red for down
     } else {
-        arrowColor = '#eab308'; // Yellow for flat
+        arrowColor = '#f59e0b'; // Yellow for flat
     }
     
     const signed = (metrics.signedPct || metrics.SignedPct || 0);
@@ -2556,7 +2572,7 @@ function formatMovementMetrics(metrics) {
     };
     
     const formatted = `<span class="movement-metrics-display" style="font-size: 11px; color: #64748b; margin-left: 8px; font-weight: normal;">
-        <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span> | ${formatMetric('Mv', signedDisplay, 'This is a composite index of Speed, Strength and EaseOfMove.')} | ${formatMetric('Sp', speed, 'Speed: Normalized speed percentage relative to historical maximum in this direction.')} | ${formatMetric('St', strength, 'Strength: Normalized strength (|ΔP| * Volume) percentage relative to historical maximum.')} | ${formatMetric('E', ease, 'Ease: Normalized ease of movement (move / volume) percentage relative to historical maximum.')} | ${formatMetric('Ret', returnPct, 'Return: The raw return percentage of the last bar.')}
+        <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span> | ${formatMetric('Mv', signedDisplay, 'This is a composite index of Speed, Strength and EaseOfMove.')} | ${formatMetric('Sp', speed, 'Speed: Normalized speed percentage relative to historical maximum in this direction.')} | ${formatMetric('St', strength, 'Strength: Normalized strength (|ΔP| * Volume) percentage relative to historical maximum.')} | ${formatMetric('E', ease, 'Ease: Normalized ease of movement (move / volume) percentage relative to historical maximum.')} | ${formatMetric('Ret', returnPct, 'Percentage change in price of the last bar')}
     </span>`;
     
     console.log('formatMovementMetrics: Formatted result:', formatted);
@@ -2590,19 +2606,19 @@ async function loadMovementMetricsAndDisplay(ticker, form) {
         movementMetricsLoading.add(loadingKey);
         
         const summary = dealRow.querySelector('.deal-summary');
-        const titleElement = summary?.querySelector('strong');
+        const stockNameDiv = summary?.querySelector('.stock-name');
+        const titleElement = stockNameDiv?.querySelector('strong');
+        const metricsContainer = summary?.querySelector('.movement-metrics-container');
+        
         if (!titleElement) {
             console.warn('Title element not found in deal row');
             movementMetricsLoading.delete(loadingKey);
             return;
         }
         
-        // Always remove ALL existing movement metrics first to prevent duplicates
-        const existingMetrics = titleElement.querySelectorAll('.movement-metrics-display');
-        existingMetrics.forEach(metric => metric.remove());
-        if (existingMetrics.length > 0) {
-            console.log('Removed', existingMetrics.length, 'existing movement metrics display(s)');
-        }
+        // Remove any movement metrics from stock name (cleanup - they should only be after price)
+        const movementMetricsInStockName = titleElement.querySelectorAll('.movement-metrics-display');
+        movementMetricsInStockName.forEach(metric => metric.remove());
         
         // Update title from "New Deal" to ticker if needed
         const currentTitleText = titleElement.textContent.trim().split('!')[0].trim(); // Get text without warning icons
@@ -2627,29 +2643,68 @@ async function loadMovementMetricsAndDisplay(ticker, form) {
         // Load metrics
         const metrics = await loadMovementMetrics(ticker);
         
-        // Final check - remove any metrics that might have been added during async operation
-        const metricsAddedDuringLoad = titleElement.querySelectorAll('.movement-metrics-display');
-        metricsAddedDuringLoad.forEach(metric => metric.remove());
+        // Remove any existing movement metrics from the container AND from stock name (double cleanup)
+        const allMetricsInStockName = titleElement.querySelectorAll('.movement-metrics-display');
+        allMetricsInStockName.forEach(metric => metric.remove());
         
-        if (metrics) {
-            const formatted = formatMovementMetrics(metrics);
+        // Also remove from stock-name div itself (not just the strong tag)
+        if (stockNameDiv) {
+            const metricsInStockNameDiv = stockNameDiv.querySelectorAll('.movement-metrics-display');
+            metricsInStockNameDiv.forEach(metric => metric.remove());
+        }
+        
+        if (metricsContainer) {
+            const existingMetrics = metricsContainer.querySelectorAll('.movement-metrics-display');
+            existingMetrics.forEach(metric => metric.remove());
             
-            // Append formatted HTML directly (it already contains the class)
-            titleElement.insertAdjacentHTML('beforeend', formatted);
-            
-            // Immediately check for and remove any duplicates that might have been created
-            const allMetrics = titleElement.querySelectorAll('.movement-metrics-display');
-            if (allMetrics.length > 1) {
-                console.warn('Found', allMetrics.length, 'movement metrics displays - removing duplicates');
-                // Keep only the first one, remove the rest
-                for (let i = 1; i < allMetrics.length; i++) {
-                    allMetrics[i].remove();
+            if (metrics) {
+                const formatted = formatMovementMetrics(metrics);
+                
+                // Final cleanup - ensure no metrics in stock name before adding to container
+                titleElement.querySelectorAll('.movement-metrics-display').forEach(m => m.remove());
+                if (stockNameDiv) {
+                    stockNameDiv.querySelectorAll('.movement-metrics-display').forEach(m => m.remove());
+                }
+                
+                // Append formatted HTML ONLY to the container (after price)
+                metricsContainer.innerHTML = formatted;
+                
+                console.log('Movement metrics displayed after price for', ticker);
+            } else {
+                console.log('No movement metrics available for', ticker);
+                metricsContainer.innerHTML = '';
+            }
+        } else {
+            // Fallback: if container doesn't exist, create it and insert after price
+            const metaDiv = summary?.querySelector('.meta > div:first-child');
+            if (metaDiv && metrics) {
+                const container = document.createElement('div');
+                container.className = 'movement-metrics-container';
+                const formatted = formatMovementMetrics(metrics);
+                container.innerHTML = formatted;
+                
+                // Ensure we remove any metrics from stock name first
+                const stockNameElement = metaDiv.querySelector('.stock-name strong');
+                if (stockNameElement) {
+                    const metricsInStockName = stockNameElement.querySelectorAll('.movement-metrics-display');
+                    metricsInStockName.forEach(metric => metric.remove());
+                }
+                
+                // Insert after price (total-sum-display) if it exists
+                const priceDiv = metaDiv.querySelector('.total-sum-display');
+                if (priceDiv) {
+                    // Insert after price div (after the price, before anything else)
+                    priceDiv.insertAdjacentElement('afterend', container);
+                } else {
+                    // If no price, append to end after stock-name (shouldn't happen normally)
+                    const stockNameDiv = metaDiv.querySelector('.stock-name');
+                    if (stockNameDiv) {
+                        stockNameDiv.insertAdjacentElement('afterend', container);
+                    } else {
+                        metaDiv.appendChild(container);
+                    }
                 }
             }
-            
-            console.log('Movement metrics displayed in deal title for', ticker);
-        } else {
-            console.log('No movement metrics available for', ticker);
         }
     } catch (err) {
         console.error('Error loading movement metrics for deal title:', err);
@@ -3061,7 +3116,7 @@ function setupTotalSumCalculator(row, form, deal) {
         const amountToBuy = newAmountToBuyInput.value || '';
         const totalSum = calculateTotalSum(sharePrice, amountToBuy);
         const totalSumFormatted = formatTotalSum(totalSum);
-        const totalSumDisplay = totalSumFormatted ? ` - ${totalSumFormatted}` : '';
+        const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
         
         // Get current stock name from select or from deal
         let currentStock = 'New Deal';
@@ -3071,10 +3126,52 @@ function setupTotalSumCalculator(row, form, deal) {
             currentStock = deal.stock;
         }
         
-        // Find the stock name element and update it
-        const stockElement = summary.querySelector('.meta strong');
+        // Find the stock name element (strong tag inside div)
+        const stockNameDiv = summary.querySelector('.stock-name');
+        const stockElement = stockNameDiv?.querySelector('strong');
         if (stockElement) {
-            stockElement.textContent = `${currentStock}${totalSumDisplay}`;
+            // Get warning icons from current DOM (movement metrics are now after price, not here)
+            const warningIcons = Array.from(stockElement.querySelectorAll('.volume-warning-icon'));
+            
+            // Remove any movement metrics that might still be in stock name (cleanup)
+            const movementMetricsInStockName = stockElement.querySelectorAll('.movement-metrics-display');
+            movementMetricsInStockName.forEach(metric => metric.remove());
+            
+            // Build new HTML with only ticker and warning icons (NO movement metrics, NO total sum)
+            let newHTML = escapeHtml(currentStock);
+            
+            // Add warning icons
+            warningIcons.forEach(icon => {
+                newHTML += icon.outerHTML;
+            });
+            
+            // Update titleElement (without total sum, without movement metrics)
+            if (stockElement.innerHTML !== newHTML) {
+                stockElement.innerHTML = newHTML;
+            }
+        } else if (stockNameDiv) {
+            // If stockNameDiv exists but strong doesn't, create it
+            const strongEl = document.createElement('strong');
+            strongEl.textContent = currentStock;
+            stockNameDiv.innerHTML = '';
+            stockNameDiv.appendChild(strongEl);
+        }
+        
+        // Update total sum in separate div
+        const metaDiv = summary.querySelector('.meta > div:first-child');
+        if (metaDiv) {
+            let totalSumDiv = metaDiv.querySelector('.total-sum-display');
+            if (totalSumDisplay) {
+                if (!totalSumDiv) {
+                    totalSumDiv = document.createElement('div');
+                    totalSumDiv.className = 'total-sum-display';
+                    metaDiv.appendChild(totalSumDiv);
+                }
+                totalSumDiv.textContent = totalSumDisplay;
+                totalSumDiv.style.display = '';
+            } else if (totalSumDiv) {
+                totalSumDiv.style.display = 'none';
+            }
         }
         
         // Store totalSum in a data attribute for later use

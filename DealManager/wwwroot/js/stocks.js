@@ -345,6 +345,25 @@ stockForm.addEventListener('submit', async e => {
         await loadStocks();
             await loadWarnings();
             window.dispatchEvent(new CustomEvent('stocksUpdated'));
+            
+            // Explicitly fetch weekly prices to ensure they are saved to MongoDB
+            // This ensures data is persisted even if user didn't trigger beta calculation
+            if (ticker && ticker.trim()) {
+                try {
+                    console.log(`Fetching weekly prices for ${ticker} to ensure MongoDB persistence`);
+                    const priceRes = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}`, {
+                        headers: authHeaders()
+                    });
+                    if (priceRes.ok) {
+                        console.log(`Successfully fetched weekly prices for ${ticker} - data should be in MongoDB`);
+                    } else {
+                        console.warn(`Failed to fetch weekly prices for ${ticker}:`, priceRes.status);
+                    }
+                } catch (err) {
+                    console.error(`Error fetching weekly prices for ${ticker}:`, err);
+                    // Don't show error to user - this is a background operation
+                }
+            }
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить акцию');
