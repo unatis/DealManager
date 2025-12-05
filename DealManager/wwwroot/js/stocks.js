@@ -408,15 +408,16 @@ function updateStockCount(count) {
     }
     
     // Add warning icon if count exceeds thresholds
-    if (count > 15) {
-        // Red warning for count > 15
+    // Yellow for > 15, Red for > 20 (different from deals which use > 10 and > 15)
+    if (count > 20) {
+        // Red warning for count > 20
         const warningIcon = document.createElement('span');
         warningIcon.className = 'count-warning-icon count-warning-red';
         warningIcon.setAttribute('data-tooltip', `High number of stocks: ${count}. Consider removing some stocks.`);
         warningIcon.textContent = '!';
         countContainer.appendChild(warningIcon);
-    } else if (count > 10) {
-        // Yellow warning for count > 10
+    } else if (count > 15) {
+        // Yellow warning for count > 15
         const warningIcon = document.createElement('span');
         warningIcon.className = 'count-warning-icon count-warning-yellow';
         warningIcon.setAttribute('data-tooltip', `Many stocks: ${count}. Monitor your portfolio carefully.`);

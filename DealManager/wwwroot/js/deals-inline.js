@@ -15,6 +15,7 @@ const elements = {
     closedList: document.getElementById('closedList'),
     filterInput: document.getElementById('filterInput'),
     openCount: document.getElementById('openCount'),
+    closedCount: document.getElementById('closedCount'),
     emptyOpen: document.getElementById('emptyOpen'),
     emptyClosed: document.getElementById('emptyClosed'),
     userNameDisplay: document.getElementById('userNameDisplay'),
@@ -1223,6 +1224,11 @@ function renderAll() {
             const row = createDealRow(d, false);
             elements.closedList.appendChild(row);
         });
+    }
+    
+    // Update closed deals count (no warning logic, just count)
+    if (elements.closedCount) {
+        elements.closedCount.textContent = closed.length;
     }
 }
 

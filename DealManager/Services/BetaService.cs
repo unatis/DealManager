@@ -28,29 +28,50 @@ public static class BetaService
             .OrderBy(c => c.Date)
             .ToList();
 
-        // 2. Выравниваем ряды по общим датам (merge join по Date.Date)
+        // 2. Выравниваем ряды по общим датам (merge join по неделям, а не точным датам)
+        // Weekly data from Alpha Vantage may have slightly different dates for the same week
+        // So we align by week (Monday of the week) rather than exact date
         var alignedAssetCloses = new List<double>();
         var alignedBenchCloses = new List<double>();
+
+        // Helper function to get Monday of the week for a given date
+        static DateTime GetWeekMonday(DateTime date)
+        {
+            int dayOfWeek = (int)date.DayOfWeek;
+            // Convert Sunday (0) to 7 for easier calculation
+            int offset = dayOfWeek == 0 ? 6 : dayOfWeek - 1;
+            return date.AddDays(-offset).Date;
+        }
 
         int i = 0, j = 0;
         while (i < asset.Count && j < bench.Count)
         {
             var da = asset[i].Date.Date;
             var db = bench[j].Date.Date;
+            
+            // Get the Monday of the week for each date
+            var daWeek = GetWeekMonday(da);
+            var dbWeek = GetWeekMonday(db);
 
-            if (da == db)
+            // Compare by week (Monday of the week) instead of exact date
+            int weekComparison = daWeek.CompareTo(dbWeek);
+
+            if (weekComparison == 0)
             {
+                // Same week - align them
                 alignedAssetCloses.Add((double)asset[i].Close);
                 alignedBenchCloses.Add((double)bench[j].Close);
                 i++;
                 j++;
             }
-            else if (da < db)
+            else if (weekComparison < 0)
             {
+                // Asset week is earlier, skip it
                 i++;
             }
             else
             {
+                // Benchmark week is earlier, skip it
                 j++;
             }
         }
