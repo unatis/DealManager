@@ -221,10 +221,34 @@ h3 {
 
 .deal-form-inline .form-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(min-content, 1fr));
-    gap: 6px;
-    align-items: start;
-    padding-bottom: 8px;
+    /* 3 равных колонки, занимают всю доступную ширину */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    align-items: flex-start;
+    padding-bottom: 12px;
+}
+
+/* Deal title row: name on the left, price рядом с именем, метрики справа */
+.deal-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Контейнер метрик: уводим его в правый край строки */
+.deal-title-row .movement-metrics-container {
+    margin-left: auto; /* всё слева: имя + цена; справа: метрики */
+    white-space: nowrap;
+}
+
+/* Поля внутри лейблов deal-form-inline растягиваем на всю ширину колонки */
+.deal-form-inline .form-grid label > input:not([type="checkbox"]),
+.deal-form-inline .form-grid label > select,
+.deal-form-inline .form-grid label > textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .deal-form-inline .form-grid .full {
@@ -262,20 +286,20 @@ h3 {
 }
 
 /* Red color for S&P 500 member text when checkbox is unchecked */
-.deal-form-inline label.inline-checkbox span.sp500-not-member {
-    color: #dc2626; /* Red color */
-    font-weight: 600;
-}
+    .deal-form-inline label.inline-checkbox span.sp500-not-member {
+        color: #ef4444; /* Red color */
+        font-weight: 600;
+    }
 
 /* Red color for ATR field when ATR > 10% (high risk) */
 .atr-high-risk {
-    color: #dc2626 !important; /* Red color */
+    color: #ef4444 !important; /* Red color */
     font-weight: 600;
 }
 
 input.atr-high-risk-readonly {
-    border: 2px solid #dc2626 !important; /* red border */
-    color: #dc2626 !important;
+    border: 2px solid #ef4444 !important; /* red border */
+    color: #ef4444 !important;
     background: #f6f8fb !important;
 }
 
@@ -283,12 +307,12 @@ input.atr-high-risk-readonly {
 input.sync-sp500-no-readonly,
 select.sync-sp500-no-readonly {
     border: 2px solid #dc2626 !important; /* red border */
-    color: #dc2626 !important;
+    color: #ef4444 !important;
     background: #f6f8fb !important;
 }
 
 .sync-sp500-no {
-    color: #dc2626 !important;
+    color: #ef4444 !important;
     font-weight: 600;
 }
 
@@ -296,12 +320,12 @@ select.sync-sp500-no-readonly {
 input.beta-volatility-high-readonly,
 select.beta-volatility-high-readonly {
     border: 2px solid #dc2626 !important; /* red border */
-    color: #dc2626 !important;
+    color: #ef4444 !important;
     background: #f6f8fb !important;
 }
 
 .beta-volatility-high {
-    color: #dc2626 !important;
+    color: #ef4444 !important;
     font-weight: 600;
 }
 
@@ -400,32 +424,32 @@ select {
 }
 
 /* Red border and text when "Down" is selected */
-select.has-down-selected {
-    border: 2px solid #dc2626;
-    color: #dc2626;
-}
+    select.has-down-selected {
+        border: 2px solid #ef4444;
+        color: #ef4444;
+    }
 
-select.has-down-selected option[value="Down"] {
-    color: #dc2626;
-    font-weight: 600;
-}
+        select.has-down-selected option[value="Down"] {
+            color: #ef4444;
+            font-weight: 600;
+        }
 
 /* Red border and text for stop loss percentage error (negative or > 10%) */
 input.has-stop-loss-error {
-    border: 2px solid #dc2626;
-    color: #dc2626;
+    border: 2px solid #ef4444;
+    color: #ef4444;
 }
 
 /* Colored borders for regular_volume select based on selected option */
 select[name="regular_volume"].volume-50m {
-    border: 2px solid #dc2626; /* red */
+    border: 2px solid #ef4444; /* red */
     /* Color only applied to selected option, not the select element */
 }
 
-select[name="regular_volume"].volume-50m option:checked {
-    color: #dc2626;
-    background-color: #fff;
-}
+    select[name="regular_volume"].volume-50m option:checked {
+        color: #ef4444;
+        background-color: #fff;
+    }
 
 /* Ensure unselected options have regular color */
 select[name="regular_volume"].volume-50m option:not(:checked) {
@@ -433,7 +457,7 @@ select[name="regular_volume"].volume-50m option:not(:checked) {
 }
 
 select[name="regular_volume"].volume-100m {
-    border: 2px solid #eab308; /* yellow */
+    border: 2px solid #f59e0b; /* yellow */
     /* Color only applied to selected option, not the select element */
 }
 
@@ -469,13 +493,13 @@ select[name="regular_volume"] option:not(:checked) {
 
 /* Colored borders and text for read-only regular_volume input in stock details */
 input.volume-50m-readonly {
-    border: 2px solid #dc2626 !important; /* red */
-    color: #dc2626 !important;
+    border: 2px solid #ef4444 !important; /* red */
+    color: #ef4444 !important;
     background: #f6f8fb !important;
 }
 
 input.volume-100m-readonly {
-    border: 2px solid #eab308 !important; /* yellow */
+    border: 2px solid #f59e0b !important; /* yellow */
     color: #ca8a04 !important;
     background: #f6f8fb !important;
 }
@@ -494,7 +518,7 @@ input.volume-200m-readonly {
     line-height: 18px;
     text-align: center;
     border-radius: 50%;
-    background-color: #dc2626;
+    background-color: #ef4444;
     color: #fff;
     font-weight: bold;
     font-size: 14px;
@@ -524,11 +548,11 @@ input.volume-200m-readonly {
 }
 
 .count-warning-red {
-    background-color: #dc2626; /* Red */
+    background-color: #ef4444; /* Red */
 }
 
 .count-warning-yellow {
-    background-color: #eab308; /* Yellow */
+    background-color: #f59e0b; /* Yellow */
 }
 
 /* Tooltip for count warning icon */
@@ -829,14 +853,14 @@ label {
     color: #22c55e; /* Green for low risk (< 5%) */
 }
 
-.portfolio-display.risk-medium {
-    color: #eab308; /* Yellow/Orange for medium risk (5-10%) */
-}
+    .portfolio-display.risk-medium {
+        color: #f59e0b; /* Yellow/Orange for medium risk (5-10%) */
+    }
 
-.portfolio-display.risk-high {
-    color: #dc2626; /* Red for high risk (> 10%) */
-    font-weight: 700; /* Bolder for high risk */
-}
+    .portfolio-display.risk-high {
+        color: #ef4444; /* Red for high risk (> 10%) */
+        font-weight: 700; /* Bolder for high risk */
+    }
 
 /* Read-only portfolio fields should not have hover effect */
 .portfolio-display.readonly:hover {
@@ -1085,7 +1109,7 @@ label.inline-checkbox > input[type="checkbox"] {
 }
 
 .error-text {
-    color: #dc2626; /* red-600 */
+    color: #ef4444; /* red-600 */
     font-size: 12px;
 }
 
@@ -1197,6 +1221,17 @@ label.inline-checkbox > input[type="checkbox"] {
 }
 
 .badge.reward-risk-yellow {
+    background-color: #f59e0b !important; /* Yellow/Orange */
+    color: white !important;
+}
+
+/* Stop Loss Percentage color coding */
+.badge.sl-percent-red {
+    background-color: #ef4444 !important; /* Red */
+    color: white !important;
+}
+
+.badge.sl-percent-yellow {
     background-color: #f59e0b !important; /* Yellow/Orange */
     color: white !important;
 }
