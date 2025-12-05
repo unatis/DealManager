@@ -15,6 +15,7 @@ const elements = {
     closedList: document.getElementById('closedList'),
     filterInput: document.getElementById('filterInput'),
     openCount: document.getElementById('openCount'),
+    closedCount: document.getElementById('closedCount'),
     emptyOpen: document.getElementById('emptyOpen'),
     emptyClosed: document.getElementById('emptyClosed'),
     userNameDisplay: document.getElementById('userNameDisplay'),
@@ -276,6 +277,7 @@ function setupPortfolioField(spanElement, localStorageKey, apiEndpoint, fieldNam
                         console.log('BLUR EVENT: Delayed calculateAndUpdateTotalSum completed');
                         // Refresh Risk value after Total Sum is updated
                         await calculateAndDisplayPortfolioRisk();
+                        await calculateAndDisplayInSharesRisk();
                     }, 200);
                 } else {
                     console.log('BLUR EVENT: Not portfolio field, fieldName is:', fieldName);
@@ -309,6 +311,7 @@ function setupPortfolioField(spanElement, localStorageKey, apiEndpoint, fieldNam
                             console.log('ENTER EVENT: Delayed calculateAndUpdateTotalSum completed');
                             // Refresh Risk value after Total Sum is updated
                             await calculateAndDisplayPortfolioRisk();
+                            await calculateAndDisplayInSharesRisk();
                         }, 200);
                     } else {
                         console.log('ENTER EVENT: Not portfolio field, fieldName is:', fieldName);
@@ -660,6 +663,9 @@ async function calculateAndUpdateInShares() {
         
         // After updating In Shares, calculate Total Sum (Cash + In Shares)
         await calculateAndUpdateTotalSum();
+        
+        // After updating In Shares, also update Risk (In Shares)
+        await calculateAndDisplayInSharesRisk();
     } catch (e) {
         console.error('Error calculating In Shares', e);
     }
@@ -1224,6 +1230,11 @@ function renderAll() {
             elements.closedList.appendChild(row);
         });
     }
+    
+    // Update closed deals count (no warning logic, just count)
+    if (elements.closedCount) {
+        elements.closedCount.textContent = closed.length;
+    }
 }
 
 function createDealRow(deal, isNew) {
@@ -1312,7 +1323,21 @@ function createDealRow(deal, isNew) {
             ${deal.stop_loss_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Stop Loss Percentage">SL:${escapeHtml(deal.stop_loss_prcnt)}%</div>` : ''}
             <div class="badge movement-metric-tooltip" data-tooltip="Take Profit">TP:${escapeHtml(deal.take_profit || '-')}</div>
             ${deal.take_profit_prcnt ? `<div class="badge movement-metric-tooltip" data-tooltip="Take Profit Percentage">TP:${escapeHtml(deal.take_profit_prcnt)}%</div>` : ''}
-            ${deal.reward_to_risk ? `<div class="badge movement-metric-tooltip" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(deal.reward_to_risk)}</div>` : ''}
+            ${deal.reward_to_risk ? (() => {
+                // Extract numeric value from "1:4.3" format
+                const ratioMatch = deal.reward_to_risk.match(/1:([\d.]+)/);
+                const ratioValue = ratioMatch ? parseFloat(ratioMatch[1]) : 0;
+                
+                // Determine color class based on ratio
+                let colorClass = '';
+                if (ratioValue <= 1.0) {
+                    colorClass = 'reward-risk-red'; // Red for 1:1 or worse
+                } else if (ratioValue <= 2.0) {
+                    colorClass = 'reward-risk-yellow'; // Yellow for 1:2 or worse (but better than 1:1)
+                }
+                
+                return `<div class="badge movement-metric-tooltip ${colorClass}" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(deal.reward_to_risk)}</div>`;
+            })() : ''}
         </div>
         ` : ''}
     `;
@@ -1495,6 +1520,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     
                     // Calculate and display portfolio risk after activating deal
                     await calculateAndDisplayPortfolioRisk();
+                    await calculateAndDisplayInSharesRisk();
                 } catch (e) {
                     console.error(e);
                     alert('Не удалось активировать сделку');
@@ -2143,6 +2169,7 @@ async function handleDealSubmit(form, deal, isNew) {
         
         // Calculate and display portfolio risk after deal save
         await calculateAndDisplayPortfolioRisk();
+        await calculateAndDisplayInSharesRisk();
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить сделку');
@@ -3230,6 +3257,7 @@ function setupRiskCalculator(form) {
         } else {
             // For existing deals, use server-side calculation
             await calculateAndDisplayPortfolioRisk();
+            await calculateAndDisplayInSharesRisk();
         }
     };
     
@@ -3410,11 +3438,81 @@ async function calculateAndDisplayPortfolioRisk() {
     }
 }
 
+// Calculate and display risk percentage relative to In Shares
+async function calculateAndDisplayInSharesRisk() {
+    try {
+        // First check if In Shares value is available and > 0
+        const inSharesSpan = document.getElementById('inSharesValue');
+        const inSharesValue = inSharesSpan ? parseFloat(inSharesSpan.textContent.replace(/,/g, '')) || 0 : 0;
+        
+        console.log('calculateAndDisplayInSharesRisk - In Shares value from DOM:', inSharesValue);
+        
+        // If In Shares is 0, set risk to 0.00% and return early
+        if (inSharesValue <= 0) {
+            console.log('calculateAndDisplayInSharesRisk - In Shares is 0 or negative, setting risk to 0.00%');
+            const riskSpan = document.getElementById('inSharesRiskValue');
+            if (riskSpan) {
+                riskSpan.textContent = '0.00%';
+                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+                riskSpan.classList.add('risk-low');
+            }
+            return;
+        }
+        
+        const res = await fetch('/api/deals/risk-percent-inshares', {
+            headers: authHeaders()
+        });
+        
+        if (res.ok) {
+            const riskPercent = await res.json();
+            console.log('In Shares Risk API response:', riskPercent, 'In Shares:', inSharesValue);
+            const riskSpan = document.getElementById('inSharesRiskValue');
+            if (riskSpan) {
+                const riskValue = Number(riskPercent) || 0;
+                console.log('In Shares Risk calculated value:', riskValue);
+                riskSpan.textContent = riskValue.toFixed(2) + '%';
+                
+                // Apply color classes based on risk level
+                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+                if (riskValue > 10) {
+                    riskSpan.classList.add('risk-high'); // Red color for high risk
+                } else if (riskValue > 5) {
+                    riskSpan.classList.add('risk-medium'); // Yellow/Orange color for medium risk
+                } else {
+                    riskSpan.classList.add('risk-low'); // Green color for low risk
+                }
+            } else {
+                console.warn('inSharesRiskValue element not found in DOM');
+            }
+        } else {
+            const errorText = await res.text().catch(() => '');
+            console.error('Failed to load in shares risk', res.status, errorText);
+            const riskSpan = document.getElementById('inSharesRiskValue');
+            if (riskSpan) {
+                riskSpan.textContent = '0.00%';
+                // Reset classes on error
+                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+                riskSpan.classList.add('risk-low');
+            }
+        }
+    } catch (e) {
+        console.error('Error loading in shares risk', e);
+        const riskSpan = document.getElementById('inSharesRiskValue');
+        if (riskSpan) {
+            riskSpan.textContent = '0.00%';
+            // Reset classes on error
+            riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
+            riskSpan.classList.add('risk-low');
+        }
+    }
+}
+
 // ======== СТАРТ =========
 (async function init() {
     await loadDeals();
     // Calculate and display portfolio risk on page load
     await calculateAndDisplayPortfolioRisk();
+    await calculateAndDisplayInSharesRisk();
 })();
 
 document.addEventListener('keydown', e => {

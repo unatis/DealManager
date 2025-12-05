@@ -97,7 +97,11 @@ namespace DealManager.Services
 
             var cacheKey = $"av_weekly_{symbol}";
             if (_cache.TryGetValue(cacheKey, out IReadOnlyList<PricePoint>? cached) && cached != null)
+            {
+                // Ensure data from memory cache is also saved to MongoDB
+                await EnsureSavedToMongoDB(symbol, cached);
                 return cached;
+            }
 
             CachedWeeklySeries? cachedFromDb = null;
             try
@@ -123,6 +127,8 @@ namespace DealManager.Services
                     .AsReadOnly();
 
                 _cache.Set(cacheKey, fresh, TimeSpan.FromMinutes(5));
+                // Ensure data is saved to MongoDB (refresh LastUpdatedUtc)
+                await EnsureSavedToMongoDB(symbol, fresh);
                 return fresh;
             }
 
@@ -138,56 +144,8 @@ namespace DealManager.Services
                 throw; // Re-throw to be handled by controller
             }
 
-            // Try to save to MongoDB, but don't fail if it doesn't work
-            try
-            {
-                // Find existing document to check if it exists
-                var existing = await _weeklyCollection
-                    .Find(x => x.Ticker == symbol)
-                    .FirstOrDefaultAsync();
-
-                var hadValidId = existing != null && !string.IsNullOrEmpty(existing.Id);
-
-                // If existing document has null Id, delete it first to avoid duplicate key error
-                if (existing != null && string.IsNullOrEmpty(existing.Id))
-                {
-                    await _weeklyCollection.DeleteOneAsync(x => x.Ticker == symbol);
-                }
-
-                // Use UpdateOneAsync with $set operator - MongoDB will auto-generate Id for new documents
-                var filter = Builders<CachedWeeklySeries>.Filter.Eq(x => x.Ticker, symbol);
-                var update = Builders<CachedWeeklySeries>.Update
-                    .Set(x => x.Ticker, symbol)
-                    .Set(x => x.Points, list)
-                    .Set(x => x.LastUpdatedUtc, DateTime.UtcNow);
-                
-                var result = await _weeklyCollection.UpdateOneAsync(
-                    filter,
-                    update,
-                    new UpdateOptions { IsUpsert = true });
-                
-                if (result.UpsertedId != null)
-                {
-                    _logger.LogInformation("Successfully inserted weekly prices for {Symbol} to MongoDB ({Count} points). New Id: {Id}", 
-                        symbol, list.Count, result.UpsertedId);
-                }
-                else if (result.ModifiedCount > 0)
-                {
-                    _logger.LogInformation("Successfully updated weekly prices for {Symbol} in MongoDB ({Count} points). Matched: {Matched}", 
-                        symbol, list.Count, result.MatchedCount);
-                }
-                else
-                {
-                    _logger.LogWarning("MongoDB update for {Symbol} returned no changes. Matched: {Matched}", 
-                        symbol, result.MatchedCount);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save weekly prices to MongoDB for {Symbol}, but continuing with in-memory cache. Error: {Message}, StackTrace: {StackTrace}", 
-                    symbol, ex.Message, ex.StackTrace);
-                // Continue even if DB save fails - we still have the data in memory cache
-            }
+            // Save to MongoDB
+            await EnsureSavedToMongoDB(symbol, list);
 
             var readonlyList = list.AsReadOnly();
             _cache.Set(cacheKey, readonlyList, TimeSpan.FromMinutes(5));
@@ -624,6 +582,64 @@ namespace DealManager.Services
             var readonlyList = list.AsReadOnly();
             _cache.Set(cacheKey, readonlyList, TimeSpan.FromHours(24)); // Cache for 24 hours
             return readonlyList;
+        }
+
+        // Helper method to ensure data is saved to MongoDB
+        private async Task EnsureSavedToMongoDB(string symbol, IReadOnlyList<PricePoint> points)
+        {
+            if (points == null || points.Count == 0)
+                return;
+
+            try
+            {
+                // Find existing document to check if it exists
+                var existing = await _weeklyCollection
+                    .Find(x => x.Ticker == symbol)
+                    .FirstOrDefaultAsync();
+
+                // If existing document has null Id, delete it first to avoid duplicate key error
+                if (existing != null && string.IsNullOrEmpty(existing.Id))
+                {
+                    await _weeklyCollection.DeleteOneAsync(x => x.Ticker == symbol);
+                }
+
+                // Convert to list for MongoDB
+                var pointsList = points.ToList();
+
+                // Use UpdateOneAsync with $set operator - MongoDB will auto-generate Id for new documents
+                var filter = Builders<CachedWeeklySeries>.Filter.Eq(x => x.Ticker, symbol);
+                var update = Builders<CachedWeeklySeries>.Update
+                    .Set(x => x.Ticker, symbol)
+                    .Set(x => x.Points, pointsList)
+                    .Set(x => x.LastUpdatedUtc, DateTime.UtcNow);
+                
+                var result = await _weeklyCollection.UpdateOneAsync(
+                    filter,
+                    update,
+                    new UpdateOptions { IsUpsert = true });
+                
+                if (result.UpsertedId != null)
+                {
+                    _logger.LogInformation("Successfully inserted weekly prices for {Symbol} to MongoDB ({Count} points). New Id: {Id}", 
+                        symbol, pointsList.Count, result.UpsertedId);
+                }
+                else if (result.ModifiedCount > 0)
+                {
+                    _logger.LogInformation("Successfully updated weekly prices for {Symbol} in MongoDB ({Count} points). Matched: {Matched}", 
+                        symbol, pointsList.Count, result.MatchedCount);
+                }
+                else
+                {
+                    _logger.LogDebug("MongoDB update for {Symbol} returned no changes. Matched: {Matched}", 
+                        symbol, result.MatchedCount);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save weekly prices to MongoDB for {Symbol}, but continuing. Error: {Message}, StackTrace: {StackTrace}", 
+                    symbol, ex.Message, ex.StackTrace);
+                // Continue even if DB save fails - we still have the data in memory cache
+            }
         }
     }
 }
