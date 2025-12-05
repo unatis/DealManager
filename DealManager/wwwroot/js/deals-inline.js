@@ -836,9 +836,9 @@ function createDealRow(deal, isNew) {
         }).catch(err => {
             console.error('Error loading movement metrics for', deal.stock, ':', err);
         });
-    } else {
-        console.log('Cannot add movement metrics - titleElement:', !!titleElement, 'deal.stock:', deal?.stock, 'deal.id:', deal?.id, 'deal.closed:', deal?.closed, 'isNew:', isNew);
     }
+    // Note: Movement metrics are only shown for open deals with selected stock
+    // This is expected behavior for new deals (no stock selected yet) or closed deals
 
     // Expanded form view
     const formContainer = document.createElement('div');
@@ -1072,12 +1072,24 @@ function setupSharePriceListener(form) {
     if (!sharePriceInput) return;
     
     const calculatePercentages = () => {
-        const sharePrice = parseFloat(String(sharePriceInput.value || '').replace(',', '.'));
+        const sharePriceStr = String(sharePriceInput.value || '').trim().replace(',', '.');
+        const sharePrice = parseFloat(sharePriceStr);
+        
+        console.log('setupSharePriceListener: calculatePercentages called', {
+            sharePriceStr,
+            sharePrice,
+            sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
+            takeProfitValue: takeProfitInput?.value
+        });
         
         if (isNaN(sharePrice) || sharePrice <= 0) {
-            // Clear percentages if share price is invalid
-            if (stopLossPrcntInput) stopLossPrcntInput.value = '';
-            if (takeProfitPrcntInput) takeProfitPrcntInput.value = '';
+            // Only clear percentages if share price is explicitly invalid (not just empty)
+            // Don't clear if share price is just empty (might be loading)
+            if (sharePriceStr && (isNaN(sharePrice) || sharePrice <= 0)) {
+                console.log('setupSharePriceListener: Share price invalid, clearing percentages');
+                if (stopLossPrcntInput) stopLossPrcntInput.value = '';
+                if (takeProfitPrcntInput) takeProfitPrcntInput.value = '';
+            }
             return;
         }
         
@@ -1101,7 +1113,6 @@ function setupSharePriceListener(form) {
                     const takeProfitPrcnt = ((takeProfit - sharePrice) / sharePrice) * 100;
                     if (takeProfitPrcntInput) {
                         takeProfitPrcntInput.value = takeProfitPrcnt.toFixed(2);
-                        console.log('Take profit % calculated in setupSharePriceListener:', takeProfitPrcnt.toFixed(2));
                     }
                 }
             }
@@ -1111,6 +1122,7 @@ function setupSharePriceListener(form) {
     // Listen to share price changes
     sharePriceInput.addEventListener('input', calculatePercentages);
     sharePriceInput.addEventListener('blur', calculatePercentages);
+    sharePriceInput.addEventListener('change', calculatePercentages);
     
     // Also listen to stop loss and take profit changes
     if (stopLossInput) {
@@ -1126,9 +1138,9 @@ function setupSharePriceListener(form) {
     }
     
     // Calculate immediately if values are already present
+    // This will work for both new deals (after stock is selected) and existing deals
     if (sharePriceInput.value) {
         setTimeout(() => {
-            console.log('setupSharePriceListener: Calculating percentages immediately');
             calculatePercentages();
         }, 100);
     }
@@ -1166,58 +1178,210 @@ function setupStopLossListener(form) {
     stopLossInput.addEventListener('blur', calculateStopLossPercent);
 }
 
-// Setup event listener for take profit input to calculate take profit percentage
-function setupTakeProfitListener(form) {
+// Function to recalculate take profit percentage (can be called from anywhere)
+function recalculateTakeProfitPercent(form) {
+    if (!form) {
+        console.log('recalculateTakeProfitPercent: form is null');
+        return;
+    }
+    
     const sharePriceInput = form.querySelector('input[name="share_price"]');
     const takeProfitInput = form.querySelector('input[name="take_profit"]');
     const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
     
-    if (!takeProfitInput || !sharePriceInput || !takeProfitPrcntInput) {
+    console.log('recalculateTakeProfitPercent called:', {
+        hasSharePrice: !!sharePriceInput,
+        hasTakeProfit: !!takeProfitInput,
+        hasTakeProfitPrcnt: !!takeProfitPrcntInput,
+        sharePriceValue: sharePriceInput?.value,
+        takeProfitValue: takeProfitInput?.value
+    });
+    
+    if (!sharePriceInput || !takeProfitInput || !takeProfitPrcntInput) {
+        console.log('recalculateTakeProfitPercent: Missing inputs');
         return;
     }
     
+    const sharePriceStr = String(sharePriceInput.value || '').trim().replace(',', '.');
+    const takeProfitStr = String(takeProfitInput.value || '').trim().replace(',', '.');
+    
+    console.log('recalculateTakeProfitPercent: Parsed strings:', {
+        sharePriceStr,
+        takeProfitStr,
+        sharePriceEmpty: !sharePriceStr,
+        takeProfitEmpty: !takeProfitStr
+    });
+    
+    // Only calculate if BOTH values are present
+    if (!sharePriceStr || !takeProfitStr) {
+        console.log('recalculateTakeProfitPercent: One or both values empty, skipping');
+        return;
+    }
+    
+    const sharePrice = parseFloat(sharePriceStr);
+    const takeProfit = parseFloat(takeProfitStr);
+    
+    console.log('recalculateTakeProfitPercent: Parsed numbers:', {
+        sharePrice,
+        takeProfit,
+        sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
+        takeProfitValid: !isNaN(takeProfit) && takeProfit > 0
+    });
+    
+    if (isNaN(sharePrice) || sharePrice <= 0 || isNaN(takeProfit) || takeProfit <= 0) {
+        console.log('recalculateTakeProfitPercent: Invalid numbers, skipping');
+        return;
+    }
+    
+    const takeProfitPrcnt = ((takeProfit - sharePrice) / sharePrice) * 100;
+    const formattedValue = takeProfitPrcnt.toFixed(2);
+    takeProfitPrcntInput.value = formattedValue;
+    console.log('✓ recalculateTakeProfitPercent: Set value to', formattedValue, '%');
+}
+
+// Setup event listener for take profit input to calculate take profit percentage
+function setupTakeProfitListener(form) {
+    const takeProfitInput = form.querySelector('input[name="take_profit"]');
+    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
+    
+    if (!takeProfitInput || !takeProfitPrcntInput) {
+        return;
+    }
+    
+    // Track if we're waiting for share price to load
+    let waitingForSharePrice = false;
+    let checkInterval = null;
+    
     const calculateTakeProfitPercent = () => {
+        // Always query the DOM fresh to get the current value
+        // This ensures we get the latest value even if it was set asynchronously
+        const sharePriceInput = form.querySelector('input[name="share_price"]');
+        if (!sharePriceInput) {
+            console.log('calculateTakeProfitPercent: sharePriceInput not found in form');
+            return;
+        }
+        
         const sharePriceStr = String(sharePriceInput.value || '').trim().replace(',', '.');
         const takeProfitStr = String(takeProfitInput.value || '').trim().replace(',', '.');
         
+        console.log('calculateTakeProfitPercent called:', {
+            sharePriceStr,
+            takeProfitStr,
+            sharePriceEmpty: !sharePriceStr,
+            takeProfitEmpty: !takeProfitStr,
+            sharePriceInputExists: !!sharePriceInput,
+            sharePriceInputValue: sharePriceInput.value
+        });
+        
+        // Only calculate if BOTH values are present
+        // Don't clear the field if only one is empty (user might be typing)
         if (!sharePriceStr || !takeProfitStr) {
-            takeProfitPrcntInput.value = '';
-            return;
+            // If take profit is set but share price is empty, start checking periodically
+            if (takeProfitStr && !sharePriceStr && !waitingForSharePrice) {
+                console.log('calculateTakeProfitPercent: Take profit set but share price empty, starting periodic check');
+                waitingForSharePrice = true;
+                
+                // Clear any existing interval
+                if (checkInterval) {
+                    clearInterval(checkInterval);
+                }
+                
+                // Check every 200ms for up to 5 seconds (25 checks)
+                let checkCount = 0;
+                checkInterval = setInterval(() => {
+                    checkCount++;
+                    // Always query fresh from DOM
+                    const currentSharePriceInput = form.querySelector('input[name="share_price"]');
+                    const currentSharePrice = currentSharePriceInput ? String(currentSharePriceInput.value || '').trim() : '';
+                    const currentTakeProfit = String(takeProfitInput.value || '').trim();
+                    
+                    if (currentSharePrice && currentTakeProfit) {
+                        console.log('calculateTakeProfitPercent: Both values now available, calculating');
+                        clearInterval(checkInterval);
+                        checkInterval = null;
+                        waitingForSharePrice = false;
+                        calculateTakeProfitPercent();
+                    } else if (checkCount >= 25) {
+                        console.log('calculateTakeProfitPercent: Timeout waiting for share price');
+                        clearInterval(checkInterval);
+                        checkInterval = null;
+                        waitingForSharePrice = false;
+                    }
+                }, 200);
+            }
+            console.log('calculateTakeProfitPercent: One or both values empty, skipping');
+            return; // Don't clear, just return - let user finish typing
+        }
+        
+        // Stop checking if both values are now available
+        if (waitingForSharePrice && checkInterval) {
+            clearInterval(checkInterval);
+            checkInterval = null;
+            waitingForSharePrice = false;
         }
         
         const sharePrice = parseFloat(sharePriceStr);
         const takeProfit = parseFloat(takeProfitStr);
         
+        console.log('calculateTakeProfitPercent: Parsed values:', {
+            sharePrice,
+            takeProfit,
+            sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
+            takeProfitValid: !isNaN(takeProfit) && takeProfit > 0
+        });
+        
         if (isNaN(sharePrice) || sharePrice <= 0) {
+            console.log('calculateTakeProfitPercent: Share price invalid, clearing field');
             takeProfitPrcntInput.value = '';
             return;
         }
         
         if (isNaN(takeProfit) || takeProfit <= 0) {
+            console.log('calculateTakeProfitPercent: Take profit invalid, clearing field');
             takeProfitPrcntInput.value = '';
             return;
         }
         
         const takeProfitPrcnt = ((takeProfit - sharePrice) / sharePrice) * 100;
-        takeProfitPrcntInput.value = takeProfitPrcnt.toFixed(2);
+        const formattedValue = takeProfitPrcnt.toFixed(2);
+        takeProfitPrcntInput.value = formattedValue;
+        console.log('✓ calculateTakeProfitPercent: Set value to', formattedValue, '%');
     };
     
-    // Add event listeners
-    takeProfitInput.addEventListener('input', calculateTakeProfitPercent);
-    takeProfitInput.addEventListener('blur', calculateTakeProfitPercent);
+    // Add event listeners - always try to calculate
+    takeProfitInput.addEventListener('input', (e) => {
+        // Always try to calculate - the function will check if both values are present
+        calculateTakeProfitPercent();
+    });
+    takeProfitInput.addEventListener('blur', (e) => {
+        // Always try to calculate on blur
+        // This ensures calculation happens even if share price was loaded asynchronously
+        calculateTakeProfitPercent();
+    });
     
     // Also trigger calculation if share price changes (in case take profit is already set)
+    // We need to query the form fresh each time to get the current sharePriceInput
     const sharePriceHandler = () => {
-        if (takeProfitInput.value && takeProfitInput.value.trim()) {
-            calculateTakeProfitPercent();
-        }
+        // Always try to calculate - the function will check if both values are present
+        console.log('sharePriceHandler: Share price changed, recalculating');
+        calculateTakeProfitPercent();
     };
-    sharePriceInput.addEventListener('input', sharePriceHandler);
-    sharePriceInput.addEventListener('blur', sharePriceHandler);
     
-    // Calculate immediately if both values are already present
-    if (sharePriceInput.value && takeProfitInput.value) {
-        setTimeout(calculateTakeProfitPercent, 0);
+    // Find sharePriceInput fresh and attach listeners
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    if (sharePriceInput) {
+        sharePriceInput.addEventListener('input', sharePriceHandler);
+        sharePriceInput.addEventListener('blur', sharePriceHandler);
+        sharePriceInput.addEventListener('change', sharePriceHandler);
+    }
+    
+    // Calculate immediately if both values are already present and not empty
+    // This will work for both new deals (after stock is selected) and existing deals
+    if (sharePriceInput && sharePriceInput.value && takeProfitInput.value && 
+        sharePriceInput.value.trim() && takeProfitInput.value.trim()) {
+        setTimeout(() => {
+            calculateTakeProfitPercent();
+        }, 100);
     }
 }
 
@@ -1268,41 +1432,60 @@ function setupStockSelectListener(form, dealId) {
     // Restore the value (should be empty for new deals, or the ticker for existing deals)
     newSelect.value = currentValue;
 
+    // Track the last loaded ticker to avoid duplicate calls
+    let lastLoadedTicker = currentValue;
+    let isLoading = false;
+
     // Function to load data for a ticker
     const loadDataForTicker = async (ticker) => {
+        // Skip if already loading the same ticker
+        if (isLoading && lastLoadedTicker === ticker) {
+            console.log('Skipping duplicate load for ticker:', ticker);
+            return;
+        }
+        
         if (ticker && ticker.trim() !== '') {
+            // Mark as loading and update last loaded ticker
+            isLoading = true;
+            lastLoadedTicker = ticker;
+            
             const formContainer = form.closest('.deal-form-container');
             console.log('Loading data for ticker:', ticker);
             
-            // Use Promise.allSettled so one failure doesn't stop the others
-            const results = await Promise.allSettled([
-                loadPreviousWeekLowPrice(ticker, form).catch(err => {
-                    console.error('loadPreviousWeekLowPrice failed:', err);
-                    return null;
-                }),
-                loadCurrentPrice(ticker, form).catch(err => {
-                    console.error('loadCurrentPrice failed:', err);
-                    return null;
-                }),
-                loadTrends(ticker, form).catch(err => {
-                    console.error('loadTrends failed:', err);
-                    return null;
-                }),
-                loadSupportResistance(ticker, form).catch(err => {
-                    console.error('loadSupportResistance failed:', err);
-                    return null;
-                }),
-                loadAverageWeeklyVolume(ticker).catch(err => {
-                    console.error('loadAverageWeeklyVolume failed:', err);
-                    return null;
-                }),
-                loadMovementMetricsAndDisplay(ticker, form).catch(err => {
-                    console.error('loadMovementMetricsAndDisplay failed:', err);
-                    return null;
-                })
-            ]);
-            
-            console.log('All requests completed:', results);
+            try {
+                // Use Promise.allSettled so one failure doesn't stop the others
+                const results = await Promise.allSettled([
+                    loadPreviousWeekLowPrice(ticker, form).catch(err => {
+                        console.error('loadPreviousWeekLowPrice failed:', err);
+                        return null;
+                    }),
+                    loadCurrentPrice(ticker, form).catch(err => {
+                        console.error('loadCurrentPrice failed:', err);
+                        return null;
+                    }),
+                    loadTrends(ticker, form).catch(err => {
+                        console.error('loadTrends failed:', err);
+                        return null;
+                    }),
+                    loadSupportResistance(ticker, form).catch(err => {
+                        console.error('loadSupportResistance failed:', err);
+                        return null;
+                    }),
+                    loadAverageWeeklyVolume(ticker).catch(err => {
+                        console.error('loadAverageWeeklyVolume failed:', err);
+                        return null;
+                    }),
+                    loadMovementMetricsAndDisplay(ticker, form).catch(err => {
+                        console.error('loadMovementMetricsAndDisplay failed:', err);
+                        return null;
+                    })
+                ]);
+                
+                console.log('All requests completed:', results);
+            } finally {
+                // Reset loading flag after all requests complete
+                isLoading = false;
+            }
         } else {
             // Clear price fields if stock is deselected
             const formContainer = form.closest('.deal-form-container');
@@ -1353,14 +1536,18 @@ function setupStockSelectListener(form, dealId) {
     // Add change event listener
     newSelect.addEventListener('change', async (e) => {
         const ticker = e.target.value;
-        await loadDataForTicker(ticker);
+        // Only load if ticker changed from last loaded
+        if (ticker !== lastLoadedTicker) {
+            await loadDataForTicker(ticker);
+        }
     });
 
     // Also listen to input event (for when user types in a select with search/autocomplete)
+    // But skip if change event already handled it
     newSelect.addEventListener('input', async (e) => {
         const ticker = e.target.value;
-        // Only trigger if value actually changed (to avoid duplicate calls)
-        if (ticker !== currentValue) {
+        // Only trigger if value actually changed and not already loading
+        if (ticker !== lastLoadedTicker && !isLoading) {
             await loadDataForTicker(ticker);
         }
     });
@@ -1637,10 +1824,25 @@ async function loadCurrentPrice(ticker, form) {
         
         if (data && data.price !== undefined && data.price !== null) {
             const sharePriceInput = form.querySelector('input[name="share_price"]');
+            
             if (sharePriceInput) {
                 sharePriceInput.value = data.price.toString();
+                
+                // Trigger input event to ensure all listeners are notified
+                // This will trigger setupSharePriceListener's calculatePercentages
+                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Also trigger a small delay to ensure all event handlers have processed
+                setTimeout(() => {
+                    recalculateTakeProfitPercent(form);
+                }, 50);
+                
                 // Calculate stop loss after autofilling share price
                 await calculateStopLoss(form);
+                
+                // Recalculate take profit percentage if take profit is already set
+                recalculateTakeProfitPercent(form);
             }
             setPriceError(formContainer, '');
         }
@@ -1962,6 +2164,92 @@ async function loadSupportResistance(ticker, form) {
     }
 }
 
+async function loadCurrentPrice(ticker, form) {
+    if (!ticker || !form) {
+        console.log('loadCurrentPrice: ticker or form is null', { ticker, form: !!form });
+        return;
+    }
+
+    const formContainer = form.closest('.deal-form-container');
+    setPriceError(formContainer, '');
+
+    console.log('loadCurrentPrice: Starting to load price for ticker:', ticker);
+
+    try {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+            headers: { ...authHeaders() }
+        });
+
+        console.log('loadCurrentPrice: API response status:', res.status);
+
+        if (!res.ok) {
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            if (sharePriceInput) sharePriceInput.value = '';
+            setPriceError(formContainer, 'Current price is temporarily unavailable (API quota reached).');
+            console.log('loadCurrentPrice: API request failed, clearing share price');
+            return;
+        }
+
+        const data = await res.json();
+        console.log('loadCurrentPrice: API response data:', data);
+        
+        if (data && data.price !== undefined && data.price !== null) {
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            console.log('loadCurrentPrice: sharePriceInput found:', !!sharePriceInput);
+            
+            if (sharePriceInput) {
+                const oldValue = sharePriceInput.value;
+                sharePriceInput.value = data.price.toString();
+                console.log('✓ Share price set to:', data.price.toString(), '(was:', oldValue, ')');
+                
+                // Check if take profit is already set
+                const takeProfitInput = form.querySelector('input[name="take_profit"]');
+                const takeProfitValue = takeProfitInput?.value?.trim();
+                console.log('loadCurrentPrice: takeProfitValue after setting share price:', takeProfitValue);
+                
+                // Trigger input event to ensure all listeners are notified
+                // This will trigger setupSharePriceListener's calculatePercentages
+                console.log('loadCurrentPrice: Dispatching input and change events');
+                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Calculate stop loss after autofilling share price
+                await calculateStopLoss(form);
+                
+                // Recalculate take profit percentage if take profit is already set
+                // Use multiple delays to catch cases where take profit is entered after share price loads
+                console.log('loadCurrentPrice: Calling recalculateTakeProfitPercent after share price load');
+                recalculateTakeProfitPercent(form);
+                
+                // Also trigger recalculations with delays to catch late input
+                setTimeout(() => {
+                    console.log('loadCurrentPrice: Recalculating after 100ms delay');
+                    recalculateTakeProfitPercent(form);
+                }, 100);
+                
+                setTimeout(() => {
+                    console.log('loadCurrentPrice: Recalculating after 500ms delay');
+                    recalculateTakeProfitPercent(form);
+                }, 500);
+                
+                setTimeout(() => {
+                    console.log('loadCurrentPrice: Recalculating after 1000ms delay');
+                    recalculateTakeProfitPercent(form);
+                }, 1000);
+            } else {
+                console.warn('loadCurrentPrice: sharePriceInput not found in form');
+            }
+            setPriceError(formContainer, '');
+        } else {
+            console.warn('loadCurrentPrice: Invalid data received', data);
+        }
+    } catch (err) {
+        console.error('Error loading current price', err);
+        const formContainer = form.closest('.deal-form-container');
+        setPriceError(formContainer, 'Current price is temporarily unavailable (API error).');
+    }
+}
+
 async function calculateStopLoss(form) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
     const stopLossInput = form.querySelector('input[name="stop_loss"]');
@@ -2090,6 +2378,8 @@ function updateStopLossErrorClass(input, value) {
 function setupSharePriceListener(form) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    const takeProfitInput = form.querySelector('input[name="take_profit"]');
+    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
     
     if (!sharePriceInput) return;
     
@@ -2097,18 +2387,44 @@ function setupSharePriceListener(form) {
     const newInput = sharePriceInput.cloneNode(true);
     sharePriceInput.parentNode.replaceChild(newInput, sharePriceInput);
     
+    // Function to calculate percentages when share price changes
+    const calculatePercentages = () => {
+        // Calculate stop loss
+        calculateStopLoss(form);
+        
+        // Calculate take profit percentage if take profit is set
+        if (takeProfitInput && takeProfitInput.value && takeProfitPrcntInput) {
+            recalculateTakeProfitPercent(form);
+        }
+    };
+    
     // Add listeners for both 'input' (real-time) and 'change' (on blur)
     newInput.addEventListener('input', () => {
         // Debounce to avoid too many calculations while typing
         clearTimeout(newInput._stopLossTimeout);
         newInput._stopLossTimeout = setTimeout(() => {
-            calculateStopLoss(form);
+            calculatePercentages();
         }, 500); // Wait 500ms after user stops typing
     });
     
     newInput.addEventListener('change', () => {
-        calculateStopLoss(form);
+        calculatePercentages();
     });
+    
+    // Also trigger calculation if share price is already set and take profit is also set
+    if (newInput.value && takeProfitInput && takeProfitInput.value) {
+        setTimeout(() => {
+            calculatePercentages();
+        }, 100);
+    }
+    
+    // Also trigger calculation after a delay to catch cases where share price is loaded via API
+    // This ensures that if share price is set programmatically, the calculation still happens
+    setTimeout(() => {
+        if (newInput.value && takeProfitInput && takeProfitInput.value) {
+            calculatePercentages();
+        }
+    }, 500);
     
     // Also check stop loss % field when user manually changes it
     if (stopLossPrcntInput) {
