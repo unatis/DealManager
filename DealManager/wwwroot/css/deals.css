@@ -567,6 +567,43 @@ input.volume-200m-readonly {
     pointer-events: none;
 }
 
+/* Tooltip for movement metrics - same style as risk icons */
+.movement-metric-tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.movement-metric-tooltip:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    background: #0b1724;
+    color: #fff;
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    white-space: normal;
+    z-index: 10001;
+    pointer-events: none;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    min-width: max-content;
+    max-width: min(350px, calc(100vw - 40px));
+    word-wrap: break-word;
+    transform: translateX(0);
+}
+
+.movement-metric-tooltip:hover::before {
+    content: '';
+    position: absolute;
+    left: 9px;
+    bottom: calc(100% + 2px);
+    border: 6px solid transparent;
+    border-top-color: #0b1724;
+    z-index: 10002;
+    pointer-events: none;
+}
+
 /* все элементы формы внутри label тянутся на всю ширину */
 label > input,
 label > select,

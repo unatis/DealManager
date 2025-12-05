@@ -929,7 +929,7 @@ if (tickerInput) {
         const ticker = e.target.value.trim();
         // Always recalculate if ticker has a value and it's different from previous
         if (ticker && ticker !== previousTicker) {
-            // Calculate regular volume, ATR, and Beta fields (volatility + sync_sp500) in parallel
+            // Calculate regular volume, ATR, and Beta fields in parallel
             await Promise.all([
                 calculateAndSetRegularVolume(ticker),
                 calculateAndSetAtr(ticker),
