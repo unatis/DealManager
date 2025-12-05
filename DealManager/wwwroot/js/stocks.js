@@ -240,12 +240,12 @@ if (document.readyState === 'loading') {
 }
 
 if (closeStockModalBtn) {
-    closeStockModalBtn.addEventListener('click', () => {
+closeStockModalBtn.addEventListener('click', () => {
         if (stockModal) {
-            stockModal.style.display = 'none';
+    stockModal.style.display = 'none';
         }
         if (stockForm) {
-            stockForm.reset();
+    stockForm.reset();
             delete stockForm.dataset.stockId; // Clear stored ID
             const modalTitle = document.getElementById('stockModalTitle');
             if (modalTitle) modalTitle.textContent = 'Add stock';
@@ -272,13 +272,13 @@ if (closeStockModalBtn) {
 }
 
 if (stockForm) {
-    stockForm.addEventListener('submit', async e => {
-        e.preventDefault();
+stockForm.addEventListener('submit', async e => {
+    e.preventDefault();
 
-        const fd = new FormData(stockForm);
-        const ticker = (fd.get('ticker') || '').toString().trim();
-        const desc = (fd.get('desc') || '').toString().trim();
-        const sp500_member = fd.get('sp500_member') === 'on';
+    const fd = new FormData(stockForm);
+    const ticker = (fd.get('ticker') || '').toString().trim();
+    const desc = (fd.get('desc') || '').toString().trim();
+    const sp500_member = fd.get('sp500_member') === 'on';
         const betaVolatility = fd.get('betaVolatility') || null;
         const regularVolume = fd.get('regular_volume');
         const syncSp500 = fd.get('sync_sp500');
@@ -286,7 +286,7 @@ if (stockForm) {
         
         console.log('Saving stock with betaVolatility:', betaVolatility, 'ATR:', atr);
 
-        if (!ticker) return;
+    if (!ticker) return;
 
         const submitButton = stockForm.querySelector('button[type="submit"]');
         if (!submitButton) return;
@@ -309,10 +309,10 @@ if (stockForm) {
                 });
             } else {
                 // Create new stock
-                await saveStockToServer({
-                    ticker,
-                    desc,
-                    sp500Member: sp500_member,
+        await saveStockToServer({
+            ticker,
+            desc,
+            sp500Member: sp500_member,
                     betaVolatility: betaVolatility ? betaVolatility.toString() : null,
                     regularVolume: regularVolume ? regularVolume.toString() : null,
                     syncSp500: syncSp500 || null,
@@ -321,8 +321,8 @@ if (stockForm) {
             }
 
             setButtonLoading(submitButton, false);
-            stockModal.style.display = 'none';
-            stockForm.reset();
+        stockModal.style.display = 'none';
+        stockForm.reset();
             delete stockForm.dataset.stockId; // Clear stored ID
             
             // Clear ATR styling when form is reset
@@ -342,15 +342,15 @@ if (stockForm) {
             if (modalTitle) modalTitle.textContent = 'Add stock';
 
             // Reload stocks
-            await loadStocks();
+        await loadStocks();
             await loadWarnings();
             window.dispatchEvent(new CustomEvent('stocksUpdated'));
-        } catch (e) {
-            console.error(e);
-            alert('Не удалось сохранить акцию');
+    } catch (e) {
+        console.error(e);
+        alert('Не удалось сохранить акцию');
             setButtonLoading(submitButton, false);
-        }
-    });
+    }
+});
 } else {
     console.error('stockForm not found in DOM');
 }
@@ -365,6 +365,8 @@ function renderStocks() {
             emptyStockEl.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем акции...</span></div>';
             emptyStockEl.style.display = 'block';
         }
+        // Update count to 0 while loading
+        updateStockCount(0);
         return;
     }
 
@@ -373,6 +375,8 @@ function renderStocks() {
             emptyStockEl.textContent = 'Нет акций';
             emptyStockEl.style.display = 'block';
         }
+        // Update count to 0
+        updateStockCount(0);
         return;
     }
     if (emptyStockEl) emptyStockEl.style.display = 'none';
@@ -381,6 +385,44 @@ function renderStocks() {
         const stockRow = createStockRow(s);
         stockList.appendChild(stockRow);
     });
+    
+    // Update count with warning logic
+    updateStockCount(stocks.length);
+}
+
+// Function to update stock count and add warning icons
+function updateStockCount(count) {
+    const stockCountEl = document.getElementById('stockCount');
+    if (!stockCountEl) return;
+    
+    stockCountEl.textContent = count;
+    
+    // Find the container div that holds the count
+    const countContainer = stockCountEl.parentElement;
+    if (!countContainer) return;
+    
+    // Remove existing warning icon if any
+    const existingWarning = countContainer.querySelector('.count-warning-icon');
+    if (existingWarning) {
+        existingWarning.remove();
+    }
+    
+    // Add warning icon if count exceeds thresholds
+    if (count > 15) {
+        // Red warning for count > 15
+        const warningIcon = document.createElement('span');
+        warningIcon.className = 'count-warning-icon count-warning-red';
+        warningIcon.setAttribute('data-tooltip', `High number of stocks: ${count}. Consider removing some stocks.`);
+        warningIcon.textContent = '!';
+        countContainer.appendChild(warningIcon);
+    } else if (count > 10) {
+        // Yellow warning for count > 10
+        const warningIcon = document.createElement('span');
+        warningIcon.className = 'count-warning-icon count-warning-yellow';
+        warningIcon.setAttribute('data-tooltip', `Many stocks: ${count}. Monitor your portfolio carefully.`);
+        warningIcon.textContent = '!';
+        countContainer.appendChild(warningIcon);
+    }
 }
 
 // Add new function to create expandable stock row
@@ -435,15 +477,15 @@ function createStockRow(stock) {
         : '';
     
     summary.innerHTML = `
-        <div class="meta">
+            <div class="meta">
             <strong>${stock.ticker}${volumeWarningIcon}${sp500WarningIcon}${atrWarningIcon}${syncSp500WarningIcon}${betaVolatilityWarningIcon}</strong>
             <div class="small">${stock.desc || ''}</div>
-        </div>
+            </div>
         <div style="display:flex;align-items:center;gap:8px">
             <span class="expand-icon">${isExpanded ? '▼' : '▶'}</span>
-            <span class="delete-icon">×</span>
-        </div>
-    `;
+                <span class="delete-icon">×</span>
+            </div>
+        `;
 
     // Expanded details view
     const detailsContainer = document.createElement('div');
@@ -613,16 +655,16 @@ function setupStockRowHandlers(row, stock) {
     // Delete stock handler
     deleteIcon.addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (!confirm('Удалить акцию?')) return;
+            if (!confirm('Удалить акцию?')) return;
 
-        try {
+            try {
             await deleteStockOnServer(stock.id);
             await loadStocks();
-        } catch (e) {
-            console.error(e);
-            alert('Не удалось удалить акцию');
-        }
-    });
+            } catch (e) {
+                console.error(e);
+                alert('Не удалось удалить акцию');
+            }
+        });
 
     // Edit stock handler
     if (editBtn) {
@@ -914,8 +956,25 @@ async function calculateAndSetBetaFields(ticker) {
             syncSp500Select.value = '';
             updateSyncSp500Styling(syncSp500Select, '');
         } else {
-            // Other API errors
-            console.warn('Failed to get Beta data', res.status);
+            // Other API errors - try to get error message from response
+            let errorMessage = `Failed to get Beta data (${res.status})`;
+            try {
+                const errorText = await res.text();
+                if (errorText) {
+                    // Try to parse as JSON first
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMessage = errorData.message || errorData.error || errorData.title || errorText;
+                    } catch {
+                        // If not JSON, use the text directly
+                        errorMessage = errorText;
+                    }
+                }
+            } catch (e) {
+                // If reading response fails, use default message
+                console.warn('Could not read error response:', e);
+            }
+            console.warn('Failed to get Beta data:', errorMessage);
             betaVolatilitySelect.value = '';
             updateBetaVolatilityStyling(betaVolatilitySelect, '');
             syncSp500Select.value = '';
