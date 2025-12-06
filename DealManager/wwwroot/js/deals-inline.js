@@ -2552,12 +2552,16 @@ function formatMovementMetrics(metrics) {
     }
     
     const signed = (metrics.signedPct || metrics.SignedPct || 0);
-    const signedDisplay = signed > 0 ? `+${signed.toFixed(2)}` : signed.toFixed(2); // Add + for positive values
-    const speed = Math.round(metrics.speedPct || metrics.SpeedPct || 0);
-    const strength = Math.round(metrics.strengthPct || metrics.StrengthPct || 0);
-    const ease = Math.round(metrics.easeOfMovePct || metrics.EaseOfMovePct || 0);
+    const signedDisplay = signed > 0 ? `+${signed.toFixed(2)}` : signed.toFixed(2); // Mv
+    
+    const speed = Math.round(metrics.speedPct || metrics.SpeedPct || 0);          // Sp
+    const strength = Math.round(metrics.strengthPct || metrics.StrengthPct || 0); // St
+    const ease = Math.round(metrics.easeOfMovePct || metrics.EaseOfMovePct || 0); // E
+    
     const returnPctValue = metrics.returnPct || metrics.ReturnPct || 0;
-    const returnPct = returnPctValue ? (returnPctValue > 0 ? '+' : '') + returnPctValue.toFixed(2) : '0.00';
+    const returnPct = returnPctValue
+        ? (returnPctValue > 0 ? '+' : '') + returnPctValue.toFixed(2)
+        : '0.00';
     
     // Helper function to color negative values red
     const formatValue = (value) => {
@@ -2574,8 +2578,20 @@ function formatMovementMetrics(metrics) {
         return `<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${label}</span>:<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${formatValue(value)}</span>%`;
     };
     
+    // Base (existing) description for Mv
+    const baseMvTooltip = 'This is a composite index of Speed, Strength and EaseOfMove.';
+    // Append removed metrics (Sp/St/E) to the end of tooltip
+    const mvTooltip =
+        `${baseMvTooltip}\n\n` +
+        `Sp (Speed): ${speed}% | St (Strength): ${strength}% | E (Ease): ${ease}%`;
+    
+    const retTooltip = 'Percentage change in price of the last bar';
+    
+    // Visibly show only arrow, Mv and Ret in the deal title
     const formatted = `<span class="movement-metrics-display" style="font-size: 11px; color: #64748b; margin-left: 8px; font-weight: normal;">
-        <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span> | ${formatMetric('Mv', signedDisplay, 'This is a composite index of Speed, Strength and EaseOfMove.')} | ${formatMetric('Sp', speed, 'Speed: Normalized speed percentage relative to historical maximum in this direction.')} | ${formatMetric('St', strength, 'Strength: Normalized strength (|ΔP| * Volume) percentage relative to historical maximum.')} | ${formatMetric('E', ease, 'Ease: Normalized ease of movement (move / volume) percentage relative to historical maximum.')} | ${formatMetric('Ret', returnPct, 'Percentage change in price of the last bar')}
+        <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span>
+        | ${formatMetric('Mv', signedDisplay, mvTooltip)}
+        | ${formatMetric('Ret', returnPct, retTooltip)}
     </span>`;
     
     console.log('formatMovementMetrics: Formatted result:', formatted);
