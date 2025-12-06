@@ -167,6 +167,14 @@ function openStockModal(e) {
     if (modal) {
         modal.style.display = 'flex';
     }
+    
+    // When opening modal, update metrics header based on current ticker (if any)
+    if (stockForm && typeof updateStockMetricsHeader === 'function') {
+        const tickerInput = stockForm.querySelector('input[name="ticker"]');
+        if (tickerInput) {
+            updateStockMetricsHeader(tickerInput.value);
+        }
+    }
 }
 
 // Setup event listeners - use multiple approaches for maximum compatibility
@@ -240,12 +248,12 @@ if (document.readyState === 'loading') {
 }
 
 if (closeStockModalBtn) {
-closeStockModalBtn.addEventListener('click', () => {
+    closeStockModalBtn.addEventListener('click', () => {
         if (stockModal) {
-    stockModal.style.display = 'none';
+            stockModal.style.display = 'none';
         }
         if (stockForm) {
-    stockForm.reset();
+            stockForm.reset();
             delete stockForm.dataset.stockId; // Clear stored ID
             const modalTitle = document.getElementById('stockModalTitle');
             if (modalTitle) modalTitle.textContent = 'Add stock';
@@ -262,6 +270,13 @@ closeStockModalBtn.addEventListener('click', () => {
                 syncSp500Select.value = '';
             }
         }
+        
+        // Clear movement metrics header when closing modal
+        const headerContainer = document.getElementById('stockMetricsHeader');
+        if (headerContainer) {
+            headerContainer.innerHTML = '';
+        }
+        
         // Only call setTickerError if it exists (it's defined later)
         if (typeof setTickerError === 'function') {
             setTickerError(''); // Clear error when closing
@@ -372,6 +387,103 @@ stockForm.addEventListener('submit', async e => {
 });
 } else {
     console.error('stockForm not found in DOM');
+}
+
+// ====== Movement metrics in Add stock popup header ======
+
+function updateStockMetricsHeader(ticker) {
+    const headerContainer = document.getElementById('stockMetricsHeader');
+    if (!headerContainer) return;
+
+    headerContainer.innerHTML = '';
+
+    ticker = (ticker || '').trim().toUpperCase();
+    if (!ticker) return;
+
+    if (typeof loadMovementMetrics !== 'function') {
+        console.warn('Movement metrics function loadMovementMetrics is not available');
+        return;
+    }
+
+    loadMovementMetrics(ticker)
+        .then(metrics => {
+            if (!metrics) return;
+
+            // Direction (same logic as formatMovementMetrics)
+            const direction = (metrics.direction === 1 || metrics.Direction === 1) ? '↑' :
+                              (metrics.direction === -1 || metrics.Direction === -1) ? '↓' : '→';
+
+            let arrowColor;
+            if (direction === '↑') arrowColor = '#22c55e';
+            else if (direction === '↓') arrowColor = '#ef4444';
+            else arrowColor = '#f59e0b';
+
+            // Mv (signed)
+            const signed = (metrics.signedPct || metrics.SignedPct || 0);
+            const signedDisplay = signed > 0 ? `+${signed.toFixed(2)}` : signed.toFixed(2);
+
+            // Sp / St / E
+            const speed = Math.round(metrics.speedPct || metrics.SpeedPct || 0);
+            const strength = Math.round(metrics.strengthPct || metrics.StrengthPct || 0);
+            const ease = Math.round(metrics.easeOfMovePct || metrics.EaseOfMovePct || 0);
+
+            // Ret
+            const returnPctValue = metrics.returnPct || metrics.ReturnPct || 0;
+            const returnPct = (returnPctValue > 0 ? '+' : '') + returnPctValue.toFixed(2);
+
+            // Color negative values red (same as formatMovementMetrics)
+            const formatValue = (value) => {
+                const valueStr = String(value);
+                if (valueStr.startsWith('-') || parseFloat(valueStr) < 0) {
+                    return `<span style="color: #ef4444;">${valueStr}</span>`;
+                }
+                return valueStr;
+            };
+
+            // Metric + tooltip (same style as in deals)
+            const formatMetric = (label, value, tooltip) => {
+                return `<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${label}</span>:<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${formatValue(value)}</span>%`;
+            };
+
+            const html = `
+                <span class="movement-metrics-display" style="font-size: 11px; color: #64748b; margin-left: 8px; font-weight: normal;">
+                    <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span>
+                    | ${formatMetric('Mv', signedDisplay, 'This is a composite index of Speed, Strength and EaseOfMove.')}
+                    | ${formatMetric('Sp', speed, 'Speed: Normalized speed percentage relative to historical maximum in this direction.')}
+                    | ${formatMetric('St', strength, 'Strength: Normalized strength (|ΔP| * Volume) percentage relative to historical maximum.')}
+                    | ${formatMetric('E', ease, 'Ease: Normalized ease of movement (move / volume) percentage relative to historical maximum.')}
+                    | ${formatMetric('Ret', returnPct, 'Percentage change in price of the last bar')}
+                </span>
+            `;
+
+            headerContainer.innerHTML = html;
+        })
+        .catch(err => {
+            console.error('Error loading movement metrics for stock header in modal', ticker, err);
+        });
+}
+
+function setupStockMetricsHeader() {
+    if (!stockForm) return;
+
+    const tickerInput = stockForm.querySelector('input[name="ticker"]');
+    if (!tickerInput) return;
+
+    let timeoutId = null;
+    const triggerUpdate = () => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+            updateStockMetricsHeader(tickerInput.value);
+        }, 400);
+    };
+
+    tickerInput.addEventListener('input', triggerUpdate);
+    tickerInput.addEventListener('change', triggerUpdate);
+    tickerInput.addEventListener('blur', triggerUpdate);
+}
+
+if (stockForm) {
+    setupStockMetricsHeader();
 }
 
 // ====== Рендер списка акций ======
@@ -497,15 +609,33 @@ function createStockRow(stock) {
         : '';
     
     summary.innerHTML = `
-            <div class="meta">
-            <strong>${stock.ticker}${volumeWarningIcon}${sp500WarningIcon}${atrWarningIcon}${syncSp500WarningIcon}${betaVolatilityWarningIcon}</strong>
-            <div class="small">${stock.desc || ''}</div>
+        <div class="meta">
+            <div class="deal-title-row">
+                <div class="stock-name">
+                    <strong>${stock.ticker}${volumeWarningIcon}${sp500WarningIcon}${atrWarningIcon}${syncSp500WarningIcon}${betaVolatilityWarningIcon}</strong>
+                </div>
+                <div class="movement-metrics-container"></div>
             </div>
+            <div class="small">${stock.desc || ''}</div>
+        </div>
         <div style="display:flex;align-items:center;gap:8px">
             <span class="expand-icon">${isExpanded ? '▼' : '▶'}</span>
-                <span class="delete-icon">×</span>
-            </div>
-        `;
+            <span class="delete-icon">×</span>
+        </div>
+    `;
+
+    // Add movement metrics (↑ | Mv:% | Ret:%) to stock header, reusing deals logic
+    const metricsContainer = summary.querySelector('.movement-metrics-container');
+    if (metricsContainer && stock.ticker && typeof loadMovementMetrics === 'function' && typeof formatMovementMetrics === 'function') {
+        metricsContainer.innerHTML = '';
+        loadMovementMetrics(stock.ticker).then(metrics => {
+            if (!metrics) return;
+            const formatted = formatMovementMetrics(metrics);
+            metricsContainer.innerHTML = formatted;
+        }).catch(err => {
+            console.error('Error loading movement metrics for stock header', stock.ticker, err);
+        });
+    }
 
     // Expanded details view
     const detailsContainer = document.createElement('div');

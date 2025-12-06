@@ -2539,7 +2539,7 @@ function formatMovementMetrics(metrics) {
     
     // Handle both camelCase and potential variations
     const direction = (metrics.direction === 1 || metrics.Direction === 1) ? '↑' : 
-                      (metrics.direction === -1 || metrics.Direction === -1) ? '↓' : '↔';
+                      (metrics.direction === -1 || metrics.Direction === -1) ? '↓' : '→';
     
     // Determine arrow color based on direction
     let arrowColor;
