@@ -3569,23 +3569,11 @@ async function calculateAndDisplayPortfolioRisk() {
 // Calculate and display risk percentage relative to In Shares
 async function calculateAndDisplayInSharesRisk() {
     try {
-        // First check if In Shares value is available and > 0
+        // First check if In Shares value is available
         const inSharesSpan = document.getElementById('inSharesValue');
         const inSharesValue = inSharesSpan ? parseFloat(inSharesSpan.textContent.replace(/,/g, '')) || 0 : 0;
         
         console.log('calculateAndDisplayInSharesRisk - In Shares value from DOM:', inSharesValue);
-        
-        // If In Shares is 0, set risk to 0.00% and return early
-        if (inSharesValue <= 0) {
-            console.log('calculateAndDisplayInSharesRisk - In Shares is 0 or negative, setting risk to 0.00%');
-            const riskSpan = document.getElementById('inSharesRiskValue');
-            if (riskSpan) {
-                riskSpan.textContent = '0.00%';
-                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
-                riskSpan.classList.add('risk-low');
-            }
-            return;
-        }
         
         const res = await fetch('/api/deals/risk-percent-inshares', {
             headers: authHeaders()
@@ -3598,7 +3586,16 @@ async function calculateAndDisplayInSharesRisk() {
             if (riskSpan) {
                 const riskValue = Number(riskPercent) || 0;
                 console.log('In Shares Risk calculated value:', riskValue);
-                riskSpan.textContent = riskValue.toFixed(2) + '%';
+
+                // Calculate money at risk based on In Shares value
+                let moneyAtRiskText = '';
+                if (inSharesValue > 0 && riskValue !== 0) {
+                    const moneyAtRisk = inSharesValue * (riskValue / 100);
+                    moneyAtRiskText = ` [${moneyAtRisk.toFixed(2)}]`;
+                }
+
+                // Show: "8.64% [10000.00]"
+                riskSpan.textContent = `${riskValue.toFixed(2)}%${moneyAtRiskText}`;
                 
                 // Apply color classes based on risk level
                 riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
