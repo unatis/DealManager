@@ -1330,13 +1330,16 @@ function createDealRow(deal, isNew) {
             <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
             <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
             ${deal.stop_loss_prcnt ? (() => {
-                // Extract numeric value from percentage string (e.g., "11.76" from "11.76%")
-                const slPercentMatch = deal.stop_loss_prcnt.match(/([\d.]+)/);
-                const slPercentValue = slPercentMatch ? parseFloat(slPercentMatch[1]) : 0;
+                // Extract numeric value from percentage string (supports optional minus sign)
+                const slPercentMatch = String(deal.stop_loss_prcnt).match(/-?\d+(\.\d+)?/);
+                const slPercentValue = slPercentMatch ? parseFloat(slPercentMatch[0]) : 0;
                 
                 // Determine color class based on SL percentage
                 let colorClass = '';
-                if (slPercentValue > 10) {
+                if (slPercentValue <= 0) {
+                    // Zero or negative SL% → green badge
+                    colorClass = 'sl-percent-green';
+                } else if (slPercentValue > 10) {
                     colorClass = 'sl-percent-red'; // Red for SL% > 10%
                 } else if (slPercentValue > 5) {
                     colorClass = 'sl-percent-yellow'; // Yellow for SL% > 5% (but <= 10%)
@@ -2871,6 +2874,14 @@ async function calculateStopLoss(form) {
     
     if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) return;
     
+    // If stop loss is already set (from DB or manually), do NOT override it with auto-calculated value.
+    // In this case we only recalculate percentage and exit.
+    const currentStop = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
+    if (!isNaN(currentStop) && currentStop > 0) {
+        calculateStopLossPercentage(form);
+        return;
+    }
+    
     const sharePrice = parseFloat(sharePriceInput.value);
     if (!sharePrice || isNaN(sharePrice) || sharePrice <= 0) {
         return; // Invalid share price
@@ -2980,11 +2991,15 @@ function setupTrendSelectListeners(form) {
 function updateStopLossErrorClass(input, value) {
     if (!input) return;
     
-    // Remove error class first
+    // Remove previous state classes
     input.classList.remove('has-stop-loss-error');
+    input.classList.remove('has-stop-loss-good');
     
-    // Check if value is negative or greater than 10
-    if (value < 0 || value > 10) {
+    if (value <= 0) {
+        // Zero or negative stop loss % → good (green)
+        input.classList.add('has-stop-loss-good');
+    } else if (value > 10) {
+        // Too high risk → error (red)
         input.classList.add('has-stop-loss-error');
     }
 }
