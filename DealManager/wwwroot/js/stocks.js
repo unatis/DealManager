@@ -12,6 +12,8 @@ let stocksLoaded = false;
 let expandedStockId = null; // Track which stock is currently expanded
 // warningsCache is declared in deals-inline.js - use that shared cache
 
+let draggedStockId = null; // For drag & drop reordering
+
 // локальный вариант authHeaders (такой же, как в deals.js)
 function authHeaders() {
     const t = localStorage.getItem('token');
@@ -565,6 +567,7 @@ function createStockRow(stock) {
     const row = document.createElement('div');
     row.className = `deal-row ${isExpanded ? 'expanded' : ''}`;
     row.dataset.stockId = stockId;
+    row.draggable = true;
 
     // Collapsed summary view
     const summary = document.createElement('div');
@@ -648,6 +651,54 @@ function createStockRow(stock) {
 
     // Setup event handlers
     setupStockRowHandlers(row, stock);
+
+    // Drag & drop handlers for reordering stocks
+    row.addEventListener('dragstart', (e) => {
+        draggedStockId = stockId;
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    });
+
+    row.addEventListener('dragend', () => {
+        draggedStockId = null;
+        row.classList.remove('dragging');
+    });
+
+    row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!draggedStockId || draggedStockId === stockId) return;
+        e.dataTransfer.dropEffect = 'move';
+    });
+
+    row.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        if (!draggedStockId || draggedStockId === stockId) return;
+
+        const fromIndex = stocks.findIndex(s => s.id === draggedStockId);
+        const toIndex = stocks.findIndex(s => s.id === stockId);
+        if (fromIndex === -1 || toIndex === -1) return;
+
+        const [moved] = stocks.splice(fromIndex, 1);
+        stocks.splice(toIndex, 0, moved);
+
+        // Re-render list in new order
+        renderStocks();
+
+        // Persist order to server
+        try {
+            const orderedIds = stocks.map(s => s.id);
+            await fetch('/api/stocks/reorder', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...authHeaders()
+                },
+                body: JSON.stringify(orderedIds)
+            });
+        } catch (err) {
+            console.error('Failed to save stock order', err);
+        }
+    });
 
     return row;
 }
