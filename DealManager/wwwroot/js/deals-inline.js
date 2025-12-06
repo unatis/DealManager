@@ -1330,13 +1330,16 @@ function createDealRow(deal, isNew) {
             <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
             <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
             ${deal.stop_loss_prcnt ? (() => {
-                // Extract numeric value from percentage string (e.g., "11.76" from "11.76%")
-                const slPercentMatch = deal.stop_loss_prcnt.match(/([\d.]+)/);
-                const slPercentValue = slPercentMatch ? parseFloat(slPercentMatch[1]) : 0;
+                // Extract numeric value from percentage string (supports optional minus sign)
+                const slPercentMatch = String(deal.stop_loss_prcnt).match(/-?\d+(\.\d+)?/);
+                const slPercentValue = slPercentMatch ? parseFloat(slPercentMatch[0]) : 0;
                 
                 // Determine color class based on SL percentage
                 let colorClass = '';
-                if (slPercentValue > 10) {
+                if (slPercentValue <= 0) {
+                    // Zero or negative SL% → green badge
+                    colorClass = 'sl-percent-green';
+                } else if (slPercentValue > 10) {
                     colorClass = 'sl-percent-red'; // Red for SL% > 10%
                 } else if (slPercentValue > 5) {
                     colorClass = 'sl-percent-yellow'; // Yellow for SL% > 5% (but <= 10%)
@@ -2536,7 +2539,7 @@ function formatMovementMetrics(metrics) {
     
     // Handle both camelCase and potential variations
     const direction = (metrics.direction === 1 || metrics.Direction === 1) ? '↑' : 
-                      (metrics.direction === -1 || metrics.Direction === -1) ? '↓' : '↔';
+                      (metrics.direction === -1 || metrics.Direction === -1) ? '↓' : '→';
     
     // Determine arrow color based on direction
     let arrowColor;
@@ -2549,12 +2552,16 @@ function formatMovementMetrics(metrics) {
     }
     
     const signed = (metrics.signedPct || metrics.SignedPct || 0);
-    const signedDisplay = signed > 0 ? `+${signed.toFixed(2)}` : signed.toFixed(2); // Add + for positive values
-    const speed = Math.round(metrics.speedPct || metrics.SpeedPct || 0);
-    const strength = Math.round(metrics.strengthPct || metrics.StrengthPct || 0);
-    const ease = Math.round(metrics.easeOfMovePct || metrics.EaseOfMovePct || 0);
+    const signedDisplay = signed > 0 ? `+${signed.toFixed(2)}` : signed.toFixed(2); // Mv
+    
+    const speed = Math.round(metrics.speedPct || metrics.SpeedPct || 0);          // Sp
+    const strength = Math.round(metrics.strengthPct || metrics.StrengthPct || 0); // St
+    const ease = Math.round(metrics.easeOfMovePct || metrics.EaseOfMovePct || 0); // E
+    
     const returnPctValue = metrics.returnPct || metrics.ReturnPct || 0;
-    const returnPct = returnPctValue ? (returnPctValue > 0 ? '+' : '') + returnPctValue.toFixed(2) : '0.00';
+    const returnPct = returnPctValue
+        ? (returnPctValue > 0 ? '+' : '') + returnPctValue.toFixed(2)
+        : '0.00';
     
     // Helper function to color negative values red
     const formatValue = (value) => {
@@ -2571,8 +2578,20 @@ function formatMovementMetrics(metrics) {
         return `<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${label}</span>:<span class="movement-metric-tooltip" data-tooltip="${tooltip}" style="cursor: help; position: relative; display: inline-block;">${formatValue(value)}</span>%`;
     };
     
+    // Base (existing) description for Mv
+    const baseMvTooltip = 'This is a composite index of Speed, Strength and EaseOfMove.';
+    // Append removed metrics (Sp/St/E) to the end of tooltip
+    const mvTooltip =
+        `${baseMvTooltip}\n\n` +
+        `Sp (Speed): ${speed}% | St (Strength): ${strength}% | E (Ease): ${ease}%`;
+    
+    const retTooltip = 'Percentage change in price of the last bar';
+    
+    // Visibly show only arrow, Mv and Ret in the deal title
     const formatted = `<span class="movement-metrics-display" style="font-size: 11px; color: #64748b; margin-left: 8px; font-weight: normal;">
-        <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span> | ${formatMetric('Mv', signedDisplay, 'This is a composite index of Speed, Strength and EaseOfMove.')} | ${formatMetric('Sp', speed, 'Speed: Normalized speed percentage relative to historical maximum in this direction.')} | ${formatMetric('St', strength, 'Strength: Normalized strength (|ΔP| * Volume) percentage relative to historical maximum.')} | ${formatMetric('E', ease, 'Ease: Normalized ease of movement (move / volume) percentage relative to historical maximum.')} | ${formatMetric('Ret', returnPct, 'Percentage change in price of the last bar')}
+        <span style="color: ${arrowColor}; font-weight: 900; font-size: 18px; text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.2);">${direction}</span>
+        | ${formatMetric('Mv', signedDisplay, mvTooltip)}
+        | ${formatMetric('Ret', returnPct, retTooltip)}
     </span>`;
     
     console.log('formatMovementMetrics: Formatted result:', formatted);
@@ -2871,6 +2890,14 @@ async function calculateStopLoss(form) {
     
     if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) return;
     
+    // If stop loss is already set (from DB or manually), do NOT override it with auto-calculated value.
+    // In this case we only recalculate percentage and exit.
+    const currentStop = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
+    if (!isNaN(currentStop) && currentStop > 0) {
+        calculateStopLossPercentage(form);
+        return;
+    }
+    
     const sharePrice = parseFloat(sharePriceInput.value);
     if (!sharePrice || isNaN(sharePrice) || sharePrice <= 0) {
         return; // Invalid share price
@@ -2980,11 +3007,15 @@ function setupTrendSelectListeners(form) {
 function updateStopLossErrorClass(input, value) {
     if (!input) return;
     
-    // Remove error class first
+    // Remove previous state classes
     input.classList.remove('has-stop-loss-error');
+    input.classList.remove('has-stop-loss-good');
     
-    // Check if value is negative or greater than 10
-    if (value < 0 || value > 10) {
+    if (value <= 0) {
+        // Zero or negative stop loss % → good (green)
+        input.classList.add('has-stop-loss-good');
+    } else if (value > 10) {
+        // Too high risk → error (red)
         input.classList.add('has-stop-loss-error');
     }
 }
@@ -3538,23 +3569,11 @@ async function calculateAndDisplayPortfolioRisk() {
 // Calculate and display risk percentage relative to In Shares
 async function calculateAndDisplayInSharesRisk() {
     try {
-        // First check if In Shares value is available and > 0
+        // First check if In Shares value is available
         const inSharesSpan = document.getElementById('inSharesValue');
         const inSharesValue = inSharesSpan ? parseFloat(inSharesSpan.textContent.replace(/,/g, '')) || 0 : 0;
         
         console.log('calculateAndDisplayInSharesRisk - In Shares value from DOM:', inSharesValue);
-        
-        // If In Shares is 0, set risk to 0.00% and return early
-        if (inSharesValue <= 0) {
-            console.log('calculateAndDisplayInSharesRisk - In Shares is 0 or negative, setting risk to 0.00%');
-            const riskSpan = document.getElementById('inSharesRiskValue');
-            if (riskSpan) {
-                riskSpan.textContent = '0.00%';
-                riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
-                riskSpan.classList.add('risk-low');
-            }
-            return;
-        }
         
         const res = await fetch('/api/deals/risk-percent-inshares', {
             headers: authHeaders()
@@ -3567,7 +3586,16 @@ async function calculateAndDisplayInSharesRisk() {
             if (riskSpan) {
                 const riskValue = Number(riskPercent) || 0;
                 console.log('In Shares Risk calculated value:', riskValue);
-                riskSpan.textContent = riskValue.toFixed(2) + '%';
+
+                // Calculate money at risk based on In Shares value
+                let moneyAtRiskText = '';
+                if (inSharesValue > 0 && riskValue !== 0) {
+                    const moneyAtRisk = inSharesValue * (riskValue / 100);
+                    moneyAtRiskText = ` [${moneyAtRisk.toFixed(2)}]`;
+                }
+
+                // Show: "8.64% [10000.00]"
+                riskSpan.textContent = `${riskValue.toFixed(2)}%${moneyAtRiskText}`;
                 
                 // Apply color classes based on risk level
                 riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');

@@ -83,6 +83,10 @@ namespace DealManager.Controllers
                 Atr = dto.Atr
             };
 
+            // Assign order so that new stock goes to the bottom of the list
+            var existing = await _service.GetAllForOwnerAsync(userId);
+            stock.Order = existing.Count == 0 ? 0 : existing.Max(s => s.Order) + 1;
+
             Console.WriteLine($"[Stock Create] Stock.BetaVolatility before save: '{stock.BetaVolatility}'");
 
             await _service.CreateAsync(stock);
@@ -109,6 +113,23 @@ namespace DealManager.Controllers
             );
             
             return CreatedAtAction(nameof(GetAll), new { id = stock.Id }, stock);
+        }
+
+        // Reorder stocks for current user (drag & drop)
+        [HttpPost("reorder")]
+        public async Task<IActionResult> Reorder([FromBody] string[] orderedIds)
+        {
+            var userId = GetUserId();
+            if (orderedIds == null || orderedIds.Length == 0)
+                return BadRequest("No ids provided");
+
+            for (int i = 0; i < orderedIds.Length; i++)
+            {
+                var id = orderedIds[i];
+                await _service.UpdateOrderAsync(userId, id, i);
+            }
+
+            return NoContent();
         }
 
         [HttpDelete("{id}")]

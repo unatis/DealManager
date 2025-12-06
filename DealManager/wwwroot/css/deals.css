@@ -221,11 +221,12 @@ h3 {
 
 .deal-form-inline .form-grid {
     display: grid;
-    /* 3 равных колонки, занимают всю доступную ширину */
+    /* 3 равные колонки на всю ширину expanded area */
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    column-gap: 24px;
+    row-gap: 16px;
     align-items: flex-start;
-    padding-bottom: 12px;
+    padding-bottom: 16px;
 }
 
 /* Deal title row: name on the left, price рядом с именем, метрики справа */
@@ -242,10 +243,16 @@ h3 {
     white-space: nowrap;
 }
 
+/* Каждый label в inline-форме занимает всю ширину своей колонки */
+.deal-form-inline .form-grid label {
+    width: 100%;
+}
+
 /* Поля внутри лейблов deal-form-inline растягиваем на всю ширину колонки */
 .deal-form-inline .form-grid label > input:not([type="checkbox"]),
 .deal-form-inline .form-grid label > select,
 .deal-form-inline .form-grid label > textarea {
+    display: block;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
@@ -332,7 +339,7 @@ select.beta-volatility-high-readonly {
 .deal-form-inline label > input,
 .deal-form-inline label > select,
 .deal-form-inline label > textarea {
-    width: fit-content !important;
+    width: 100% !important;      /* тянем поле на всю ширину колонки */
     max-width: 100%;
     box-sizing: border-box;
 }
@@ -434,10 +441,16 @@ select {
             font-weight: 600;
         }
 
-/* Red border and text for stop loss percentage error (negative or > 10%) */
+/* Red border and text for stop loss percentage error (too high risk) */
 input.has-stop-loss-error {
     border: 2px solid #ef4444;
     color: #ef4444;
+}
+
+/* Green border and text for “good” negative stop loss percentage */
+input.has-stop-loss-good {
+    border: 2px solid #22c55e;
+    color: #22c55e;
 }
 
 /* Colored borders for regular_volume select based on selected option */
@@ -1233,5 +1246,11 @@ label.inline-checkbox > input[type="checkbox"] {
 
 .badge.sl-percent-yellow {
     background-color: #f59e0b !important; /* Yellow/Orange */
+    color: white !important;
+}
+
+/* Green badge for negative Stop Loss Percentage on title chips */
+.badge.sl-percent-green {
+    background-color: #22c55e !important; /* Green */
     color: white !important;
 }

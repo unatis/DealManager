@@ -96,7 +96,11 @@
     <div id="stockModal" class="modal" style="display:none">
         <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <strong id="stockModalTitle">Add stock</strong>
+                <div style="display:flex;align-items:center;gap:12px">
+                    <strong id="stockModalTitle">Add stock</strong>
+                    <!-- Movement metrics for current ticker -->
+                    <div id="stockMetricsHeader" class="movement-metrics-container"></div>
+                </div>
                 <div class="actions">
                     <button id="closeStockModal" class="secondary">Close</button>
                 </div>

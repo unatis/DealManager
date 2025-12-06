@@ -30,5 +30,9 @@ namespace DealManager.Models
 
         [JsonPropertyName("atr")]
         public string? Atr { get; set; }
+
+        // Sort order of the stock in the list (per user)
+        [JsonPropertyName("order")]
+        public int Order { get; set; }
     }
 }

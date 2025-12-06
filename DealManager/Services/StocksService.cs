@@ -17,7 +17,9 @@ namespace DealManager.Services
         }
 
         public Task<List<Stock>> GetAllForOwnerAsync(string ownerId) =>
-            _stocks.Find(s => s.OwnerId == ownerId).ToListAsync();
+            _stocks.Find(s => s.OwnerId == ownerId)
+                   .SortBy(s => s.Order)
+                   .ToListAsync();
 
         public Task CreateAsync(Stock stock) =>
             _stocks.InsertOneAsync(stock);
@@ -61,6 +63,17 @@ namespace DealManager.Services
             return _stocks
                 .Find(s => s.Id == id && s.OwnerId == ownerId)
                 .FirstOrDefaultAsync();
+        }
+
+        public Task UpdateOrderAsync(string ownerId, string stockId, int order)
+        {
+            var filter = Builders<Stock>.Filter.And(
+                Builders<Stock>.Filter.Eq(s => s.OwnerId, ownerId),
+                Builders<Stock>.Filter.Eq(s => s.Id, stockId)
+            );
+
+            var update = Builders<Stock>.Update.Set(s => s.Order, order);
+            return _stocks.UpdateOneAsync(filter, update);
         }
     }
 }
