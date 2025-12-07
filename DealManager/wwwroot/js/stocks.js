@@ -289,6 +289,26 @@ if (closeStockModalBtn) {
 }
 
 if (stockForm) {
+    // Highlight "S&P 500 member" label in yellow when checkbox is NOT checked
+    const sp500Checkbox = stockForm.querySelector('input[name="sp500_member"]');
+    const sp500LabelSpan = stockForm.querySelector('label.inline-checkbox span');
+
+    const updateSp500MemberStyling = () => {
+        if (!sp500Checkbox || !sp500LabelSpan) return;
+        if (sp500Checkbox.checked) {
+            sp500LabelSpan.classList.remove('sp500-not-member');
+        } else {
+            sp500LabelSpan.classList.add('sp500-not-member');
+        }
+    };
+
+    if (sp500Checkbox && sp500LabelSpan) {
+        // Initial state when form is opened
+        updateSp500MemberStyling();
+        // Update on checkbox change
+        sp500Checkbox.addEventListener('change', updateSp500MemberStyling);
+    }
+
 stockForm.addEventListener('submit', async e => {
     e.preventDefault();
 

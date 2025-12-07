@@ -26,6 +26,104 @@ header {
     border-bottom: 1px solid rgba(11,17,36,0.05)
 }
 
+/* Tools panel under header, same style as other panels */
+.tools-panel {
+    margin: 16px 16px 0 16px;
+}
+
+.tools-panel-body {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.pinned-input-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    max-width: 360px;
+}
+
+.pinned-input-row input {
+    flex: 1;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    font-size: 13px;
+}
+
+.pinned-stocks-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.pinned-stock-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f6f8fb;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    font-size: 12px;
+    cursor: move;
+}
+
+.pinned-stock-chip strong {
+    font-size: 12px;
+}
+
+.pinned-stock-chip .movement-metrics-container {
+    font-size: 11px;
+}
+
+.pinned-stock-chip.dragging {
+    opacity: 0.7;
+}
+
+/* Tools / indicators bar directly under header */
+.tools-bar {
+    padding: 6px 20px 8px 20px;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(11,17,36,0.04);
+}
+
+.tools-bar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.tools-bar-title {
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tools-bar-label {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.tools-bar-indicators {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .brand {
     display: flex;
     gap: 12px;
@@ -292,11 +390,11 @@ h3 {
     flex-shrink: 0;
 }
 
-/* Red color for S&P 500 member text when checkbox is unchecked */
-    .deal-form-inline label.inline-checkbox span.sp500-not-member {
-        color: #ef4444; /* Red color */
-        font-weight: 600;
-    }
+/* Yellow color for S&P 500 member text when checkbox is unchecked */
+.deal-form-inline label.inline-checkbox span.sp500-not-member {
+    color: #f59e0b; /* Yellow */
+    font-weight: 600;
+}
 
 /* Red color for ATR field when ATR > 10% (high risk) */
 .atr-high-risk {
@@ -310,16 +408,16 @@ input.atr-high-risk-readonly {
     background: #f6f8fb !important;
 }
 
-/* Red color for sync SP500 field when "No" is selected */
+/* Yellow color for sync SP500 field when "No" is selected */
 input.sync-sp500-no-readonly,
 select.sync-sp500-no-readonly {
-    border: 2px solid #dc2626 !important; /* red border */
-    color: #ef4444 !important;
+    border: 2px solid #f59e0b !important; /* yellow border */
+    color: #ca8a04 !important;           /* darker yellow text */
     background: #f6f8fb !important;
 }
 
 .sync-sp500-no {
-    color: #ef4444 !important;
+    color: #f59e0b !important;
     font-weight: 600;
 }
 
@@ -540,6 +638,16 @@ input.volume-200m-readonly {
     position: relative;
     vertical-align: middle;
     z-index: 10000; /* Ensure icon is above other elements */
+}
+
+/* Specific color for "Synchronized with S&P500" warning icon */
+.volume-warning-icon[data-tooltip*="synchronized with S&P500"] {
+    background-color: #f59e0b;
+}
+
+/* Specific color for "S&P 500 member: Not a member" warning icon */
+.volume-warning-icon[data-tooltip*="S&P 500 member: Not a member"] {
+    background-color: #f59e0b;
 }
 
 /* Count warning icon styles (similar to volume-warning-icon) */
@@ -886,6 +994,56 @@ label {
     border-radius: 6px;
     border: 1px solid rgba(11, 17, 36, 0.2);
     width: 90px;
+}
+
+/* ===== Tools panel & pinned tickers ===== */
+
+.tools-panel {
+    margin-top: 8px;
+}
+
+.tools-panel-body {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.pinned-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 100%;
+}
+
+.pinned-input-row input {
+    flex: 1 1 auto;
+}
+
+.pinned-stocks-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    /* grow to fill available height so actions row sticks to bottom */
+    flex: 1 1 auto;
+}
+
+.pinned-stock-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f9fafb;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    font-size: 13px;
+}
+
+.tools-panel-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
 }
 
 /* Hamburger menu styles */

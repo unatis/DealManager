@@ -51,6 +51,17 @@
             </button>
         </div>
     </header>
+
+    <!-- Tools panel under header (same style as other panels) -->
+    <div class="panel tools-panel">
+        <div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 8px;">
+            <button id="openPinnedModalBtn" class="secondary">Add ticker</button>
+        </div>
+        <div id="extraIndicators" class="tools-panel-body">
+            <div id="pinnedStocksContainer" class="pinned-stocks-list"></div>
+        </div>
+    </div>
+
     <!-- Mobile menu -->
     <div id="mobileMenu" class="mobile-menu">
         <button id="newDealBtnMobile" class="mobile-menu-btn">New Deal</button>
@@ -177,7 +188,33 @@
         </div>
     </div>
 
+    <!-- Modal for adding a pinned ticker / composite index -->
+    <div id="pinnedModal" class="modal" style="display:none">
+        <div class="card" style="max-width: 420px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <strong>Add pinned ticker</strong>
+                <div class="actions">
+                    <button id="closePinnedModalBtn" class="secondary">Close</button>
+                </div>
+            </div>
 
+            <form id="pinnedForm">
+                <label>
+                    Ticker or composite
+                    <input
+                        id="pinnedTickerInput"
+                        type="text"
+                        placeholder="AAPL or AAPL+TSLA"
+                        autocomplete="off"
+                    />
+                </label>
+
+                <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:8px">
+                    <button type="submit" id="confirmPinnedAddBtn">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script src="js/deals-inline.js"></script>
     <script src="js/stocks.js"></script>

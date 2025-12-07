@@ -25,6 +25,7 @@ internal class Program
         builder.Services.AddSingleton(mongoSettings);
         builder.Services.AddSingleton<UsersService>();
         builder.Services.AddSingleton<StocksService>();
+        builder.Services.AddSingleton<PinnedStocksService>();
         builder.Services.AddSingleton<WarningsService>();
         builder.Services.AddSingleton<IRiskService, RiskService>();
         builder.Services.AddSingleton<DealsService>();

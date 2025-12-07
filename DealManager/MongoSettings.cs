@@ -9,5 +9,7 @@
         public string QuotesCollection { get; set; } = "quotes";
         public string WeeklyPricesCollection { get; set; } = "weekly_prices";
         public string WarningsCollection { get; set; } = "warnings";
+        public string PinnedStocksCollection { get; set; } = "pinned_stocks";
     }
 }
+

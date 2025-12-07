@@ -2528,6 +2528,44 @@ async function loadMovementMetrics(ticker) {
     }
 }
 
+// Load movement metrics for a composite index built from multiple tickers
+async function loadCompositeMovementMetrics(tickersArray) {
+    if (!Array.isArray(tickersArray)) return null;
+
+    const symbols = [...new Set(
+        tickersArray
+            .map(t => (t || '').trim().toUpperCase())
+            .filter(Boolean)
+    )];
+
+    if (symbols.length < 2) {
+        console.warn('loadCompositeMovementMetrics: need at least 2 tickers', symbols);
+        return null;
+    }
+
+    const query = encodeURIComponent(symbols.join(','));
+    const url = `/api/prices/composite/movement-score?lookback=52&tickers=${query}`;
+
+    try {
+        const res = await fetch(url, {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) {
+            const errorText = await res.text().catch(() => '');
+            console.warn('Failed to load composite movement metrics', res.status, errorText);
+            return null;
+        }
+
+        const data = await res.json();
+        console.log('Composite movement metrics loaded for', symbols.join('+'), ':', JSON.stringify(data, null, 2));
+        return data;
+    } catch (err) {
+        console.error('Error loading composite movement metrics:', err);
+        return null;
+    }
+}
+
 // Format movement metrics for display
 function formatMovementMetrics(metrics) {
     if (!metrics) {
@@ -3632,12 +3670,308 @@ async function calculateAndDisplayInSharesRisk() {
     }
 }
 
+// ========== PINNED STOCKS (TOOLS PANEL) ==========
+
+let pinnedStocks = [];
+let draggedPinnedId = null;
+
+async function loadPinnedStocks() {
+    const container = document.getElementById('pinnedStocksContainer');
+    if (!container) return;
+
+    try {
+        const res = await fetch('/api/pinnedstocks', {
+            headers: authHeaders()
+        });
+        if (!res.ok) {
+            console.warn('Failed to load pinned stocks', res.status);
+            container.innerHTML = '';
+            return;
+        }
+
+        pinnedStocks = await res.json(); // [{ id, ticker, order }]
+        renderPinnedStocks();
+    } catch (e) {
+        console.error('Error loading pinned stocks', e);
+    }
+}
+
+function renderPinnedStocks() {
+    const container = document.getElementById('pinnedStocksContainer');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!pinnedStocks || pinnedStocks.length === 0) {
+        return;
+    }
+
+    pinnedStocks.forEach(item => {
+        const chip = document.createElement('div');
+        chip.className = 'pinned-stock-chip';
+        chip.dataset.pinnedId = item.id;
+        chip.draggable = true;
+
+        const label = document.createElement('strong');
+        label.textContent = (item.ticker || '').toUpperCase();
+        chip.appendChild(label);
+
+        const metricsDiv = document.createElement('div');
+        metricsDiv.className = 'movement-metrics-container';
+        metricsDiv.style.marginLeft = '6px';
+        chip.appendChild(metricsDiv);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '×';
+        removeBtn.className = 'secondary';
+        removeBtn.style.padding = '0 4px';
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deletePinnedStock(item.id);
+        });
+        chip.appendChild(removeBtn);
+
+        setupPinnedDragHandlers(chip, item.id);
+
+        container.appendChild(chip);
+
+        attachPinnedMetrics(metricsDiv, item.ticker);
+    });
+}
+
+async function attachPinnedMetrics(containerEl, ticker) {
+    if (!containerEl || !ticker) return;
+
+    if (typeof loadMovementMetrics !== 'function' || typeof formatMovementMetrics !== 'function') {
+        console.warn('Movement metrics helpers are not available for pinned stocks');
+        containerEl.textContent = '';
+        return;
+    }
+
+    const raw = (ticker || '').trim().toUpperCase();
+
+    try {
+        let metrics = null;
+
+        // If ticker contains '+', treat it as a composite index
+        if (raw.includes('+') && typeof loadCompositeMovementMetrics === 'function') {
+            const parts = raw
+                .split('+')
+                .map(t => t.trim())
+                .filter(Boolean);
+
+            metrics = await loadCompositeMovementMetrics(parts);
+        } else {
+            // Regular single ticker
+            metrics = await loadMovementMetrics(raw);
+        }
+
+        if (!metrics) {
+            containerEl.textContent = '';
+            return;
+        }
+
+        const html = formatMovementMetrics(metrics);
+        containerEl.innerHTML = html;
+    } catch (e) {
+        console.error('Error loading movement metrics for pinned item', ticker, e);
+        containerEl.textContent = '';
+    }
+}
+
+function setupPinnedDragHandlers(chip, pinnedId) {
+    chip.addEventListener('dragstart', (e) => {
+        draggedPinnedId = pinnedId;
+        chip.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    });
+
+    chip.addEventListener('dragend', () => {
+        draggedPinnedId = null;
+        chip.classList.remove('dragging');
+    });
+
+    chip.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!draggedPinnedId || draggedPinnedId === pinnedId) return;
+
+        const container = document.getElementById('pinnedStocksContainer');
+        if (!container) return;
+
+        const chips = Array.from(container.querySelectorAll('.pinned-stock-chip'));
+        const draggedEl = chips.find(c => c.dataset.pinnedId === draggedPinnedId);
+        if (!draggedEl) return;
+
+        const target = e.currentTarget;
+        const rect = target.getBoundingClientRect();
+        const before = (e.clientX - rect.left) < rect.width / 2;
+
+        if (before) {
+            container.insertBefore(draggedEl, target);
+        } else {
+            container.insertBefore(draggedEl, target.nextSibling);
+        }
+    });
+
+    chip.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        await savePinnedOrderToServer();
+    });
+}
+
+async function savePinnedOrderToServer() {
+    const container = document.getElementById('pinnedStocksContainer');
+    if (!container) return;
+
+    const orderedIds = Array.from(container.querySelectorAll('.pinned-stock-chip'))
+        .map(el => el.dataset.pinnedId)
+        .filter(Boolean);
+
+    if (!orderedIds.length) return;
+
+    try {
+        const res = await fetch('/api/pinnedstocks/reorder', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders()
+            },
+            body: JSON.stringify({ orderedIds })
+        });
+
+        if (!res.ok) {
+            console.error('Failed to save pinned stocks order', res.status);
+            return;
+        }
+
+        // Обновим локальный порядок
+        pinnedStocks.sort((a, b) => orderedIds.indexOf(a.id) - orderedIds.indexOf(b.id));
+    } catch (e) {
+        console.error('Error saving pinned stocks order', e);
+    }
+}
+
+async function addPinnedStock(ticker) {
+    const t = (ticker || '').trim().toUpperCase();
+    if (!t) return;
+
+    try {
+        const res = await fetch('/api/pinnedstocks', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders()
+            },
+            body: JSON.stringify({ ticker: t })
+        });
+
+        if (!res.ok) {
+            console.error('Failed to add pinned stock', res.status);
+            return;
+        }
+
+        await loadPinnedStocks();
+    } catch (e) {
+        console.error('Error adding pinned stock', e);
+    }
+}
+
+async function deletePinnedStock(id) {
+    if (!id) return;
+    try {
+        const res = await fetch(`/api/pinnedstocks/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: authHeaders()
+        });
+        if (!res.ok) {
+            console.error('Failed to delete pinned stock', res.status);
+            return;
+        }
+        await loadPinnedStocks();
+    } catch (e) {
+        console.error('Error deleting pinned stock', e);
+    }
+}
+
+function setupPinnedStocksUI() {
+    const input = document.getElementById('pinnedTickerInput');
+    const openBtn = document.getElementById('openPinnedModalBtn');
+    const confirmBtn = document.getElementById('confirmPinnedAddBtn');
+    const closeBtn = document.getElementById('closePinnedModalBtn');
+    const modal = document.getElementById('pinnedModal');
+
+    if (!input || !openBtn || !confirmBtn || !closeBtn || !modal) return;
+
+    const openModal = () => {
+        modal.style.display = 'flex';
+        input.value = '';
+        setTimeout(() => input.focus(), 0);
+    };
+
+    const closeModal = () => {
+        modal.style.display = 'none';
+        input.value = '';
+    };
+
+    openBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openModal();
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeModal();
+    });
+
+    // Force uppercase input by default for pinned tickers (including composite like AAPL+TSLA)
+    input.addEventListener('input', () => {
+        if (!input.value) return;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.toUpperCase();
+        // Try to preserve caret position
+        if (start != null && end != null) {
+            input.setSelectionRange(start, end);
+        }
+    });
+
+    const submit = () => {
+        addPinnedStock(input.value);
+        closeModal();
+    };
+
+    confirmBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        submit();
+    });
+
+    const form = document.getElementById('pinnedForm');
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            submit();
+        });
+    }
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submit();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeModal();
+        }
+    });
+}
+
 // ======== СТАРТ =========
 (async function init() {
+    setupPinnedStocksUI();
     await loadDeals();
     // Calculate and display portfolio risk on page load
     await calculateAndDisplayPortfolioRisk();
     await calculateAndDisplayInSharesRisk();
+    await loadPinnedStocks();
 })();
 
 document.addEventListener('keydown', e => {
