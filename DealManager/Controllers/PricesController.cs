@@ -777,4 +777,144 @@ public class PricesController : ControllerBase
             return StatusCode(500, $"Internal error: {ex.Message}");
         }
     }
+
+    [HttpGet("composite/movement-score")]
+    public async Task<IActionResult> GetCompositeMovementScore(
+        [FromQuery] string tickers,
+        [FromQuery] int lookback = 26,
+        [FromQuery] double wSpeed = 2.0,
+        [FromQuery] double wStrength = 3.0,
+        [FromQuery] double wEase = 1.0,
+        [FromQuery] bool clampTo100 = false,
+        [FromQuery] double flatThresholdPct = 0.001)
+    {
+        if (string.IsNullOrWhiteSpace(tickers))
+            return BadRequest("Parameter 'tickers' is required");
+
+        var symbols = tickers
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => t.Trim().ToUpperInvariant())
+            .Distinct()
+            .ToList();
+
+        if (symbols.Count < 2)
+            return BadRequest("Provide at least 2 tickers for composite index");
+
+        try
+        {
+            var seriesList = new List<IReadOnlyList<PricePoint>>();
+            foreach (var symbol in symbols)
+            {
+                var data = await _alpha.GetWeeklyAsync(symbol);
+                if (data.Count == 0)
+                    return BadRequest($"No weekly data for ticker {symbol}");
+
+                seriesList.Add(data);
+            }
+
+            var dateSets = seriesList
+                .Select(list => list.Select(p => p.Date).ToHashSet())
+                .ToList();
+
+            var commonDates = dateSets
+                .Skip(1)
+                .Aggregate(
+                    new HashSet<DateTime>(dateSets.First()),
+                    (acc, set) =>
+                    {
+                        acc.IntersectWith(set);
+                        return acc;
+                    });
+
+            if (commonDates.Count < lookback + 1)
+                return BadRequest(
+                    $"Not enough common history for all tickers. " +
+                    $"Need at least {lookback + 1} common weekly bars, have {commonDates.Count}.");
+
+            var orderedDates = commonDates
+                .OrderBy(d => d)
+                .ToList();
+
+            var dicts = seriesList
+                .Select(list => list.ToDictionary(p => p.Date))
+                .ToList();
+
+            var composite = new List<PricePoint>();
+            foreach (var date in orderedDates)
+            {
+                var pointsAtDate = dicts.Select(d => d[date]).ToList();
+
+                var open   = pointsAtDate.Average(p => p.Open);
+                var high   = pointsAtDate.Average(p => p.High);
+                var low    = pointsAtDate.Average(p => p.Low);
+                var close  = pointsAtDate.Average(p => p.Close);
+                var volume = pointsAtDate.Sum(p => p.Volume);
+
+                composite.Add(new PricePoint
+                {
+                    Date   = date,
+                    Open   = open,
+                    High   = high,
+                    Low    = low,
+                    Close  = close,
+                    Volume = volume
+                });
+            }
+
+            var metrics = MoveAnalyzer.CalculateNormalizedMoveMetricsForPeriod(
+                composite,
+                lookback,
+                flatThresholdPct);
+
+            var score = MoveScoreCombiner.Combine(
+                metrics,
+                wSpeed,
+                wStrength,
+                wEase,
+                clampTo100);
+
+            var name = string.Join("+", symbols);
+
+            _logger.LogInformation(
+                "Composite movement score calculated for {Tickers}: Magnitude={MagnitudePct:F2}%, Signed={SignedPct:F2}%",
+                name, score.MagnitudePct, score.SignedPct);
+
+            return Ok(new
+            {
+                ticker = name,
+                lookback = lookback,
+                magnitudePct = Math.Round(score.MagnitudePct, 2),
+                signedPct = Math.Round(score.SignedPct, 2),
+                direction = metrics.Direction,
+                returnPct = Math.Round(metrics.ReturnPct, 4),
+                speedPct = Math.Round(metrics.SpeedPct, 2),
+                strengthPct = Math.Round(metrics.StrengthPct, 2),
+                easeOfMovePct = Math.Round(metrics.EaseOfMovePct, 2),
+                weights = new
+                {
+                    speed = wSpeed,
+                    strength = wStrength,
+                    ease = wEase
+                },
+                clampTo100 = clampTo100,
+                components = symbols
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "Invalid argument for composite movement score calculation for {Tickers}: {Message}", tickers, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Cannot calculate composite movement score for {Tickers}: {Message}", tickers, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to calculate composite movement score for {Tickers}. Exception: {ExceptionType}, Message: {Message}",
+                tickers, ex.GetType().Name, ex.Message);
+            return StatusCode(500, $"Internal error: {ex.Message}");
+        }
+    }
 }

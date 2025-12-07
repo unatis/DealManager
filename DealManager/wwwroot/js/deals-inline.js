@@ -2528,6 +2528,44 @@ async function loadMovementMetrics(ticker) {
     }
 }
 
+// Load movement metrics for a composite index built from multiple tickers
+async function loadCompositeMovementMetrics(tickersArray) {
+    if (!Array.isArray(tickersArray)) return null;
+
+    const symbols = [...new Set(
+        tickersArray
+            .map(t => (t || '').trim().toUpperCase())
+            .filter(Boolean)
+    )];
+
+    if (symbols.length < 2) {
+        console.warn('loadCompositeMovementMetrics: need at least 2 tickers', symbols);
+        return null;
+    }
+
+    const query = encodeURIComponent(symbols.join(','));
+    const url = `/api/prices/composite/movement-score?lookback=52&tickers=${query}`;
+
+    try {
+        const res = await fetch(url, {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) {
+            const errorText = await res.text().catch(() => '');
+            console.warn('Failed to load composite movement metrics', res.status, errorText);
+            return null;
+        }
+
+        const data = await res.json();
+        console.log('Composite movement metrics loaded for', symbols.join('+'), ':', JSON.stringify(data, null, 2));
+        return data;
+    } catch (err) {
+        console.error('Error loading composite movement metrics:', err);
+        return null;
+    }
+}
+
 // Format movement metrics for display
 function formatMovementMetrics(metrics) {
     if (!metrics) {
@@ -3710,16 +3748,33 @@ async function attachPinnedMetrics(containerEl, ticker) {
         return;
     }
 
+    const raw = (ticker || '').trim().toUpperCase();
+
     try {
-        const metrics = await loadMovementMetrics(ticker);
+        let metrics = null;
+
+        // If ticker contains '+', treat it as a composite index
+        if (raw.includes('+') && typeof loadCompositeMovementMetrics === 'function') {
+            const parts = raw
+                .split('+')
+                .map(t => t.trim())
+                .filter(Boolean);
+
+            metrics = await loadCompositeMovementMetrics(parts);
+        } else {
+            // Regular single ticker
+            metrics = await loadMovementMetrics(raw);
+        }
+
         if (!metrics) {
             containerEl.textContent = '';
             return;
         }
+
         const html = formatMovementMetrics(metrics);
         containerEl.innerHTML = html;
     } catch (e) {
-        console.error('Error loading movement metrics for pinned stock', ticker, e);
+        console.error('Error loading movement metrics for pinned item', ticker, e);
         containerEl.textContent = '';
     }
 }
@@ -3840,19 +3895,71 @@ async function deletePinnedStock(id) {
 
 function setupPinnedStocksUI() {
     const input = document.getElementById('pinnedTickerInput');
-    const btn = document.getElementById('addPinnedStockBtn');
-    if (!input || !btn) return;
+    const openBtn = document.getElementById('openPinnedModalBtn');
+    const confirmBtn = document.getElementById('confirmPinnedAddBtn');
+    const closeBtn = document.getElementById('closePinnedModalBtn');
+    const modal = document.getElementById('pinnedModal');
 
-    btn.addEventListener('click', () => {
-        addPinnedStock(input.value);
+    if (!input || !openBtn || !confirmBtn || !closeBtn || !modal) return;
+
+    const openModal = () => {
+        modal.style.display = 'flex';
         input.value = '';
+        setTimeout(() => input.focus(), 0);
+    };
+
+    const closeModal = () => {
+        modal.style.display = 'none';
+        input.value = '';
+    };
+
+    openBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openModal();
     });
+
+    closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeModal();
+    });
+
+    // Force uppercase input by default for pinned tickers (including composite like AAPL+TSLA)
+    input.addEventListener('input', () => {
+        if (!input.value) return;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.toUpperCase();
+        // Try to preserve caret position
+        if (start != null && end != null) {
+            input.setSelectionRange(start, end);
+        }
+    });
+
+    const submit = () => {
+        addPinnedStock(input.value);
+        closeModal();
+    };
+
+    confirmBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        submit();
+    });
+
+    const form = document.getElementById('pinnedForm');
+    if (form) {
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            submit();
+        });
+    }
 
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            addPinnedStock(input.value);
-            input.value = '';
+            submit();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeModal();
         }
     });
 }

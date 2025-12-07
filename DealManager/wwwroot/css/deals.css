@@ -996,6 +996,56 @@ label {
     width: 90px;
 }
 
+/* ===== Tools panel & pinned tickers ===== */
+
+.tools-panel {
+    margin-top: 8px;
+}
+
+.tools-panel-body {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.pinned-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 100%;
+}
+
+.pinned-input-row input {
+    flex: 1 1 auto;
+}
+
+.pinned-stocks-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    /* grow to fill available height so actions row sticks to bottom */
+    flex: 1 1 auto;
+}
+
+.pinned-stock-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f9fafb;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    font-size: 13px;
+}
+
+.tools-panel-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
 /* Hamburger menu styles */
 .menu-toggle {
     display: none;
