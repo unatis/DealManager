@@ -292,11 +292,11 @@ h3 {
     flex-shrink: 0;
 }
 
-/* Red color for S&P 500 member text when checkbox is unchecked */
-    .deal-form-inline label.inline-checkbox span.sp500-not-member {
-        color: #ef4444; /* Red color */
-        font-weight: 600;
-    }
+/* Yellow color for S&P 500 member text when checkbox is unchecked */
+.deal-form-inline label.inline-checkbox span.sp500-not-member {
+    color: #f59e0b; /* Yellow */
+    font-weight: 600;
+}
 
 /* Red color for ATR field when ATR > 10% (high risk) */
 .atr-high-risk {
@@ -310,16 +310,16 @@ input.atr-high-risk-readonly {
     background: #f6f8fb !important;
 }
 
-/* Red color for sync SP500 field when "No" is selected */
+/* Yellow color for sync SP500 field when "No" is selected */
 input.sync-sp500-no-readonly,
 select.sync-sp500-no-readonly {
-    border: 2px solid #dc2626 !important; /* red border */
-    color: #ef4444 !important;
+    border: 2px solid #f59e0b !important; /* yellow border */
+    color: #ca8a04 !important;           /* darker yellow text */
     background: #f6f8fb !important;
 }
 
 .sync-sp500-no {
-    color: #ef4444 !important;
+    color: #f59e0b !important;
     font-weight: 600;
 }
 
@@ -540,6 +540,16 @@ input.volume-200m-readonly {
     position: relative;
     vertical-align: middle;
     z-index: 10000; /* Ensure icon is above other elements */
+}
+
+/* Specific color for "Synchronized with S&P500" warning icon */
+.volume-warning-icon[data-tooltip*="synchronized with S&P500"] {
+    background-color: #f59e0b;
+}
+
+/* Specific color for "S&P 500 member: Not a member" warning icon */
+.volume-warning-icon[data-tooltip*="S&P 500 member: Not a member"] {
+    background-color: #f59e0b;
 }
 
 /* Count warning icon styles (similar to volume-warning-icon) */
