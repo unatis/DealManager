@@ -51,6 +51,21 @@
             </button>
         </div>
     </header>
+
+    <!-- Tools panel under header (same style as other panels) -->
+    <div class="panel tools-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <h3 style="margin: 0;">Tools</h3>
+        </div>
+        <div id="extraIndicators" class="tools-panel-body">
+            <div class="pinned-input-row">
+                <input id="pinnedTickerInput" type="text" placeholder="Pinned ticker (e.g. AAPL)" />
+                <button id="addPinnedStockBtn" class="secondary">Add</button>
+            </div>
+            <div id="pinnedStocksContainer" class="pinned-stocks-list"></div>
+        </div>
+    </div>
+
     <!-- Mobile menu -->
     <div id="mobileMenu" class="mobile-menu">
         <button id="newDealBtnMobile" class="mobile-menu-btn">New Deal</button>

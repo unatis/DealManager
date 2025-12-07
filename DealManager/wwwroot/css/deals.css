@@ -26,6 +26,104 @@ header {
     border-bottom: 1px solid rgba(11,17,36,0.05)
 }
 
+/* Tools panel under header, same style as other panels */
+.tools-panel {
+    margin: 16px 16px 0 16px;
+}
+
+.tools-panel-body {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.pinned-input-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+    max-width: 360px;
+}
+
+.pinned-input-row input {
+    flex: 1;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    font-size: 13px;
+}
+
+.pinned-stocks-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.pinned-stock-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #f6f8fb;
+    border: 1px solid rgba(15, 23, 42, 0.06);
+    font-size: 12px;
+    cursor: move;
+}
+
+.pinned-stock-chip strong {
+    font-size: 12px;
+}
+
+.pinned-stock-chip .movement-metrics-container {
+    font-size: 11px;
+}
+
+.pinned-stock-chip.dragging {
+    opacity: 0.7;
+}
+
+/* Tools / indicators bar directly under header */
+.tools-bar {
+    padding: 6px 20px 8px 20px;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(11,17,36,0.04);
+}
+
+.tools-bar-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.tools-bar-title {
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tools-bar-label {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.tools-bar-indicators {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .brand {
     display: flex;
     gap: 12px;
