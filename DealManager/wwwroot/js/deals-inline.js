@@ -2488,6 +2488,35 @@ async function loadTrends(ticker, form) {
     }
 }
 
+const defaultMovementSettings = {
+    timeframe: 'Weekly',
+    lookback: 52
+};
+
+function loadMovementSettings() {
+    try {
+        const raw = localStorage.getItem('movementSettings');
+        if (!raw) return { ...defaultMovementSettings };
+        const parsed = JSON.parse(raw);
+        return {
+            timeframe: parsed.timeframe || 'Weekly',
+            lookback: parsed.lookback || 52
+        };
+    } catch {
+        return { ...defaultMovementSettings };
+    }
+}
+
+function saveMovementSettings(settings) {
+    try {
+        localStorage.setItem('movementSettings', JSON.stringify(settings));
+    } catch (e) {
+        console.warn('Failed to save movement settings', e);
+    }
+}
+
+window.movementSettings = loadMovementSettings();
+
 // Load movement metrics for a ticker
 async function loadMovementMetrics(ticker) {
     if (!ticker) {
@@ -2497,7 +2526,10 @@ async function loadMovementMetrics(ticker) {
     
     try {
         console.log('Loading movement metrics for ticker:', ticker);
-        const url = `/api/prices/${encodeURIComponent(ticker)}/movement-score?lookback=52`;
+        const s = window.movementSettings || defaultMovementSettings;
+        const lookback = s.lookback || 52;
+        const timeframe = encodeURIComponent(s.timeframe || 'Weekly');
+        const url = `/api/prices/${encodeURIComponent(ticker)}/movement-score?lookback=${lookback}&timeframe=${timeframe}`;
         console.log('Request URL:', url);
         
         const res = await fetch(url, {
@@ -3971,9 +4003,53 @@ function setupPinnedStocksUI() {
     });
 }
 
+function setupSettingsUI() {
+    const btn = document.getElementById('settingsBtn');
+    const modal = document.getElementById('settingsModal');
+    const closeBtn = document.getElementById('closeSettingsModalBtn');
+    const form = document.getElementById('settingsForm');
+    const tfSelect = document.getElementById('movementTimeframeSelect');
+    const lbSelect = document.getElementById('movementLookbackSelect');
+
+    if (!btn || !modal || !closeBtn || !form || !tfSelect || !lbSelect) return;
+
+    const openModal = () => {
+        const s = window.movementSettings || defaultMovementSettings;
+        tfSelect.value = s.timeframe || 'Weekly';
+        lbSelect.value = String(s.lookback || 52);
+        modal.style.display = 'flex';
+    };
+
+    const closeModal = () => {
+        modal.style.display = 'none';
+    };
+
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openModal();
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeModal();
+    });
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const settings = {
+            timeframe: tfSelect.value || 'Weekly',
+            lookback: parseInt(lbSelect.value || '52', 10)
+        };
+        window.movementSettings = settings;
+        saveMovementSettings(settings);
+        closeModal();
+    });
+}
+
 // ======== СТАРТ =========
 (async function init() {
     setupPinnedStocksUI();
+    setupSettingsUI();
     await loadDeals();
     // Calculate and display portfolio risk on page load
     await calculateAndDisplayPortfolioRisk();

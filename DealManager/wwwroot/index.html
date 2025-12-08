@@ -42,6 +42,7 @@
                 <span id="userNameDisplay">...</span>
             </div>
             <button id="logoutBtn" class="secondary desktop-btn">Logout</button>
+            <button id="settingsBtn" class="secondary desktop-btn" title="Settings">⚙</button>
             <!-- Hamburger menu button for mobile -->
             <button id="menuToggle" class="menu-toggle" aria-label="Menu">
                 <span></span>
@@ -213,6 +214,44 @@
 
                 <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:8px">
                     <button type="submit" id="confirmPinnedAddBtn">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for movement/settings -->
+    <div id="settingsModal" class="modal" style="display:none">
+        <div class="card" style="max-width: 420px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <strong>Settings</strong>
+                <div class="actions">
+                    <button id="closeSettingsModalBtn" class="secondary">Close</button>
+                </div>
+            </div>
+
+            <form id="settingsForm">
+                <div class="stock-form-grid">
+                    <label>
+                        Movement timeframe
+                        <select name="movement_timeframe" id="movementTimeframeSelect">
+                            <option value="Daily">Daily</option>
+                            <option value="Weekly" selected>Weekly</option>
+                            <option value="Monthly">Monthly</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        Lookback (bars)
+                        <select name="movement_lookback" id="movementLookbackSelect">
+                            <option value="26">26</option>
+                            <option value="52" selected>52</option>
+                            <option value="104">104</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:8px">
+                    <button type="submit">Save</button>
                 </div>
             </form>
         </div>
