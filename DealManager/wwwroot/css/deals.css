@@ -184,14 +184,10 @@ button:disabled {
 }
 
 #addStockBtn {
-    pointer-events: auto !important;
-    cursor: pointer !important;
-    z-index: 1000 !important;
-    position: relative !important;
-    margin-bottom: 30px;
-    touch-action: manipulation !important;
+    cursor: pointer;
+    position: relative;
+    touch-action: manipulation;
     -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
-    min-height: 44px; /* Ensure minimum touch target size for mobile */
     user-select: none;
     -webkit-user-select: none;
     -moz-user-select: none;
@@ -1025,8 +1021,7 @@ label {
     flex-wrap: wrap;
     gap: 6px;
     width: 100%;
-    /* grow to fill available height so actions row sticks to bottom */
-    flex: 1 1 auto;
+    justify-content: center;
 }
 
 .pinned-stock-chip {
@@ -1195,11 +1190,12 @@ label {
     #addStockBtn {
         touch-action: manipulation;
         -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
-        min-height: 44px;
+        /* min-height: 44px;*/
         z-index: 100;
         position: relative;
+        
     }
-    
+
     /* Ensure aside panel doesn't block touch events */
     aside.panel {
         position: relative;

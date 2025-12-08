@@ -1097,12 +1097,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 50px; flex-wrap: wrap;">
                             ${isNew ? `
-                            <button type="submit">Create deal</button>
-                            <button type="button" class="cancel-deal-btn secondary" style="margin-left: 12px;">Cancel</button>
-                            <label class="inline-checkbox" style="display: flex; align-items: center; font-size: 14px; cursor: pointer; margin: 0; flex-direction: row; gap: 0;">
-                                <input type="checkbox" name="planned_future" style="cursor: pointer; margin: 0; flex-shrink: 0; margin-right: 10px; width: auto !important;">
-                                <span style="white-space: nowrap;">Planned future deal</span>
-                            </label>
+                            <button type="submit">Plan a deal</button>
                             ` : deal?.planned_future ? `
                             <button type="button" class="activate-deal-btn">Create deal</button>
                             <button type="submit" class="secondary">Save changes</button>
@@ -1110,7 +1105,13 @@ function createDealFormHTML(deal = null, isNew = false) {
                             <button type="submit">Save changes</button>
                             `}
                         </div>
-                        ${isEdit && !deal?.closed ? `<button type="button" class="secondary close-deal-btn">Close deal</button>` : ''}
+                        ${
+                            isNew
+                                ? `<button type="button" class="cancel-deal-btn secondary">Cancel</button>`
+                                : (isEdit && !deal?.closed
+                                    ? `<button type="button" class="secondary close-deal-btn">Close deal</button>`
+                                    : '')
+                        }
                     </div>
                 </div>
             </div>
@@ -2151,13 +2152,11 @@ async function handleDealSubmit(form, deal, isNew) {
             obj[k] = v;
         }
 
-        // Get planned future checkbox state from form (only for new deals)
+        // planned_future: new deals are always created as planned; existing keep their flag
         if (isNew) {
-            const formCheckbox = form.querySelector('input[name="planned_future"]');
-            obj.planned_future = formCheckbox ? formCheckbox.checked : false;
+            obj.planned_future = true;
         } else {
-            // For existing deals, keep the current planned_future status (cannot be changed)
-            obj.planned_future = deal?.planned_future || false;
+            obj.planned_future = !!(deal && deal.planned_future);
         }
 
         // Calculate and include total sum
