@@ -1100,9 +1100,9 @@ function createDealFormHTML(deal = null, isNew = false) {
                             <button type="submit">Plan a deal</button>
                             ` : deal?.planned_future ? `
                             <button type="button" class="activate-deal-btn">Create deal</button>
-                            <button type="submit" class="secondary">Save changes</button>
+                            ${!deal?.closed ? `<button type="submit" class="secondary">Save changes</button>` : ''}
                             ` : `
-                            <button type="submit">Save changes</button>
+                            ${!deal?.closed ? `<button type="submit">Save changes</button>` : ''}
                             `}
                         </div>
                         ${
@@ -1255,8 +1255,11 @@ function createDealRow(deal, isNew) {
     const totalSumFormatted = formatTotalSum(totalSum || deal?.total_sum);
     const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
     
-    // Add planned future indicator next to date
-    const plannedFutureLabel = deal?.planned_future ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>' : '';
+    // Add planned future indicator next to date (only for open planned deals)
+    const plannedFutureLabel =
+        deal?.planned_future && !deal?.closed
+            ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>'
+            : '';
     
     // Check if stock has warnings and add indicators
     let volumeIndicator = '';
@@ -2172,10 +2175,13 @@ async function handleDealSubmit(form, deal, isNew) {
         }
 
         await saveDealToServer(obj, !isNew);
-        
-        // Portfolio deduction is now handled server-side in DealsController
-        // Just refresh the portfolio display from server after deal creation
-        if (isNew) {
+
+        // New planned deals should NOT affect cash / In Shares until activated.
+        const isPlannedNew = isNew && obj.planned_future === true;
+
+        // Portfolio deduction is now handled server-side in DealsController.
+        // Refresh portfolio only when deal actually affects it.
+        if (!isPlannedNew) {
             await refreshPortfolioFromServer();
         }
         
@@ -2185,9 +2191,11 @@ async function handleDealSubmit(form, deal, isNew) {
         expandedDealId = null;
         await loadDeals();
         
-        // Calculate and display portfolio risk after deal save
-        await calculateAndDisplayPortfolioRisk();
-        await calculateAndDisplayInSharesRisk();
+        // Recalculate risk metrics only when portfolio is affected.
+        if (!isPlannedNew) {
+            await calculateAndDisplayPortfolioRisk();
+            await calculateAndDisplayInSharesRisk();
+        }
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить сделку');

@@ -1000,8 +1000,8 @@ label {
 
 .tools-panel-body {
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
 }
 
@@ -1017,11 +1017,7 @@ label {
 }
 
 .pinned-stocks-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    width: 100%;
-    justify-content: center;
+    display: contents;
 }
 
 .pinned-stock-chip {
