@@ -6,6 +6,7 @@ const closeStockModalBtn = document.getElementById('closeStockModal');
 const stockForm = document.getElementById('stockForm');
 const stockList = document.getElementById('stockList');
 const emptyStockEl = document.getElementById('emptyStock');
+const stockFilterInput = document.getElementById('stockFilterInput');
 
 let stocks = [];
 let stocksLoaded = false;
@@ -13,6 +14,7 @@ let expandedStockId = null; // Track which stock is currently expanded
 // warningsCache is declared in deals-inline.js - use that shared cache
 
 let draggedStockId = null; // For drag & drop reordering
+let stockFilter = '';
 
 // локальный вариант authHeaders (такой же, как в deals.js)
 function authHeaders() {
@@ -534,13 +536,33 @@ function renderStocks() {
     }
     if (emptyStockEl) emptyStockEl.style.display = 'none';
 
-    stocks.forEach(s => {
+    const filter = (stockFilter || '').toLowerCase();
+    let visible = stocks;
+
+    if (filter) {
+        visible = stocks.filter(s => {
+            const ticker = (s.ticker || '').toLowerCase();
+            const desc = (s.desc || '').toLowerCase();
+            return ticker.includes(filter) || desc.includes(filter);
+        });
+    }
+
+    if (!visible.length) {
+        if (emptyStockEl) {
+            emptyStockEl.textContent = 'Нет акций';
+            emptyStockEl.style.display = 'block';
+        }
+        updateStockCount(0);
+        return;
+    }
+
+    visible.forEach(s => {
         const stockRow = createStockRow(s);
         stockList.appendChild(stockRow);
     });
     
-    // Update count with warning logic
-    updateStockCount(stocks.length);
+    // Update count with warning logic (for visible items)
+    updateStockCount(visible.length);
 }
 
 // Function to update stock count and add warning icons
@@ -1343,3 +1365,10 @@ if (betaVolatilitySelect) {
 
 // ====== Старт ======
 loadStocks();
+
+if (stockFilterInput) {
+    stockFilterInput.addEventListener('input', () => {
+        stockFilter = stockFilterInput.value || '';
+        renderStocks();
+    });
+}

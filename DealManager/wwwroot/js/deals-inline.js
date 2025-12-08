@@ -1097,20 +1097,21 @@ function createDealFormHTML(deal = null, isNew = false) {
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 50px; flex-wrap: wrap;">
                             ${isNew ? `
-                            <button type="submit">Create deal</button>
-                            <button type="button" class="cancel-deal-btn secondary" style="margin-left: 12px;">Cancel</button>
-                            <label class="inline-checkbox" style="display: flex; align-items: center; font-size: 14px; cursor: pointer; margin: 0; flex-direction: row; gap: 0;">
-                                <input type="checkbox" name="planned_future" style="cursor: pointer; margin: 0; flex-shrink: 0; margin-right: 10px; width: auto !important;">
-                                <span style="white-space: nowrap;">Planned future deal</span>
-                            </label>
+                            <button type="submit">Plan a deal</button>
                             ` : deal?.planned_future ? `
                             <button type="button" class="activate-deal-btn">Create deal</button>
-                            <button type="submit" class="secondary">Save changes</button>
+                            ${!deal?.closed ? `<button type="submit" class="secondary">Save changes</button>` : ''}
                             ` : `
-                            <button type="submit">Save changes</button>
+                            ${!deal?.closed ? `<button type="submit">Save changes</button>` : ''}
                             `}
                         </div>
-                        ${isEdit && !deal?.closed ? `<button type="button" class="secondary close-deal-btn">Close deal</button>` : ''}
+                        ${
+                            isNew
+                                ? `<button type="button" class="cancel-deal-btn secondary">Cancel</button>`
+                                : (isEdit && !deal?.closed
+                                    ? `<button type="button" class="secondary close-deal-btn">Close deal</button>`
+                                    : '')
+                        }
                     </div>
                 </div>
             </div>
@@ -1254,8 +1255,11 @@ function createDealRow(deal, isNew) {
     const totalSumFormatted = formatTotalSum(totalSum || deal?.total_sum);
     const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
     
-    // Add planned future indicator next to date
-    const plannedFutureLabel = deal?.planned_future ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>' : '';
+    // Add planned future indicator next to date (only for open planned deals)
+    const plannedFutureLabel =
+        deal?.planned_future && !deal?.closed
+            ? ' <span style="color: #f59e0b; font-size: 12px; font-weight: 500; margin-left: 8px;">[Planned]</span>'
+            : '';
     
     // Check if stock has warnings and add indicators
     let volumeIndicator = '';
@@ -2151,13 +2155,11 @@ async function handleDealSubmit(form, deal, isNew) {
             obj[k] = v;
         }
 
-        // Get planned future checkbox state from form (only for new deals)
+        // planned_future: new deals are always created as planned; existing keep their flag
         if (isNew) {
-            const formCheckbox = form.querySelector('input[name="planned_future"]');
-            obj.planned_future = formCheckbox ? formCheckbox.checked : false;
+            obj.planned_future = true;
         } else {
-            // For existing deals, keep the current planned_future status (cannot be changed)
-            obj.planned_future = deal?.planned_future || false;
+            obj.planned_future = !!(deal && deal.planned_future);
         }
 
         // Calculate and include total sum
@@ -2173,10 +2175,13 @@ async function handleDealSubmit(form, deal, isNew) {
         }
 
         await saveDealToServer(obj, !isNew);
-        
-        // Portfolio deduction is now handled server-side in DealsController
-        // Just refresh the portfolio display from server after deal creation
-        if (isNew) {
+
+        // New planned deals should NOT affect cash / In Shares until activated.
+        const isPlannedNew = isNew && obj.planned_future === true;
+
+        // Portfolio deduction is now handled server-side in DealsController.
+        // Refresh portfolio only when deal actually affects it.
+        if (!isPlannedNew) {
             await refreshPortfolioFromServer();
         }
         
@@ -2186,9 +2191,11 @@ async function handleDealSubmit(form, deal, isNew) {
         expandedDealId = null;
         await loadDeals();
         
-        // Calculate and display portfolio risk after deal save
-        await calculateAndDisplayPortfolioRisk();
-        await calculateAndDisplayInSharesRisk();
+        // Recalculate risk metrics only when portfolio is affected.
+        if (!isPlannedNew) {
+            await calculateAndDisplayPortfolioRisk();
+            await calculateAndDisplayInSharesRisk();
+        }
     } catch (e) {
         console.error(e);
         alert('Не удалось сохранить сделку');
@@ -2481,6 +2488,35 @@ async function loadTrends(ticker, form) {
     }
 }
 
+const defaultMovementSettings = {
+    timeframe: 'Weekly',
+    lookback: 52
+};
+
+function loadMovementSettings() {
+    try {
+        const raw = localStorage.getItem('movementSettings');
+        if (!raw) return { ...defaultMovementSettings };
+        const parsed = JSON.parse(raw);
+        return {
+            timeframe: parsed.timeframe || 'Weekly',
+            lookback: parsed.lookback || 52
+        };
+    } catch {
+        return { ...defaultMovementSettings };
+    }
+}
+
+function saveMovementSettings(settings) {
+    try {
+        localStorage.setItem('movementSettings', JSON.stringify(settings));
+    } catch (e) {
+        console.warn('Failed to save movement settings', e);
+    }
+}
+
+window.movementSettings = loadMovementSettings();
+
 // Load movement metrics for a ticker
 async function loadMovementMetrics(ticker) {
     if (!ticker) {
@@ -2490,7 +2526,10 @@ async function loadMovementMetrics(ticker) {
     
     try {
         console.log('Loading movement metrics for ticker:', ticker);
-        const url = `/api/prices/${encodeURIComponent(ticker)}/movement-score?lookback=52`;
+        const s = window.movementSettings || defaultMovementSettings;
+        const lookback = s.lookback || 52;
+        const timeframe = encodeURIComponent(s.timeframe || 'Weekly');
+        const url = `/api/prices/${encodeURIComponent(ticker)}/movement-score?lookback=${lookback}&timeframe=${timeframe}`;
         console.log('Request URL:', url);
         
         const res = await fetch(url, {
@@ -3964,9 +4003,53 @@ function setupPinnedStocksUI() {
     });
 }
 
+function setupSettingsUI() {
+    const btn = document.getElementById('settingsBtn');
+    const modal = document.getElementById('settingsModal');
+    const closeBtn = document.getElementById('closeSettingsModalBtn');
+    const form = document.getElementById('settingsForm');
+    const tfSelect = document.getElementById('movementTimeframeSelect');
+    const lbSelect = document.getElementById('movementLookbackSelect');
+
+    if (!btn || !modal || !closeBtn || !form || !tfSelect || !lbSelect) return;
+
+    const openModal = () => {
+        const s = window.movementSettings || defaultMovementSettings;
+        tfSelect.value = s.timeframe || 'Weekly';
+        lbSelect.value = String(s.lookback || 52);
+        modal.style.display = 'flex';
+    };
+
+    const closeModal = () => {
+        modal.style.display = 'none';
+    };
+
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openModal();
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        closeModal();
+    });
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const settings = {
+            timeframe: tfSelect.value || 'Weekly',
+            lookback: parseInt(lbSelect.value || '52', 10)
+        };
+        window.movementSettings = settings;
+        saveMovementSettings(settings);
+        closeModal();
+    });
+}
+
 // ======== СТАРТ =========
 (async function init() {
     setupPinnedStocksUI();
+    setupSettingsUI();
     await loadDeals();
     // Calculate and display portfolio risk on page load
     await calculateAndDisplayPortfolioRisk();

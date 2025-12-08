@@ -18,9 +18,6 @@
             </div>
         </div>
         <div class="controls">
-            <div id="userInfo" class="user-info">
-                <span id="userNameDisplay">...</span>
-            </div>
             <div class="portfolio-info">
                 Cash:
                 <span id="portfolioValue" class="portfolio-display">0</span>
@@ -41,8 +38,11 @@
                 Risk (In Shares):
                 <span id="inSharesRiskValue" class="portfolio-display readonly">0.00%</span>
             </div>
-            <button id="newDealBtn" class="desktop-btn">New Deal</button>
+            <div id="userInfo" class="user-info">
+                <span id="userNameDisplay">...</span>
+            </div>
             <button id="logoutBtn" class="secondary desktop-btn">Logout</button>
+            <button id="settingsBtn" class="secondary desktop-btn" title="Settings">⚙</button>
             <!-- Hamburger menu button for mobile -->
             <button id="menuToggle" class="menu-toggle" aria-label="Menu">
                 <span></span>
@@ -54,10 +54,8 @@
 
     <!-- Tools panel under header (same style as other panels) -->
     <div class="panel tools-panel">
-        <div style="display: flex; justify-content: flex-start; align-items: center; margin-bottom: 8px;">
-            <button id="openPinnedModalBtn" class="secondary">Add ticker</button>
-        </div>
         <div id="extraIndicators" class="tools-panel-body">
+            <button id="openPinnedModalBtn" class="secondary">Add ticker</button>
             <div id="pinnedStocksContainer" class="pinned-stocks-list"></div>
         </div>
     </div>
@@ -73,17 +71,22 @@
         <aside class="panel">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <h3 style="margin: 0;">Stocks</h3>
+                <button id="addStockBtn" class="desktop-btn">Add stock</button>
+            </div>
+            <div class="filterRow">
+                <input id="stockFilterInput" placeholder="search" style="flex:1">
                 <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="stockCount">0</span></div>
             </div>
-            <button id="addStockBtn">Add stock</button>
             <div id="stockList" class="list"></div>
             <div id="emptyStock" class="empty" style="display: none;">Нет акций</div>
         </aside>
         <!-- CENTER: only open deals (with search) -->
         <section class="panel center">
-            <h3>Open deals</h3>
-
-            <div class="filterRow" style="margin-top:8px">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h3 style="margin: 0;">Open deals</h3>
+                <button id="newDealBtn" class="desktop-btn">New Deal</button>
+            </div>
+            <div class="filterRow">
                 <input id="filterInput" placeholder="search" style="flex:1">
                 <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="openCount">0</span></div>
             </div>
@@ -211,6 +214,44 @@
 
                 <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:8px">
                     <button type="submit" id="confirmPinnedAddBtn">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for movement/settings -->
+    <div id="settingsModal" class="modal" style="display:none">
+        <div class="card" style="max-width: 420px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <strong>Settings</strong>
+                <div class="actions">
+                    <button id="closeSettingsModalBtn" class="secondary">Close</button>
+                </div>
+            </div>
+
+            <form id="settingsForm">
+                <div class="stock-form-grid">
+                    <label>
+                        Movement timeframe
+                        <select name="movement_timeframe" id="movementTimeframeSelect">
+                            <option value="Daily">Daily</option>
+                            <option value="Weekly" selected>Weekly</option>
+                            <option value="Monthly">Monthly</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        Lookback (bars)
+                        <select name="movement_lookback" id="movementLookbackSelect">
+                            <option value="26">26</option>
+                            <option value="52" selected>52</option>
+                            <option value="104">104</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div style="display:flex;justify-content:flex-end;margin-top:16px;gap:8px">
+                    <button type="submit">Save</button>
                 </div>
             </form>
         </div>

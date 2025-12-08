@@ -706,7 +706,8 @@ public class PricesController : ControllerBase
         [FromQuery] double wStrength = 3.0,
         [FromQuery] double wEase = 1.0,
         [FromQuery] bool clampTo100 = false,
-        [FromQuery] double flatThresholdPct = 0.001)
+        [FromQuery] double flatThresholdPct = 0.001,
+        [FromQuery] string timeframe = "Weekly")
     {
         if (string.IsNullOrWhiteSpace(ticker))
             return BadRequest("Ticker is required");
@@ -716,7 +717,7 @@ public class PricesController : ControllerBase
 
         try
         {
-            _logger.LogInformation("Calculating movement score for {Ticker} with lookback={Lookback}", ticker, lookback);
+            _logger.LogInformation("Calculating movement score for {Ticker} with lookback={Lookback}, timeframe={Timeframe}", ticker, lookback, timeframe);
             var priceData = await _alpha.GetWeeklyAsync(ticker);
             
             if (priceData.Count == 0)
