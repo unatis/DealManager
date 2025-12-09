@@ -67,6 +67,12 @@ namespace DealManager.Controllers
                 deal.Date = DateTime.UtcNow.ToString("yyyy-MM-dd");
             }
 
+            // Если сделка создаётся сразу как реальная (не planned) – проставим время активации
+            if (!deal.PlannedFuture && deal.ActivatedAt == null)
+            {
+                deal.ActivatedAt = DateTime.UtcNow;
+            }
+
             // Validate and parse total_sum if provided
             decimal? totalSumValue = null;
             if (!string.IsNullOrWhiteSpace(deal.TotalSum))
@@ -81,8 +87,8 @@ namespace DealManager.Controllers
             // Create the deal
             await _service.CreateAsync(deal);
 
-            // Deduct portfolio on server-side (secure)
-            if (totalSumValue.HasValue && totalSumValue.Value > 0)
+            // Deduct portfolio on server-side (secure) only for active (non-planned) deals
+            if (!deal.PlannedFuture && totalSumValue.HasValue && totalSumValue.Value > 0)
             {
                 var portfolioDeducted = await _users.DeductPortfolioAsync(userId, totalSumValue.Value);
                 if (!portfolioDeducted)
@@ -111,6 +117,11 @@ namespace DealManager.Controllers
             if (!exists)
                 return BadRequest("You can update deals only for stocks from your list.");
 
+            // Получаем текущее состояние сделки, чтобы понять, был ли переход из planned -> active
+            var existing = await _service.GetAsync(id, userId);
+            if (existing == null)
+                return NotFound();
+
             // Validate total_sum if provided
             if (!string.IsNullOrWhiteSpace(deal.TotalSum))
             {
@@ -120,8 +131,24 @@ namespace DealManager.Controllers
                 }
             }
 
+            // Копируем технические поля
             deal.UserId = userId;
             deal.OwnerId = userId; // Ensure OwnerId is set on update too
+
+            // Если это активация плана (PlannedFuture: true -> false), проставим ActivatedAt один раз
+            if (existing.PlannedFuture && !deal.PlannedFuture)
+            {
+                // Если раньше не было – считаем, что это первая активация
+                deal.ActivatedAt = existing.ActivatedAt ?? DateTime.UtcNow;
+            }
+            else
+            {
+                // В остальных случаях сохраняем предыдущее значение, если клиент его не установил явно
+                if (deal.ActivatedAt == null)
+                {
+                    deal.ActivatedAt = existing.ActivatedAt;
+                }
+            }
 
             var ok = await _service.UpdateAsync(id, userId, deal);
             if (!ok) return NotFound();
@@ -162,6 +189,36 @@ namespace DealManager.Controllers
 
             var riskPercent = await _riskService.CalculateInSharesRiskPercentAsync(userId);
             return Ok(riskPercent);
+        }
+
+        [HttpGet("limits")]
+        public async Task<ActionResult<DealLimitResult>> GetDealLimits([FromQuery] decimal stopLossPercent)
+        {
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
+
+            if (stopLossPercent <= 0)
+                return BadRequest("stopLossPercent must be > 0");
+
+            var limits = await _riskService.CalculateDealLimitsAsync(userId, stopLossPercent);
+            return Ok(limits);
+        }
+
+        [HttpGet("weekly-activations")]
+        public async Task<ActionResult<object>> GetWeeklyActivations()
+        {
+            var userId = GetUserId();
+            if (userId == null) return Unauthorized();
+
+            var count = await _service.GetWeeklyActivationsCountAsync(userId);
+            const int maxPerWeek = 2;
+
+            return Ok(new
+            {
+                count,
+                maxPerWeek,
+                exceeds = count >= maxPerWeek
+            });
         }
     }
 }

@@ -64,7 +64,11 @@ function escapeHtml(str) {
 
 // Function to set button loading state with spinner (similar to login button)
 function setButtonLoading(button, isLoading) {
+    if (!button) return;
+
     if (isLoading) {
+        // Если у кнопки заранее задан data-original-text (в HTML) — не трогаем.
+        // Если нет — запоминаем текущий текст один раз.
         if (!button.dataset.originalText) {
             button.dataset.originalText = button.textContent.trim();
         }
@@ -72,10 +76,45 @@ function setButtonLoading(button, isLoading) {
         button.innerHTML = '<span class="loading-spinner"></span> Loading...';
     } else {
         button.disabled = false;
-        const originalText = button.dataset.originalText || 'Save changes';
-        button.textContent = originalText;
-        delete button.dataset.originalText;
+        if (button.dataset.originalText) {
+            button.textContent = button.dataset.originalText;
+        }
+        // data-original-text НЕ очищаем, чтобы текст кнопки не «переучивался»
+        // при повторных включениях/выключениях спиннера.
     }
+}
+
+// Simple reusable modal for deal limit / risk warnings
+function showDealLimitModal(message) {
+    const modal = document.getElementById('dealLimitModal');
+    const body = document.getElementById('dealLimitModalBody');
+    const closeBtn = document.getElementById('dealLimitCloseBtn');
+
+    if (!modal || !body || !closeBtn) {
+        // Разметка не найдена – логируем, но не показываем alert, чтобы не путать UX
+        console.error('dealLimitModal elements not found in DOM');
+        console.error('Deal limit message:', message);
+        return;
+    }
+
+    body.textContent = message;
+    // Используем flex, чтобы сработало центрирование по .modal в deals.css
+    modal.style.display = 'flex';
+
+    function hide() {
+        modal.style.display = 'none';
+        closeBtn.removeEventListener('click', hide);
+        modal.removeEventListener('click', backdropHandler);
+    }
+
+    function backdropHandler(e) {
+        if (e.target === modal) {
+            hide();
+        }
+    }
+
+    closeBtn.addEventListener('click', hide);
+    modal.addEventListener('click', backdropHandler);
 }
 
 // Format total sum for display
@@ -1097,7 +1136,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 50px; flex-wrap: wrap;">
                             ${isNew ? `
-                            <button type="submit">Plan a deal</button>
+                            <button type="submit" data-original-text="Plan a deal">Plan a deal</button>
                             ` : deal?.planned_future ? `
                             <button type="button" class="activate-deal-btn">Create deal</button>
                             ${!deal?.closed ? `<button type="submit" class="secondary">Save changes</button>` : ''}
@@ -1522,7 +1561,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
     });
 
     // Form submit
-    if (form) {
+        if (form) {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             await handleDealSubmit(form, deal, isNew);
@@ -1533,6 +1572,108 @@ async function setupDealRowHandlers(row, deal, isNew) {
         if (activateBtn) {
             activateBtn.addEventListener('click', async () => {
                 if (!deal || !deal.id) return;
+
+                // Gather latest values from form (fallback to deal if inputs are empty)
+                let sharePriceNum = 0;
+                let amount1Num = 0;
+                let amount2Num = 0;
+                let slPctNum = 0;
+
+                try {
+                    if (form) {
+                        const spInput  = form.querySelector('input[name="share_price"]');
+                        const a1Input  = form.querySelector('input[name="amount_tobuy_stage_1"]');
+                        const a2Input  = form.querySelector('input[name="amount_tobuy_stage_2"]');
+                        const slInput  = form.querySelector('input[name="stop_loss_prcnt"]');
+
+                        if (spInput) sharePriceNum = parseFloat(String(spInput.value || '').replace(',', '.')) || 0;
+                        if (a1Input) amount1Num    = parseFloat(String(a1Input.value || '')) || 0;
+                        if (a2Input) amount2Num    = parseFloat(String(a2Input.value || '')) || 0;
+                        if (slInput) slPctNum      = parseFloat(String(slInput.value || '').replace(',', '.')) || 0;
+                    }
+
+                    // Fallback to deal values if form fields are empty
+                    if (!sharePriceNum && deal.share_price) {
+                        sharePriceNum = parseFloat(String(deal.share_price).replace(',', '.')) || 0;
+                    }
+                    if (!amount1Num && deal.amount_tobuy_stage_1) {
+                        amount1Num = parseFloat(String(deal.amount_tobuy_stage_1)) || 0;
+                    }
+                    if (!amount2Num && deal.amount_tobuy_stage_2) {
+                        amount2Num = parseFloat(String(deal.amount_tobuy_stage_2)) || 0;
+                    }
+                    if (!slPctNum && deal.stop_loss_prcnt) {
+                        slPctNum = parseFloat(String(deal.stop_loss_prcnt).replace(',', '.')) || 0;
+                    }
+
+                    const totalPlanned = sharePriceNum * (amount1Num + amount2Num);
+
+                    // 1) Жёсткая проверка лимитов по размеру позиции и риску
+                    if (slPctNum > 0 && totalPlanned > 0) {
+                        const res = await fetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
+                            headers: authHeaders()
+                        });
+                        if (res.ok) {
+                            const limits = await res.json();
+                            const isSingle = !amount2Num || amount2Num === 0;
+
+                            if (isSingle) {
+                                if (totalPlanned > limits.singleStageMax) {
+                                    showDealLimitModal(
+                                        `Single-stage deal is too big.\n` +
+                                        `Max allowed: ${limits.singleStageMax.toFixed(2)}.`
+                                    );
+                                    return;
+                                }
+                            } else {
+                                const stage1Sum = sharePriceNum * amount1Num;
+                                if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
+                                    showDealLimitModal(
+                                        `Two-stage deal exceeds limits.\n` +
+                                        `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
+                                    );
+                                    return;
+                                }
+                            }
+
+                            if (!limits.allowed) {
+                                showDealLimitModal(
+                                    `Deal would push portfolio risk above limit.\n` +
+                                    `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.`
+                                );
+                                return;
+                            }
+                        }
+                    }
+
+                    // 2) Мягкое предупреждение, если уже было 2 и более активаций за неделю
+                    try {
+                        const weeklyRes = await fetch('/api/deals/weekly-activations', {
+                            headers: authHeaders()
+                        });
+                        if (weeklyRes.ok) {
+                            const data = await weeklyRes.json();
+                            if (data && data.exceeds) {
+                                const msg =
+                                    `You already activated ${data.count} deals this week.\n` +
+                                    `Recommended maximum is ${data.maxPerWeek} per week.\n\n` +
+                                    `Do you still want to activate this deal?`;
+                                const proceed = window.confirm(msg);
+                                if (!proceed) {
+                                    return; // пользователь отменил активацию
+                                }
+                            }
+                        }
+                    } catch (warnErr) {
+                        console.error('Failed to check weekly activations', warnErr);
+                        // В случае ошибки предупреждения не блокируем активацию
+                    }
+                } catch (err) {
+                    console.error('Failed to validate deal limits before activation', err);
+                    // Если лимиты не смогли посчитать — не блокируем, но логируем
+                }
+
+                setButtonLoading(activateBtn, true);
                 
                 // Change planned_future from true to false
                 const updatedDeal = { ...deal, planned_future: false };
@@ -1553,8 +1694,12 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 } catch (e) {
                     console.error(e);
                     alert('Не удалось активировать сделку');
+                } finally {
+                    setButtonLoading(activateBtn, false);
                 }
             });
+            // Setup risk/limits hints for this form
+            setupRiskAndLimits(form);
         }
 
         // Close deal button
@@ -1640,6 +1785,81 @@ function setupTotalSumCalculator(row, form, deal) {
     // Listen to input changes
     sharePriceInput.addEventListener('input', updateTotalSum);
     amountInput.addEventListener('input', updateTotalSum);
+}
+
+// Show deal limits (max position, stages, added risk) under the form
+async function updateDealLimitsUI(form) {
+    const slPctInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    if (!slPctInput) return;
+
+    const slPct = parseFloat((slPctInput.value || '').replace(',', '.'));
+    if (!slPct || slPct <= 0) return;
+
+    try {
+        const res = await fetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPct)}`, {
+            headers: authHeaders()
+        });
+        if (!res.ok) {
+            console.warn('Failed to load deal limits', res.status);
+            return;
+        }
+        const limits = await res.json();
+
+        let info = form.querySelector('.deal-limits-info');
+        if (!info) {
+            info = document.createElement('div');
+            info.className = 'deal-limits-info small';
+            info.style.marginTop = '8px';
+            info.style.color = 'var(--muted)';
+
+            const actions = form.querySelector('.form-actions');
+            if (actions && actions.parentNode) {
+                actions.parentNode.insertBefore(info, actions);
+            } else {
+                form.appendChild(info);
+            }
+        }
+
+        if (!limits.allowed) {
+            info.innerHTML = `
+                <span style="color:#dc2626;font-weight:600;">
+                    Planned deal exceeds portfolio risk limits.
+                    Max position: ${limits.maxPosition.toFixed(2)}
+                    (adds ${limits.addedRiskPercent.toFixed(2)}% risk).
+                </span>`;
+        } else {
+            info.innerHTML = `
+                Max position: <strong>${limits.maxPosition.toFixed(2)}</strong>
+                (adds ${limits.addedRiskPercent.toFixed(2)}% risk).<br>
+                Stage 1 ≤ <strong>${limits.maxStage1.toFixed(2)}</strong>
+                (single-stage max: ${limits.singleStageMax.toFixed(2)}).<br>
+                Recommended split: ${limits.recommendedStage1.toFixed(2)}
+                + ${limits.recommendedStage2.toFixed(2)}.
+            `;
+        }
+    } catch (e) {
+        console.error('Error updating deal limits UI', e);
+    }
+}
+
+function setupRiskAndLimits(form) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const amount1Input    = form.querySelector('input[name="amount_tobuy_stage_1"]');
+    const amount2Input    = form.querySelector('input[name="amount_tobuy_stage_2"]');
+    const slPctInput      = form.querySelector('input[name="stop_loss_prcnt"]');
+
+    if (!sharePriceInput || !amount1Input || !slPctInput) return;
+
+    const trigger = () => {
+        if (slPctInput.value) {
+            updateDealLimitsUI(form);
+        }
+    };
+
+    sharePriceInput.addEventListener('input', trigger);
+    amount1Input.addEventListener('input', trigger);
+    if (amount2Input) amount2Input.addEventListener('input', trigger);
+    slPctInput.addEventListener('input', trigger);
 }
 
 // Setup event listener for share price input to calculate stop loss and take profit percentages
@@ -2162,16 +2382,69 @@ async function handleDealSubmit(form, deal, isNew) {
             obj.planned_future = !!(deal && deal.planned_future);
         }
 
-        // Calculate and include total sum
-        const sharePrice = obj.share_price || '';
-        const amountToBuy = obj.amount_tobuy_stage_1 || '';
-        const totalSum = calculateTotalSum(sharePrice, amountToBuy);
+        // Calculate and include total sum (both stages)
+        const sharePriceStr = obj.share_price || '';
+        const amount1Str    = obj.amount_tobuy_stage_1 || '';
+        const amount2Str    = obj.amount_tobuy_stage_2 || '';
+
+        const sharePriceNum = parseFloat(String(sharePriceStr).replace(',', '.')) || 0;
+        const amount1Num    = parseFloat(String(amount1Str)) || 0;
+        const amount2Num    = parseFloat(String(amount2Str)) || 0;
+
+        const totalPlanned  = sharePriceNum * (amount1Num + amount2Num);
+        const totalSum      = calculateTotalSum(sharePriceStr, amount1Str);
         if (totalSum) {
             obj.total_sum = totalSum;
         }
 
         if (!obj.date) {
             obj.date = new Date().toISOString().slice(0, 10);
+        }
+
+        // Validate against deal limits (risk / cash constraints)
+        const slPctNum = parseFloat(String(obj.stop_loss_prcnt || '').replace(',', '.')) || 0;
+        if (slPctNum > 0 && totalPlanned > 0) {
+            try {
+                const res = await fetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
+                    headers: authHeaders()
+                });
+                if (res.ok) {
+                    const limits = await res.json();
+                    const isSingle = !amount2Num || amount2Num === 0;
+
+                    if (isSingle) {
+                        if (totalPlanned > limits.singleStageMax) {
+                            showDealLimitModal(
+                                `Single-stage deal is too big.\n` +
+                                `Max allowed: ${limits.singleStageMax.toFixed(2)}.`
+                            );
+                            setButtonLoading(submitButton, false);
+                            return;
+                        }
+                    } else {
+                        const stage1Sum = sharePriceNum * amount1Num;
+                        if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
+                            showDealLimitModal(
+                                `Two-stage deal exceeds limits.\n` +
+                                `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
+                            );
+                            setButtonLoading(submitButton, false);
+                            return;
+                        }
+                    }
+
+                    if (!limits.allowed) {
+                        showDealLimitModal(
+                            `Deal would push portfolio risk above limit.\n` +
+                            `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.`
+                        );
+                        setButtonLoading(submitButton, false);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to validate deal limits', err);
+            }
         }
 
         await saveDealToServer(obj, !isNew);

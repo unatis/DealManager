@@ -145,7 +145,9 @@ async function updateStockOnServer(id, stockDto) {
 
 // ====== Модалка акций ======
 
-function setButtonLoading(button, isLoading) {
+// Локальный helper только для кнопки сохранения акции,
+// чтобы не конфликтовать с глобальным setButtonLoading из deals-inline.js
+function setStockButtonLoading(button, isLoading) {
     if (isLoading) {
         if (!button.dataset.originalText) {
             button.dataset.originalText = button.textContent.trim();
@@ -333,7 +335,7 @@ stockForm.addEventListener('submit', async e => {
         const stockId = stockForm.dataset.stockId; // Get stored stock ID if editing
 
         try {
-            setButtonLoading(submitButton, true);
+            setStockButtonLoading(submitButton, true);
             
             if (stockId) {
                 // Update existing stock
@@ -359,7 +361,7 @@ stockForm.addEventListener('submit', async e => {
                 });
             }
 
-            setButtonLoading(submitButton, false);
+            setStockButtonLoading(submitButton, false);
         stockModal.style.display = 'none';
         stockForm.reset();
             delete stockForm.dataset.stockId; // Clear stored ID

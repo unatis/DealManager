@@ -49,6 +49,27 @@ namespace DealManager.Services
             return result.DeletedCount == 1;
         }
 
+        /// <summary>
+        /// Количество активированных сделок за текущую календарную неделю (начало недели – понедельник).
+        /// Учитываются только реальные сделки (PlannedFuture == false) с ненулевым ActivatedAt.
+        /// </summary>
+        public async Task<int> GetWeeklyActivationsCountAsync(string userId)
+        {
+            var today = DateTime.UtcNow.Date;
+            // Смещаем DayOfWeek так, чтобы Monday = 0, Sunday = 6
+            int delta = ((int)today.DayOfWeek + 6) % 7;
+            var weekStart = today.AddDays(-delta);
+
+            var filter = Builders<Deal>.Filter.And(
+                Builders<Deal>.Filter.Eq(d => d.UserId, userId),
+                Builders<Deal>.Filter.Eq(d => d.PlannedFuture, false),
+                Builders<Deal>.Filter.Gte(d => d.ActivatedAt, weekStart)
+            );
+
+            var count = await _deals.CountDocumentsAsync(filter);
+            return (int)count;
+        }
+
         // Helper method to calculate Reward-to-Risk ratio
         public static double CalculateRewardToRisk(double entry, double stopLoss, double takeProfit)
         {

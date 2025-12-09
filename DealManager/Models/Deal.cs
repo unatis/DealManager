@@ -26,8 +26,17 @@ namespace DealManager.Models
         [JsonPropertyName("closedAt")]
         public DateTime? ClosedAt { get; set; }
 
+        /// <summary>
+        /// Признак запланированной сделки (ещё не активирована в портфеле).
+        /// </summary>
         [JsonPropertyName("planned_future")]
         public bool PlannedFuture { get; set; } = false;
+
+        /// <summary>
+        /// Время первой активации сделки (перевод из planned в реальную).
+        /// </summary>
+        [JsonPropertyName("activatedAt")]
+        public DateTime? ActivatedAt { get; set; }
 
         [JsonPropertyName("date")]
         public string Date { get; set; } = "";
