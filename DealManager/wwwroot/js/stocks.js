@@ -27,7 +27,7 @@ function authHeaders() {
 // Function to load warnings from server
 async function loadWarnings() {
     try {
-        const res = await fetch('/api/stocks/warnings', {
+        const res = await apiFetch('/api/stocks/warnings', {
             headers: authHeaders()
         });
 
@@ -66,7 +66,7 @@ async function loadStocks() {
     renderStocks(); // Show loading state
     
     try {
-        const res = await fetch('/api/stocks', {
+        const res = await apiFetch('/api/stocks', {
             headers: authHeaders()
         });
         if (!res.ok) throw new Error('Failed to load stocks');
@@ -89,7 +89,7 @@ async function loadStocks() {
 }
 
 async function saveStockToServer(stockDto) {
-    const res = await fetch('/api/stocks', {
+    const res = await apiFetch('/api/stocks', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -114,7 +114,7 @@ async function saveStockToServer(stockDto) {
 
 
 async function deleteStockOnServer(id) {
-    const res = await fetch(`/api/stocks/${id}`, {
+    const res = await apiFetch(`/api/stocks/${id}`, {
         method: 'DELETE',
         headers: authHeaders()
     });
@@ -145,7 +145,9 @@ async function updateStockOnServer(id, stockDto) {
 
 // ====== Модалка акций ======
 
-function setButtonLoading(button, isLoading) {
+// Локальный helper только для кнопки сохранения акции,
+// чтобы не конфликтовать с глобальным setButtonLoading из deals-inline.js
+function setStockButtonLoading(button, isLoading) {
     if (isLoading) {
         if (!button.dataset.originalText) {
             button.dataset.originalText = button.textContent.trim();
@@ -333,7 +335,7 @@ stockForm.addEventListener('submit', async e => {
         const stockId = stockForm.dataset.stockId; // Get stored stock ID if editing
 
         try {
-            setButtonLoading(submitButton, true);
+            setStockButtonLoading(submitButton, true);
             
             if (stockId) {
                 // Update existing stock
@@ -359,7 +361,7 @@ stockForm.addEventListener('submit', async e => {
                 });
             }
 
-            setButtonLoading(submitButton, false);
+            setStockButtonLoading(submitButton, false);
         stockModal.style.display = 'none';
         stockForm.reset();
             delete stockForm.dataset.stockId; // Clear stored ID

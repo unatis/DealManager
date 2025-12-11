@@ -1,4 +1,4 @@
-﻿using DealManager.Models;
+using DealManager.Models;
 using MongoDB.Driver;
 
 namespace DealManager.Services
@@ -27,6 +27,26 @@ namespace DealManager.Services
             _users.UpdateOneAsync(
                 u => u.Id == userId,
                 Builders<AppUser>.Update.Set(u => u.Portfolio, portfolio));
+
+        /// <summary>
+        /// Увеличивает значение портфеля на указанную сумму.
+        /// </summary>
+        public async Task<bool> AddPortfolioAsync(string userId, decimal amount)
+        {
+            if (amount <= 0) return false;
+
+            var user = await _users.Find(u => u.Id == userId).FirstOrDefaultAsync();
+            if (user == null) return false;
+
+            var currentPortfolio = (decimal)user.Portfolio;
+            var newPortfolio = currentPortfolio + amount;
+
+            await _users.UpdateOneAsync(
+                u => u.Id == userId,
+                Builders<AppUser>.Update.Set(u => u.Portfolio, (double)newPortfolio));
+
+            return true;
+        }
 
         public async Task<bool> DeductPortfolioAsync(string userId, decimal amount)
         {

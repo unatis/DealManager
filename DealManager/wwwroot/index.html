@@ -1,4 +1,4 @@
-﻿
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -29,6 +29,10 @@
             <div class="portfolio-info">
                 In Shares:
                 <span id="inSharesValue" class="portfolio-display readonly">0</span>
+            </div>
+            <div class="portfolio-info">
+                In Planned:
+                <span id="inPlannedValue" class="portfolio-display readonly">0</span>
             </div>
             <div class="portfolio-info">
                 Risk:
@@ -254,6 +258,46 @@
                     <button type="submit">Save</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal for deal limits / risk warnings -->
+    <div id="dealLimitModal" class="modal" style="display:none">
+        <div class="card" style="max-width: 420px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <strong>Deal limit warning</strong>
+                <div class="actions">
+                    <button id="dealLimitCloseBtn" class="secondary">Close</button>
+                </div>
+            </div>
+
+            <!-- Static explanation about 0.5% single-stage risk limit -->
+            <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">
+                Single-stage deal limit is based on a maximum risk of <strong>0.5% of your total portfolio</strong>,
+                taking into account your current stop loss. If the deal size and stop loss would risk more than 0.5%
+                of the portfolio, the allowed amount is reduced.
+            </div>
+
+            <!-- Dynamic body filled from JS (limits for this specific deal) -->
+            <div id="dealLimitModalBody"
+                 style="font-size:14px;line-height:1.4;white-space:pre-line;"></div>
+        </div>
+    </div>
+
+    <!-- Modal for weekly activations warning -->
+    <div id="weeklyConfirmModal" class="modal" style="display:none">
+        <div class="card" style="max-width: 420px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <strong>Weekly activations warning</strong>
+            </div>
+
+            <div id="weeklyConfirmModalBody"
+                 style="font-size:14px;line-height:1.4;white-space:pre-line;margin-bottom:16px;"></div>
+
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+                <button id="weeklyConfirmCancelBtn" class="secondary">Cancel</button>
+                <button id="weeklyConfirmOkBtn">OK</button>
+            </div>
         </div>
     </div>
 

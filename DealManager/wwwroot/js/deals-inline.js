@@ -64,7 +64,11 @@ function escapeHtml(str) {
 
 // Function to set button loading state with spinner (similar to login button)
 function setButtonLoading(button, isLoading) {
+    if (!button) return;
+
     if (isLoading) {
+        // Если у кнопки заранее задан data-original-text (в HTML) — не трогаем.
+        // Если нет — запоминаем текущий текст один раз.
         if (!button.dataset.originalText) {
             button.dataset.originalText = button.textContent.trim();
         }
@@ -72,10 +76,95 @@ function setButtonLoading(button, isLoading) {
         button.innerHTML = '<span class="loading-spinner"></span> Loading...';
     } else {
         button.disabled = false;
-        const originalText = button.dataset.originalText || 'Save changes';
-        button.textContent = originalText;
-        delete button.dataset.originalText;
+        if (button.dataset.originalText) {
+            button.textContent = button.dataset.originalText;
+        }
+        // data-original-text НЕ очищаем, чтобы текст кнопки не «переучивался»
+        // при повторных включениях/выключениях спиннера.
     }
+}
+
+// Simple reusable modal for deal limit / risk warnings
+function showDealLimitModal(message) {
+    const modal = document.getElementById('dealLimitModal');
+    const body = document.getElementById('dealLimitModalBody');
+    const closeBtn = document.getElementById('dealLimitCloseBtn');
+
+    if (!modal || !body || !closeBtn) {
+        // Разметка не найдена – логируем, но не показываем alert, чтобы не путать UX
+        console.error('dealLimitModal elements not found in DOM');
+        console.error('Deal limit message:', message);
+        return;
+    }
+
+    body.textContent = message;
+    // Используем flex, чтобы сработало центрирование по .modal в deals.css
+    modal.style.display = 'flex';
+
+    function hide() {
+        modal.style.display = 'none';
+        closeBtn.removeEventListener('click', hide);
+        modal.removeEventListener('click', backdropHandler);
+    }
+
+    function backdropHandler(e) {
+        if (e.target === modal) {
+            hide();
+        }
+    }
+
+    closeBtn.addEventListener('click', hide);
+    modal.addEventListener('click', backdropHandler);
+}
+
+// Reusable confirm-style modal for weekly activations warning
+function showWeeklyConfirmModal(message) {
+    return new Promise(resolve => {
+        const modal     = document.getElementById('weeklyConfirmModal');
+        const body      = document.getElementById('weeklyConfirmModalBody');
+        const okBtn     = document.getElementById('weeklyConfirmOkBtn');
+        const cancelBtn = document.getElementById('weeklyConfirmCancelBtn');
+
+        if (!modal || !body || !okBtn || !cancelBtn) {
+            console.error('weeklyConfirmModal elements not found in DOM');
+            console.error('Weekly confirm message:', message);
+            // Если модалка не найдена — на всякий случай ведём себя как «Cancel»
+            resolve(false);
+            return;
+        }
+
+        body.textContent = message;
+        // Используем flex, чтобы сработало центрирование по .modal в deals.css
+        modal.style.display = 'flex';
+
+        function cleanup() {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+        }
+
+        function onOk() {
+            cleanup();
+            resolve(true);
+        }
+
+        function onCancel() {
+            cleanup();
+            resolve(false);
+        }
+
+        function onBackdrop(e) {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        }
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+    });
 }
 
 // Format total sum for display
@@ -96,9 +185,32 @@ function isAtrHighRiskFromString(atrString) {
     return false;
 }
 
-// ---------- редирект если нет токена ----------
+// ---------- JWT helpers ----------
+function isJwtExpired(token) {
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return true;
+
+        const payloadJson = atob(parts[1]);
+        const payload = JSON.parse(payloadJson);
+
+        if (!payload.exp) return true;
+
+        const expMs = payload.exp * 1000; // exp в секундах
+        const nowMs = Date.now();
+
+        // небольшой запас 30 секунд, чтобы не упираться в границу
+        return nowMs > expMs - 30000;
+    } catch (e) {
+        console.error('Failed to parse JWT', e);
+        return true;
+    }
+}
+
+// ---------- редирект если нет токена ИЛИ он истёк ----------
 const token = localStorage.getItem('token');
-if (!token) {
+if (!token || isJwtExpired(token)) {
+    localStorage.removeItem('token');
     window.location.href = '/login.html';
 }
 
@@ -107,6 +219,27 @@ function authHeaders() {
     const token = localStorage.getItem('token');
     if (!token) return {};
     return { Authorization: `Bearer ${token}` };
+}
+
+// ---------- универсальный fetch с авто-обработкой 401/403 ----------
+async function apiFetch(url, options = {}) {
+    const token = localStorage.getItem('token');
+
+    const headers = {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+
+    const response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401 || response.status === 403) {
+        console.warn('API returned', response.status, '– clearing token and redirecting to login');
+        localStorage.removeItem('token');
+        window.location.href = '/login.html';
+        throw new Error('Unauthorized, redirect to login');
+    }
+
+    return response;
 }
 
 // ========== PORTFOLIO inline edit ==========
@@ -225,7 +358,7 @@ function setupPortfolioField(spanElement, localStorageKey, apiEndpoint, fieldNam
                     const pascalFieldName = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
                     const requestBody = {};
                     requestBody[pascalFieldName] = newVal;
-                    const res = await fetch(apiEndpoint, {
+                    const res = await apiFetch(apiEndpoint, {
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
@@ -333,11 +466,13 @@ function initPortfolioFields() {
     const portfolioSpan = document.getElementById('portfolioValue');
     const totalSumSpan = document.getElementById('totalSumValue');
     const inSharesSpan = document.getElementById('inSharesValue');
+    const inPlannedSpan = document.getElementById('inPlannedValue');
 
     console.log('initPortfolioFields: Found elements:', {
         portfolioSpan: !!portfolioSpan,
         totalSumSpan: !!totalSumSpan,
-        inSharesSpan: !!inSharesSpan
+        inSharesSpan: !!inSharesSpan,
+        inPlannedSpan: !!inPlannedSpan
     });
 
     if (portfolioSpan) {
@@ -359,7 +494,7 @@ function initPortfolioFields() {
     async function loadPortfolioValues() {
         try {
             // Load portfolio
-            const portfolioRes = await fetch('/api/users/portfolio', {
+            const portfolioRes = await apiFetch('/api/users/portfolio', {
                 headers: authHeaders()
             });
             if (portfolioRes.ok) {
@@ -375,7 +510,7 @@ function initPortfolioFields() {
             // Total Sum is calculated automatically (Cash + In Shares), not loaded from DB
 
             // Load inShares
-            const inSharesRes = await fetch('/api/users/inshares', {
+            const inSharesRes = await apiFetch('/api/users/inshares', {
                 headers: authHeaders()
             });
             if (inSharesRes.ok) {
@@ -388,7 +523,7 @@ function initPortfolioFields() {
                 }
             }
             
-            // After loading all values, calculate Total Sum (Cash + In Shares)
+            // After loading all values, calculate Total Sum (Cash + In Shares + In Planned)
             await calculateAndUpdateTotalSum();
         } catch (e) {
             console.error('Error loading portfolio values', e);
@@ -473,7 +608,7 @@ if (portfolioSpan) {
                 localStorage.setItem('portfolio', String(newVal));
 
                 try {
-                    const res = await fetch('/api/users/portfolio', {
+                    const res = await apiFetch('/api/users/portfolio', {
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
@@ -507,7 +642,7 @@ if (portfolioSpan) {
 
 async function loadStocksForDeals() {
     try {
-        const res = await fetch('/api/stocks', {
+        const res = await apiFetch('/api/stocks', {
             headers: authHeaders()
         });
 
@@ -534,7 +669,7 @@ function getStockByTicker(ticker) {
 // Function to load warnings from server
 async function loadWarnings() {
     try {
-        const res = await fetch('/api/stocks/warnings', {
+        const res = await apiFetch('/api/stocks/warnings', {
             headers: authHeaders()
         });
 
@@ -563,7 +698,7 @@ function getWarningByTicker(ticker) {
 
 async function loadDeals() {
     try {
-        const res = await fetch('/api/deals', {
+        const res = await apiFetch('/api/deals', {
             headers: {
                 ...authHeaders()
             }
@@ -609,12 +744,17 @@ async function loadDeals() {
 // Calculate total sum of all deals and update In Shares field
 async function calculateAndUpdateInShares() {
     try {
-        // Calculate total sum of only OPEN deals
+        // Calculate total sum of only OPEN, ACTIVE (non-planned) deals
         let totalInShares = 0;
         
         deals.forEach(deal => {
             // Skip closed deals
             if (deal.closed) {
+                return;
+            }
+
+            // Skip planned (future) deals - they are accounted separately in "In Planned"
+            if (deal.planned_future) {
                 return;
             }
             
@@ -643,7 +783,7 @@ async function calculateAndUpdateInShares() {
             
             // Save to database
             try {
-                const res = await fetch('/api/users/inshares', {
+                const res = await apiFetch('/api/users/inshares', {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -660,14 +800,54 @@ async function calculateAndUpdateInShares() {
                 console.error('Error saving In Shares', e);
             }
         }
+
+        // After updating In Shares, also recalculate In Planned (planned future deals)
+        await calculateAndUpdateInPlanned();
         
-        // After updating In Shares, calculate Total Sum (Cash + In Shares)
+        // After updating In Shares, calculate Total Sum (Cash + In Shares + In Planned)
         await calculateAndUpdateTotalSum();
         
         // After updating In Shares, also update Risk (In Shares)
         await calculateAndDisplayInSharesRisk();
     } catch (e) {
         console.error('Error calculating In Shares', e);
+    }
+}
+
+// Calculate total sum of all planned (future) open deals and update In Planned field
+async function calculateAndUpdateInPlanned() {
+    try {
+        let totalPlanned = 0;
+
+        deals.forEach(deal => {
+            // Consider only planned and not closed deals
+            if (!deal || !deal.planned_future || deal.closed) {
+                return;
+            }
+
+            let dealTotal = 0;
+
+            if (deal.total_sum) {
+                // Use existing total_sum if available
+                dealTotal = parseFloat(String(deal.total_sum).replace(',', '.')) || 0;
+            } else {
+                // Fallback: calculate from share_price * amount_tobuy_stage_1
+                const sharePrice = parseFloat(String(deal.share_price || '').replace(',', '.')) || 0;
+                const amount = parseFloat(String(deal.amount_tobuy_stage_1 || '').replace(',', '.')) || 0;
+                dealTotal = sharePrice * amount;
+            }
+
+            totalPlanned += dealTotal;
+        });
+
+        const inPlannedSpan = document.getElementById('inPlannedValue');
+        if (inPlannedSpan) {
+            const roundedTotal = Number(totalPlanned.toFixed(2));
+            inPlannedSpan.textContent = roundedTotal.toFixed(2);
+            localStorage.setItem('inPlanned', String(roundedTotal));
+        }
+    } catch (e) {
+        console.error('Error calculating In Planned', e);
     }
 }
 
@@ -717,7 +897,7 @@ async function calculateAndUpdateTotalSum() {
         
         // Save to database
         try {
-            const res = await fetch('/api/users/totalsum', {
+            const res = await apiFetch('/api/users/totalsum', {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -743,7 +923,7 @@ async function saveDealToServer(deal, isEdit) {
     const url = isEdit && hasId ? `/api/deals/${deal.id}` : '/api/deals';
     const method = isEdit && hasId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
         method,
         headers: {
             'Content-Type': 'application/json',
@@ -768,7 +948,7 @@ async function saveDealToServer(deal, isEdit) {
 // Refresh Cash (Portfolio) value from server
 async function refreshPortfolioFromServer() {
     try {
-        const res = await fetch('/api/users/portfolio', {
+        const res = await apiFetch('/api/users/portfolio', {
             headers: authHeaders()
         });
         if (res.ok) {
@@ -825,7 +1005,7 @@ async function handleDealSubmit(form, deal, isNew) {
 }
 
 async function deleteDealOnServer(id) {
-    const res = await fetch(`/api/deals/${id}`, {
+    const res = await apiFetch(`/api/deals/${id}`, {
         method: 'DELETE',
         headers: {
             ...authHeaders()
@@ -1097,7 +1277,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 50px; flex-wrap: wrap;">
                             ${isNew ? `
-                            <button type="submit">Plan a deal</button>
+                            <button type="submit" data-original-text="Plan a deal">Plan a deal</button>
                             ` : deal?.planned_future ? `
                             <button type="button" class="activate-deal-btn">Create deal</button>
                             ${!deal?.closed ? `<button type="submit" class="secondary">Save changes</button>` : ''}
@@ -1522,7 +1702,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
     });
 
     // Form submit
-    if (form) {
+        if (form) {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             await handleDealSubmit(form, deal, isNew);
@@ -1533,6 +1713,126 @@ async function setupDealRowHandlers(row, deal, isNew) {
         if (activateBtn) {
             activateBtn.addEventListener('click', async () => {
                 if (!deal || !deal.id) return;
+
+                // Gather latest values from form (fallback to deal if inputs are empty)
+                let sharePriceNum = 0;
+                let amount1Num = 0;
+                let amount2Num = 0;
+                let slPctNum = 0;
+
+                try {
+                    if (form) {
+                        const spInput  = form.querySelector('input[name="share_price"]');
+                        const a1Input  = form.querySelector('input[name="amount_tobuy_stage_1"]');
+                        const a2Input  = form.querySelector('input[name="amount_tobuy_stage_2"]');
+                        const slInput  = form.querySelector('input[name="stop_loss_prcnt"]');
+
+                        if (spInput) sharePriceNum = parseFloat(String(spInput.value || '').replace(',', '.')) || 0;
+                        if (a1Input) amount1Num    = parseFloat(String(a1Input.value || '')) || 0;
+                        if (a2Input) amount2Num    = parseFloat(String(a2Input.value || '')) || 0;
+                        if (slInput) slPctNum      = parseFloat(String(slInput.value || '').replace(',', '.')) || 0;
+                    }
+
+                    // Fallback to deal values if form fields are empty
+                    if (!sharePriceNum && deal.share_price) {
+                        sharePriceNum = parseFloat(String(deal.share_price).replace(',', '.')) || 0;
+                    }
+                    if (!amount1Num && deal.amount_tobuy_stage_1) {
+                        amount1Num = parseFloat(String(deal.amount_tobuy_stage_1)) || 0;
+                    }
+                    if (!amount2Num && deal.amount_tobuy_stage_2) {
+                        amount2Num = parseFloat(String(deal.amount_tobuy_stage_2)) || 0;
+                    }
+                    if (!slPctNum && deal.stop_loss_prcnt) {
+                        slPctNum = parseFloat(String(deal.stop_loss_prcnt).replace(',', '.')) || 0;
+                    }
+
+                    const totalPlanned = sharePriceNum * (amount1Num + amount2Num);
+
+                    // 0) Строгая проверка: хватает ли вообще Cash под эту позицию
+                    try {
+                        const portfolioSpan = document.getElementById('portfolioValue');
+                        if (portfolioSpan) {
+                            const cashStr = portfolioSpan.textContent.trim().replace(',', '.');
+                            const cash = parseFloat(cashStr) || 0;
+                            if (totalPlanned > cash) {
+                                showDealLimitModal(
+                                    `Not enough Cash to activate this deal.\n` +
+                                    `Required: ${totalPlanned.toFixed(2)}, available: ${cash.toFixed(2)}.`
+                                );
+                                return;
+                            }
+                        }
+                    } catch (cashErr) {
+                        console.error('Failed to validate cash before activation', cashErr);
+                    }
+
+                    // 1) Жёсткая проверка лимитов по размеру позиции и риску
+                    if (slPctNum > 0 && totalPlanned > 0) {
+                        const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
+                            headers: authHeaders()
+                        });
+                        if (res.ok) {
+                            const limits = await res.json();
+                            const isSingle = !amount2Num || amount2Num === 0;
+
+                            if (isSingle) {
+                                if (totalPlanned > limits.singleStageMax) {
+                                    showDealLimitModal(
+                                        `Single-stage deal is too big.\n` +
+                                        `Max allowed: ${limits.singleStageMax.toFixed(2)}.`
+                                    );
+                                    return;
+                                }
+                            } else {
+                                const stage1Sum = sharePriceNum * amount1Num;
+                                if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
+                                    showDealLimitModal(
+                                        `Two-stage deal exceeds limits.\n` +
+                                        `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
+                                    );
+                                    return;
+                                }
+                            }
+
+                            if (!limits.allowed) {
+                                showDealLimitModal(
+                                    `Deal would push portfolio risk above limit.\n` +
+                                    `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.`
+                                );
+                                return;
+                            }
+                        }
+                    }
+
+                    // 2) Мягкое предупреждение, если уже было 2 и более активаций за неделю
+                    try {
+                        const weeklyRes = await apiFetch('/api/deals/weekly-activations', {
+                            headers: authHeaders()
+                        });
+                        if (weeklyRes.ok) {
+                            const data = await weeklyRes.json();
+                            if (data && data.exceeds) {
+                                const msg =
+                                    `You already activated ${data.count} deals this week.\n` +
+                                    `Recommended maximum is ${data.maxPerWeek} per week.\n\n` +
+                                    `Do you still want to activate this deal?`;
+                                const proceed = await showWeeklyConfirmModal(msg);
+                                if (!proceed) {
+                                    return; // пользователь отменил активацию
+                                }
+                            }
+                        }
+                    } catch (warnErr) {
+                        console.error('Failed to check weekly activations', warnErr);
+                        // В случае ошибки предупреждения не блокируем активацию
+                    }
+                } catch (err) {
+                    console.error('Failed to validate deal limits before activation', err);
+                    // Если лимиты не смогли посчитать — не блокируем, но логируем
+                }
+
+                setButtonLoading(activateBtn, true);
                 
                 // Change planned_future from true to false
                 const updatedDeal = { ...deal, planned_future: false };
@@ -1553,8 +1853,12 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 } catch (e) {
                     console.error(e);
                     alert('Не удалось активировать сделку');
+                } finally {
+                    setButtonLoading(activateBtn, false);
                 }
             });
+            // Setup risk/limits hints for this form
+            setupRiskAndLimits(form);
         }
 
         // Close deal button
@@ -1640,6 +1944,81 @@ function setupTotalSumCalculator(row, form, deal) {
     // Listen to input changes
     sharePriceInput.addEventListener('input', updateTotalSum);
     amountInput.addEventListener('input', updateTotalSum);
+}
+
+// Show deal limits (max position, stages, added risk) under the form
+async function updateDealLimitsUI(form) {
+    const slPctInput = form.querySelector('input[name="stop_loss_prcnt"]');
+    if (!slPctInput) return;
+
+    const slPct = parseFloat((slPctInput.value || '').replace(',', '.'));
+    if (!slPct || slPct <= 0) return;
+
+    try {
+        const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPct)}`, {
+            headers: authHeaders()
+        });
+        if (!res.ok) {
+            console.warn('Failed to load deal limits', res.status);
+            return;
+        }
+        const limits = await res.json();
+
+        let info = form.querySelector('.deal-limits-info');
+        if (!info) {
+            info = document.createElement('div');
+            info.className = 'deal-limits-info small';
+            info.style.marginTop = '8px';
+            info.style.color = 'var(--muted)';
+
+            const actions = form.querySelector('.form-actions');
+            if (actions && actions.parentNode) {
+                actions.parentNode.insertBefore(info, actions);
+            } else {
+                form.appendChild(info);
+            }
+        }
+
+        if (!limits.allowed) {
+            info.innerHTML = `
+                <span style="color:#dc2626;font-weight:600;">
+                    Planned deal exceeds portfolio risk limits.
+                    Max position: ${limits.maxPosition.toFixed(2)}
+                    (adds ${limits.addedRiskPercent.toFixed(2)}% risk).
+                </span>`;
+        } else {
+            info.innerHTML = `
+                Max position: <strong>${limits.maxPosition.toFixed(2)}</strong>
+                (adds ${limits.addedRiskPercent.toFixed(2)}% risk).<br>
+                Stage 1 ≤ <strong>${limits.maxStage1.toFixed(2)}</strong>
+                (single-stage max: ${limits.singleStageMax.toFixed(2)}).<br>
+                Recommended split: ${limits.recommendedStage1.toFixed(2)}
+                + ${limits.recommendedStage2.toFixed(2)}.
+            `;
+        }
+    } catch (e) {
+        console.error('Error updating deal limits UI', e);
+    }
+}
+
+function setupRiskAndLimits(form) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const amount1Input    = form.querySelector('input[name="amount_tobuy_stage_1"]');
+    const amount2Input    = form.querySelector('input[name="amount_tobuy_stage_2"]');
+    const slPctInput      = form.querySelector('input[name="stop_loss_prcnt"]');
+
+    if (!sharePriceInput || !amount1Input || !slPctInput) return;
+
+    const trigger = () => {
+        if (slPctInput.value) {
+            updateDealLimitsUI(form);
+        }
+    };
+
+    sharePriceInput.addEventListener('input', trigger);
+    amount1Input.addEventListener('input', trigger);
+    if (amount2Input) amount2Input.addEventListener('input', trigger);
+    slPctInput.addEventListener('input', trigger);
 }
 
 // Setup event listener for share price input to calculate stop loss and take profit percentages
@@ -2162,16 +2541,88 @@ async function handleDealSubmit(form, deal, isNew) {
             obj.planned_future = !!(deal && deal.planned_future);
         }
 
-        // Calculate and include total sum
-        const sharePrice = obj.share_price || '';
-        const amountToBuy = obj.amount_tobuy_stage_1 || '';
-        const totalSum = calculateTotalSum(sharePrice, amountToBuy);
+        // Calculate and include total sum (both stages)
+        const sharePriceStr = obj.share_price || '';
+        const amount1Str    = obj.amount_tobuy_stage_1 || '';
+        const amount2Str    = obj.amount_tobuy_stage_2 || '';
+
+        const sharePriceNum = parseFloat(String(sharePriceStr).replace(',', '.')) || 0;
+        const amount1Num    = parseFloat(String(amount1Str)) || 0;
+        const amount2Num    = parseFloat(String(amount2Str)) || 0;
+
+        const totalPlanned  = sharePriceNum * (amount1Num + amount2Num);
+        const totalSum      = calculateTotalSum(sharePriceStr, amount1Str);
         if (totalSum) {
             obj.total_sum = totalSum;
         }
 
         if (!obj.date) {
             obj.date = new Date().toISOString().slice(0, 10);
+        }
+
+        // Validate against deal limits (risk / cash constraints)
+        // 0) Hard check: do we have enough Cash for this planned position at all?
+        try {
+            const portfolioSpan = document.getElementById('portfolioValue');
+            if (portfolioSpan) {
+                const cashStr = portfolioSpan.textContent.trim().replace(',', '.');
+                const cash = parseFloat(cashStr) || 0;
+                if (totalPlanned > cash) {
+                    showDealLimitModal(
+                        `Not enough Cash for this deal.\n` +
+                        `Required: ${totalPlanned.toFixed(2)}, available: ${cash.toFixed(2)}.`
+                    );
+                    setButtonLoading(submitButton, false);
+                    return;
+                }
+            }
+        } catch (cashErr) {
+            console.error('Failed to validate cash before saving deal', cashErr);
+        }
+
+        const slPctNum = parseFloat(String(obj.stop_loss_prcnt || '').replace(',', '.')) || 0;
+        if (slPctNum > 0 && totalPlanned > 0) {
+            try {
+                const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
+                    headers: authHeaders()
+                });
+                if (res.ok) {
+                    const limits = await res.json();
+                    const isSingle = !amount2Num || amount2Num === 0;
+
+                    if (isSingle) {
+                        if (totalPlanned > limits.singleStageMax) {
+                            showDealLimitModal(
+                                `Single-stage deal is too big.\n` +
+                                `Max allowed: ${limits.singleStageMax.toFixed(2)}.`
+                            );
+                            setButtonLoading(submitButton, false);
+                            return;
+                        }
+                    } else {
+                        const stage1Sum = sharePriceNum * amount1Num;
+                        if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
+                            showDealLimitModal(
+                                `Two-stage deal exceeds limits.\n` +
+                                `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
+                            );
+                            setButtonLoading(submitButton, false);
+                            return;
+                        }
+                    }
+
+                    if (!limits.allowed) {
+                        showDealLimitModal(
+                            `Deal would push portfolio risk above limit.\n` +
+                            `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.`
+                        );
+                        setButtonLoading(submitButton, false);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to validate deal limits', err);
+            }
         }
 
         await saveDealToServer(obj, !isNew);
@@ -2210,7 +2661,7 @@ async function refreshPortfolioFromServer() {
     if (!portfolioSpan) return;
     
     try {
-        const res = await fetch('/api/users/portfolio', {
+        const res = await apiFetch('/api/users/portfolio', {
             method: 'GET',
             headers: {
                 ...authHeaders()
@@ -2239,7 +2690,7 @@ async function refreshPortfolioFromServer() {
 // Function to calculate and display portfolio risk percentage
 async function calculateAndDisplayPortfolioRisk() {
     try {
-        const res = await fetch('/api/deals/risk-percent', {
+        const res = await apiFetch('/api/deals/risk-percent', {
             method: 'GET',
             headers: {
                 ...authHeaders()
@@ -2299,7 +2750,7 @@ async function loadPreviousWeekLowPrice(ticker, form) {
     setPriceError(formContainer, '');
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, {
             headers: { ...authHeaders() }
         });
 
@@ -2394,7 +2845,7 @@ async function loadCurrentPrice(ticker, form) {
     setPriceError(formContainer, '');
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
             headers: { ...authHeaders() }
         });
 
@@ -2442,7 +2893,7 @@ async function loadTrends(ticker, form) {
     if (!ticker || !form) return;
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/trends`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/trends`, {
             headers: { ...authHeaders() }
         });
 
@@ -2532,7 +2983,7 @@ async function loadMovementMetrics(ticker) {
         const url = `/api/prices/${encodeURIComponent(ticker)}/movement-score?lookback=${lookback}&timeframe=${timeframe}`;
         console.log('Request URL:', url);
         
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
             headers: { ...authHeaders() }
         });
         
@@ -2586,7 +3037,7 @@ async function loadCompositeMovementMetrics(tickersArray) {
     const url = `/api/prices/composite/movement-score?lookback=52&tickers=${query}`;
 
     try {
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
             headers: { ...authHeaders() }
         });
 
@@ -2816,7 +3267,7 @@ async function loadAverageWeeklyVolume(ticker) {
     if (!ticker || !ticker.trim()) return null;
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/average-volume`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/average-volume`, {
             headers: authHeaders()
         });
 
@@ -2837,7 +3288,7 @@ async function loadSupportResistance(ticker, form) {
     if (!ticker || !form) return;
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/support-resistance`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/support-resistance`, {
             headers: { ...authHeaders() }
         });
 
@@ -2886,7 +3337,7 @@ async function loadCurrentPrice(ticker, form) {
     console.log('loadCurrentPrice: Starting to load price for ticker:', ticker);
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
             headers: { ...authHeaders() }
         });
 
@@ -2990,7 +3441,7 @@ async function calculateStopLoss(form) {
     
     try {
         // Fetch weekly prices to get previous week Low
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, {
             headers: { ...authHeaders() }
         });
         
@@ -3600,7 +4051,7 @@ window.addEventListener('stocksUpdated', async () => {
 // Calculate and display portfolio risk percentage
 async function calculateAndDisplayPortfolioRisk() {
     try {
-        const res = await fetch('/api/deals/risk-percent', {
+        const res = await apiFetch('/api/deals/risk-percent', {
             headers: authHeaders()
         });
         
@@ -3652,7 +4103,7 @@ async function calculateAndDisplayInSharesRisk() {
         
         console.log('calculateAndDisplayInSharesRisk - In Shares value from DOM:', inSharesValue);
         
-        const res = await fetch('/api/deals/risk-percent-inshares', {
+        const res = await apiFetch('/api/deals/risk-percent-inshares', {
             headers: authHeaders()
         });
         
@@ -3719,7 +4170,7 @@ async function loadPinnedStocks() {
     if (!container) return;
 
     try {
-        const res = await fetch('/api/pinnedstocks', {
+        const res = await apiFetch('/api/pinnedstocks', {
             headers: authHeaders()
         });
         if (!res.ok) {
@@ -3869,7 +4320,7 @@ async function savePinnedOrderToServer() {
     if (!orderedIds.length) return;
 
     try {
-        const res = await fetch('/api/pinnedstocks/reorder', {
+        const res = await apiFetch('/api/pinnedstocks/reorder', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3895,7 +4346,7 @@ async function addPinnedStock(ticker) {
     if (!t) return;
 
     try {
-        const res = await fetch('/api/pinnedstocks', {
+        const res = await apiFetch('/api/pinnedstocks', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -3918,7 +4369,7 @@ async function addPinnedStock(ticker) {
 async function deletePinnedStock(id) {
     if (!id) return;
     try {
-        const res = await fetch(`/api/pinnedstocks/${encodeURIComponent(id)}`, {
+        const res = await apiFetch(`/api/pinnedstocks/${encodeURIComponent(id)}`, {
             method: 'DELETE',
             headers: authHeaders()
         });

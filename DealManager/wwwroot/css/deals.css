@@ -160,6 +160,23 @@ button {
     z-index: 1;
 }
 
+/* ---------- Generic modal overlay (centered on screen) ---------- */
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45); /* полупрозрачный тёмный фон */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal .card {
+    max-width: 420px;
+    width: 100%;
+    margin: 0 16px; /* небольшие отступы по краям на маленьких экранах */
+}
+
 button:disabled {
     opacity: 0.7;
     cursor: not-allowed;
@@ -177,6 +194,12 @@ button:disabled {
     animation: spin 0.8s linear infinite;
     margin-right: 8px;
     vertical-align: middle;
+}
+
+/* Make spinner visible on secondary (light) buttons as well */
+button.secondary .loading-spinner {
+    border-color: rgba(148, 163, 184, 0.4); /* light slate */
+    border-top-color: #64748b;              /* darker slate for rotation */
 }
 
 @keyframes spin {
