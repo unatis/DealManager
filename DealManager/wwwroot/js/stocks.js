@@ -27,7 +27,7 @@ function authHeaders() {
 // Function to load warnings from server
 async function loadWarnings() {
     try {
-        const res = await fetch('/api/stocks/warnings', {
+        const res = await apiFetch('/api/stocks/warnings', {
             headers: authHeaders()
         });
 
@@ -66,7 +66,7 @@ async function loadStocks() {
     renderStocks(); // Show loading state
     
     try {
-        const res = await fetch('/api/stocks', {
+        const res = await apiFetch('/api/stocks', {
             headers: authHeaders()
         });
         if (!res.ok) throw new Error('Failed to load stocks');
@@ -89,7 +89,7 @@ async function loadStocks() {
 }
 
 async function saveStockToServer(stockDto) {
-    const res = await fetch('/api/stocks', {
+    const res = await apiFetch('/api/stocks', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -114,7 +114,7 @@ async function saveStockToServer(stockDto) {
 
 
 async function deleteStockOnServer(id) {
-    const res = await fetch(`/api/stocks/${id}`, {
+    const res = await apiFetch(`/api/stocks/${id}`, {
         method: 'DELETE',
         headers: authHeaders()
     });

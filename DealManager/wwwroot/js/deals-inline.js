@@ -117,6 +117,56 @@ function showDealLimitModal(message) {
     modal.addEventListener('click', backdropHandler);
 }
 
+// Reusable confirm-style modal for weekly activations warning
+function showWeeklyConfirmModal(message) {
+    return new Promise(resolve => {
+        const modal     = document.getElementById('weeklyConfirmModal');
+        const body      = document.getElementById('weeklyConfirmModalBody');
+        const okBtn     = document.getElementById('weeklyConfirmOkBtn');
+        const cancelBtn = document.getElementById('weeklyConfirmCancelBtn');
+
+        if (!modal || !body || !okBtn || !cancelBtn) {
+            console.error('weeklyConfirmModal elements not found in DOM');
+            console.error('Weekly confirm message:', message);
+            // Если модалка не найдена — на всякий случай ведём себя как «Cancel»
+            resolve(false);
+            return;
+        }
+
+        body.textContent = message;
+        // Используем flex, чтобы сработало центрирование по .modal в deals.css
+        modal.style.display = 'flex';
+
+        function cleanup() {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+        }
+
+        function onOk() {
+            cleanup();
+            resolve(true);
+        }
+
+        function onCancel() {
+            cleanup();
+            resolve(false);
+        }
+
+        function onBackdrop(e) {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        }
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+    });
+}
+
 // Format total sum for display
 function formatTotalSum(totalSum) {
     if (!totalSum) return '';
@@ -135,9 +185,32 @@ function isAtrHighRiskFromString(atrString) {
     return false;
 }
 
-// ---------- редирект если нет токена ----------
+// ---------- JWT helpers ----------
+function isJwtExpired(token) {
+    try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return true;
+
+        const payloadJson = atob(parts[1]);
+        const payload = JSON.parse(payloadJson);
+
+        if (!payload.exp) return true;
+
+        const expMs = payload.exp * 1000; // exp в секундах
+        const nowMs = Date.now();
+
+        // небольшой запас 30 секунд, чтобы не упираться в границу
+        return nowMs > expMs - 30000;
+    } catch (e) {
+        console.error('Failed to parse JWT', e);
+        return true;
+    }
+}
+
+// ---------- редирект если нет токена ИЛИ он истёк ----------
 const token = localStorage.getItem('token');
-if (!token) {
+if (!token || isJwtExpired(token)) {
+    localStorage.removeItem('token');
     window.location.href = '/login.html';
 }
 
@@ -146,6 +219,27 @@ function authHeaders() {
     const token = localStorage.getItem('token');
     if (!token) return {};
     return { Authorization: `Bearer ${token}` };
+}
+
+// ---------- универсальный fetch с авто-обработкой 401/403 ----------
+async function apiFetch(url, options = {}) {
+    const token = localStorage.getItem('token');
+
+    const headers = {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+
+    const response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401 || response.status === 403) {
+        console.warn('API returned', response.status, '– clearing token and redirecting to login');
+        localStorage.removeItem('token');
+        window.location.href = '/login.html';
+        throw new Error('Unauthorized, redirect to login');
+    }
+
+    return response;
 }
 
 // ========== PORTFOLIO inline edit ==========
@@ -264,7 +358,7 @@ function setupPortfolioField(spanElement, localStorageKey, apiEndpoint, fieldNam
                     const pascalFieldName = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
                     const requestBody = {};
                     requestBody[pascalFieldName] = newVal;
-                    const res = await fetch(apiEndpoint, {
+                    const res = await apiFetch(apiEndpoint, {
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
@@ -372,11 +466,13 @@ function initPortfolioFields() {
     const portfolioSpan = document.getElementById('portfolioValue');
     const totalSumSpan = document.getElementById('totalSumValue');
     const inSharesSpan = document.getElementById('inSharesValue');
+    const inPlannedSpan = document.getElementById('inPlannedValue');
 
     console.log('initPortfolioFields: Found elements:', {
         portfolioSpan: !!portfolioSpan,
         totalSumSpan: !!totalSumSpan,
-        inSharesSpan: !!inSharesSpan
+        inSharesSpan: !!inSharesSpan,
+        inPlannedSpan: !!inPlannedSpan
     });
 
     if (portfolioSpan) {
@@ -398,7 +494,7 @@ function initPortfolioFields() {
     async function loadPortfolioValues() {
         try {
             // Load portfolio
-            const portfolioRes = await fetch('/api/users/portfolio', {
+            const portfolioRes = await apiFetch('/api/users/portfolio', {
                 headers: authHeaders()
             });
             if (portfolioRes.ok) {
@@ -414,7 +510,7 @@ function initPortfolioFields() {
             // Total Sum is calculated automatically (Cash + In Shares), not loaded from DB
 
             // Load inShares
-            const inSharesRes = await fetch('/api/users/inshares', {
+            const inSharesRes = await apiFetch('/api/users/inshares', {
                 headers: authHeaders()
             });
             if (inSharesRes.ok) {
@@ -427,7 +523,7 @@ function initPortfolioFields() {
                 }
             }
             
-            // After loading all values, calculate Total Sum (Cash + In Shares)
+            // After loading all values, calculate Total Sum (Cash + In Shares + In Planned)
             await calculateAndUpdateTotalSum();
         } catch (e) {
             console.error('Error loading portfolio values', e);
@@ -512,7 +608,7 @@ if (portfolioSpan) {
                 localStorage.setItem('portfolio', String(newVal));
 
                 try {
-                    const res = await fetch('/api/users/portfolio', {
+                    const res = await apiFetch('/api/users/portfolio', {
                         method: 'PUT',
                         headers: {
                             'Content-Type': 'application/json',
@@ -546,7 +642,7 @@ if (portfolioSpan) {
 
 async function loadStocksForDeals() {
     try {
-        const res = await fetch('/api/stocks', {
+        const res = await apiFetch('/api/stocks', {
             headers: authHeaders()
         });
 
@@ -573,7 +669,7 @@ function getStockByTicker(ticker) {
 // Function to load warnings from server
 async function loadWarnings() {
     try {
-        const res = await fetch('/api/stocks/warnings', {
+        const res = await apiFetch('/api/stocks/warnings', {
             headers: authHeaders()
         });
 
@@ -602,7 +698,7 @@ function getWarningByTicker(ticker) {
 
 async function loadDeals() {
     try {
-        const res = await fetch('/api/deals', {
+        const res = await apiFetch('/api/deals', {
             headers: {
                 ...authHeaders()
             }
@@ -648,12 +744,17 @@ async function loadDeals() {
 // Calculate total sum of all deals and update In Shares field
 async function calculateAndUpdateInShares() {
     try {
-        // Calculate total sum of only OPEN deals
+        // Calculate total sum of only OPEN, ACTIVE (non-planned) deals
         let totalInShares = 0;
         
         deals.forEach(deal => {
             // Skip closed deals
             if (deal.closed) {
+                return;
+            }
+
+            // Skip planned (future) deals - they are accounted separately in "In Planned"
+            if (deal.planned_future) {
                 return;
             }
             
@@ -682,7 +783,7 @@ async function calculateAndUpdateInShares() {
             
             // Save to database
             try {
-                const res = await fetch('/api/users/inshares', {
+                const res = await apiFetch('/api/users/inshares', {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -699,14 +800,54 @@ async function calculateAndUpdateInShares() {
                 console.error('Error saving In Shares', e);
             }
         }
+
+        // After updating In Shares, also recalculate In Planned (planned future deals)
+        await calculateAndUpdateInPlanned();
         
-        // After updating In Shares, calculate Total Sum (Cash + In Shares)
+        // After updating In Shares, calculate Total Sum (Cash + In Shares + In Planned)
         await calculateAndUpdateTotalSum();
         
         // After updating In Shares, also update Risk (In Shares)
         await calculateAndDisplayInSharesRisk();
     } catch (e) {
         console.error('Error calculating In Shares', e);
+    }
+}
+
+// Calculate total sum of all planned (future) open deals and update In Planned field
+async function calculateAndUpdateInPlanned() {
+    try {
+        let totalPlanned = 0;
+
+        deals.forEach(deal => {
+            // Consider only planned and not closed deals
+            if (!deal || !deal.planned_future || deal.closed) {
+                return;
+            }
+
+            let dealTotal = 0;
+
+            if (deal.total_sum) {
+                // Use existing total_sum if available
+                dealTotal = parseFloat(String(deal.total_sum).replace(',', '.')) || 0;
+            } else {
+                // Fallback: calculate from share_price * amount_tobuy_stage_1
+                const sharePrice = parseFloat(String(deal.share_price || '').replace(',', '.')) || 0;
+                const amount = parseFloat(String(deal.amount_tobuy_stage_1 || '').replace(',', '.')) || 0;
+                dealTotal = sharePrice * amount;
+            }
+
+            totalPlanned += dealTotal;
+        });
+
+        const inPlannedSpan = document.getElementById('inPlannedValue');
+        if (inPlannedSpan) {
+            const roundedTotal = Number(totalPlanned.toFixed(2));
+            inPlannedSpan.textContent = roundedTotal.toFixed(2);
+            localStorage.setItem('inPlanned', String(roundedTotal));
+        }
+    } catch (e) {
+        console.error('Error calculating In Planned', e);
     }
 }
 
@@ -756,7 +897,7 @@ async function calculateAndUpdateTotalSum() {
         
         // Save to database
         try {
-            const res = await fetch('/api/users/totalsum', {
+            const res = await apiFetch('/api/users/totalsum', {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -782,7 +923,7 @@ async function saveDealToServer(deal, isEdit) {
     const url = isEdit && hasId ? `/api/deals/${deal.id}` : '/api/deals';
     const method = isEdit && hasId ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
         method,
         headers: {
             'Content-Type': 'application/json',
@@ -807,7 +948,7 @@ async function saveDealToServer(deal, isEdit) {
 // Refresh Cash (Portfolio) value from server
 async function refreshPortfolioFromServer() {
     try {
-        const res = await fetch('/api/users/portfolio', {
+        const res = await apiFetch('/api/users/portfolio', {
             headers: authHeaders()
         });
         if (res.ok) {
@@ -864,7 +1005,7 @@ async function handleDealSubmit(form, deal, isNew) {
 }
 
 async function deleteDealOnServer(id) {
-    const res = await fetch(`/api/deals/${id}`, {
+    const res = await apiFetch(`/api/deals/${id}`, {
         method: 'DELETE',
         headers: {
             ...authHeaders()
@@ -1608,9 +1749,27 @@ async function setupDealRowHandlers(row, deal, isNew) {
 
                     const totalPlanned = sharePriceNum * (amount1Num + amount2Num);
 
+                    // 0) Строгая проверка: хватает ли вообще Cash под эту позицию
+                    try {
+                        const portfolioSpan = document.getElementById('portfolioValue');
+                        if (portfolioSpan) {
+                            const cashStr = portfolioSpan.textContent.trim().replace(',', '.');
+                            const cash = parseFloat(cashStr) || 0;
+                            if (totalPlanned > cash) {
+                                showDealLimitModal(
+                                    `Not enough Cash to activate this deal.\n` +
+                                    `Required: ${totalPlanned.toFixed(2)}, available: ${cash.toFixed(2)}.`
+                                );
+                                return;
+                            }
+                        }
+                    } catch (cashErr) {
+                        console.error('Failed to validate cash before activation', cashErr);
+                    }
+
                     // 1) Жёсткая проверка лимитов по размеру позиции и риску
                     if (slPctNum > 0 && totalPlanned > 0) {
-                        const res = await fetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
+                        const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
                             headers: authHeaders()
                         });
                         if (res.ok) {
@@ -1648,7 +1807,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
 
                     // 2) Мягкое предупреждение, если уже было 2 и более активаций за неделю
                     try {
-                        const weeklyRes = await fetch('/api/deals/weekly-activations', {
+                        const weeklyRes = await apiFetch('/api/deals/weekly-activations', {
                             headers: authHeaders()
                         });
                         if (weeklyRes.ok) {
@@ -1658,7 +1817,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                                     `You already activated ${data.count} deals this week.\n` +
                                     `Recommended maximum is ${data.maxPerWeek} per week.\n\n` +
                                     `Do you still want to activate this deal?`;
-                                const proceed = window.confirm(msg);
+                                const proceed = await showWeeklyConfirmModal(msg);
                                 if (!proceed) {
                                     return; // пользователь отменил активацию
                                 }
@@ -1796,7 +1955,7 @@ async function updateDealLimitsUI(form) {
     if (!slPct || slPct <= 0) return;
 
     try {
-        const res = await fetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPct)}`, {
+        const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPct)}`, {
             headers: authHeaders()
         });
         if (!res.ok) {
@@ -2402,10 +2561,29 @@ async function handleDealSubmit(form, deal, isNew) {
         }
 
         // Validate against deal limits (risk / cash constraints)
+        // 0) Hard check: do we have enough Cash for this planned position at all?
+        try {
+            const portfolioSpan = document.getElementById('portfolioValue');
+            if (portfolioSpan) {
+                const cashStr = portfolioSpan.textContent.trim().replace(',', '.');
+                const cash = parseFloat(cashStr) || 0;
+                if (totalPlanned > cash) {
+                    showDealLimitModal(
+                        `Not enough Cash for this deal.\n` +
+                        `Required: ${totalPlanned.toFixed(2)}, available: ${cash.toFixed(2)}.`
+                    );
+                    setButtonLoading(submitButton, false);
+                    return;
+                }
+            }
+        } catch (cashErr) {
+            console.error('Failed to validate cash before saving deal', cashErr);
+        }
+
         const slPctNum = parseFloat(String(obj.stop_loss_prcnt || '').replace(',', '.')) || 0;
         if (slPctNum > 0 && totalPlanned > 0) {
             try {
-                const res = await fetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
+                const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
                     headers: authHeaders()
                 });
                 if (res.ok) {
@@ -2483,7 +2661,7 @@ async function refreshPortfolioFromServer() {
     if (!portfolioSpan) return;
     
     try {
-        const res = await fetch('/api/users/portfolio', {
+        const res = await apiFetch('/api/users/portfolio', {
             method: 'GET',
             headers: {
                 ...authHeaders()
@@ -2512,7 +2690,7 @@ async function refreshPortfolioFromServer() {
 // Function to calculate and display portfolio risk percentage
 async function calculateAndDisplayPortfolioRisk() {
     try {
-        const res = await fetch('/api/deals/risk-percent', {
+        const res = await apiFetch('/api/deals/risk-percent', {
             method: 'GET',
             headers: {
                 ...authHeaders()
@@ -2572,7 +2750,7 @@ async function loadPreviousWeekLowPrice(ticker, form) {
     setPriceError(formContainer, '');
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, {
             headers: { ...authHeaders() }
         });
 
@@ -2667,7 +2845,7 @@ async function loadCurrentPrice(ticker, form) {
     setPriceError(formContainer, '');
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
             headers: { ...authHeaders() }
         });
 
@@ -2715,7 +2893,7 @@ async function loadTrends(ticker, form) {
     if (!ticker || !form) return;
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/trends`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/trends`, {
             headers: { ...authHeaders() }
         });
 
@@ -2805,7 +2983,7 @@ async function loadMovementMetrics(ticker) {
         const url = `/api/prices/${encodeURIComponent(ticker)}/movement-score?lookback=${lookback}&timeframe=${timeframe}`;
         console.log('Request URL:', url);
         
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
             headers: { ...authHeaders() }
         });
         
@@ -2859,7 +3037,7 @@ async function loadCompositeMovementMetrics(tickersArray) {
     const url = `/api/prices/composite/movement-score?lookback=52&tickers=${query}`;
 
     try {
-        const res = await fetch(url, {
+        const res = await apiFetch(url, {
             headers: { ...authHeaders() }
         });
 
@@ -3089,7 +3267,7 @@ async function loadAverageWeeklyVolume(ticker) {
     if (!ticker || !ticker.trim()) return null;
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/average-volume`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/average-volume`, {
             headers: authHeaders()
         });
 
@@ -3110,7 +3288,7 @@ async function loadSupportResistance(ticker, form) {
     if (!ticker || !form) return;
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/support-resistance`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/support-resistance`, {
             headers: { ...authHeaders() }
         });
 
@@ -3159,7 +3337,7 @@ async function loadCurrentPrice(ticker, form) {
     console.log('loadCurrentPrice: Starting to load price for ticker:', ticker);
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
             headers: { ...authHeaders() }
         });
 
@@ -3263,7 +3441,7 @@ async function calculateStopLoss(form) {
     
     try {
         // Fetch weekly prices to get previous week Low
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker)}`, {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, {
             headers: { ...authHeaders() }
         });
         
@@ -3873,7 +4051,7 @@ window.addEventListener('stocksUpdated', async () => {
 // Calculate and display portfolio risk percentage
 async function calculateAndDisplayPortfolioRisk() {
     try {
-        const res = await fetch('/api/deals/risk-percent', {
+        const res = await apiFetch('/api/deals/risk-percent', {
             headers: authHeaders()
         });
         
@@ -3925,7 +4103,7 @@ async function calculateAndDisplayInSharesRisk() {
         
         console.log('calculateAndDisplayInSharesRisk - In Shares value from DOM:', inSharesValue);
         
-        const res = await fetch('/api/deals/risk-percent-inshares', {
+        const res = await apiFetch('/api/deals/risk-percent-inshares', {
             headers: authHeaders()
         });
         
@@ -3992,7 +4170,7 @@ async function loadPinnedStocks() {
     if (!container) return;
 
     try {
-        const res = await fetch('/api/pinnedstocks', {
+        const res = await apiFetch('/api/pinnedstocks', {
             headers: authHeaders()
         });
         if (!res.ok) {
@@ -4142,7 +4320,7 @@ async function savePinnedOrderToServer() {
     if (!orderedIds.length) return;
 
     try {
-        const res = await fetch('/api/pinnedstocks/reorder', {
+        const res = await apiFetch('/api/pinnedstocks/reorder', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -4168,7 +4346,7 @@ async function addPinnedStock(ticker) {
     if (!t) return;
 
     try {
-        const res = await fetch('/api/pinnedstocks', {
+        const res = await apiFetch('/api/pinnedstocks', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -4191,7 +4369,7 @@ async function addPinnedStock(ticker) {
 async function deletePinnedStock(id) {
     if (!id) return;
     try {
-        const res = await fetch(`/api/pinnedstocks/${encodeURIComponent(id)}`, {
+        const res = await apiFetch(`/api/pinnedstocks/${encodeURIComponent(id)}`, {
             method: 'DELETE',
             headers: authHeaders()
         });

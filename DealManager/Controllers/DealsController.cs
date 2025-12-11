@@ -1,4 +1,4 @@
-﻿using System.IdentityModel.Tokens.Jwt;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using DealManager.Models;
 using DealManager.Services;
@@ -122,13 +122,15 @@ namespace DealManager.Controllers
             if (existing == null)
                 return NotFound();
 
-            // Validate total_sum if provided
+            // Validate and parse total_sum if provided
+            decimal? totalSumValue = null;
             if (!string.IsNullOrWhiteSpace(deal.TotalSum))
             {
                 if (!decimal.TryParse(deal.TotalSum, out var parsedTotalSum) || parsedTotalSum < 0)
                 {
                     return BadRequest("Invalid total_sum value. Must be a non-negative number.");
                 }
+                totalSumValue = parsedTotalSum;
             }
 
             // Копируем технические поля
@@ -136,7 +138,8 @@ namespace DealManager.Controllers
             deal.OwnerId = userId; // Ensure OwnerId is set on update too
 
             // Если это активация плана (PlannedFuture: true -> false), проставим ActivatedAt один раз
-            if (existing.PlannedFuture && !deal.PlannedFuture)
+            var isActivation = existing.PlannedFuture && !deal.PlannedFuture;
+            if (isActivation)
             {
                 // Если раньше не было – считаем, что это первая активация
                 deal.ActivatedAt = existing.ActivatedAt ?? DateTime.UtcNow;
@@ -150,8 +153,31 @@ namespace DealManager.Controllers
                 }
             }
 
+            // Определяем, закрывается ли сейчас активная (не planned) сделка
+            var isClosingActive = !existing.Closed && deal.Closed && !existing.PlannedFuture;
+
             var ok = await _service.UpdateAsync(id, userId, deal);
             if (!ok) return NotFound();
+
+            // Если это была активация плана (planned -> active) и есть валидная сумма — режем портфель
+            if (isActivation && totalSumValue.HasValue && totalSumValue.Value > 0)
+            {
+                var portfolioDeducted = await _users.DeductPortfolioAsync(userId, totalSumValue.Value);
+                if (!portfolioDeducted)
+                {
+                    // Логируем, но не валим запрос — сделка уже обновлена
+                }
+            }
+
+            // Если это закрытие активной (не planned) сделки и есть валидная сумма — возвращаем деньги в портфель
+            if (isClosingActive && totalSumValue.HasValue && totalSumValue.Value > 0)
+            {
+                var portfolioIncreased = await _users.AddPortfolioAsync(userId, totalSumValue.Value);
+                if (!portfolioIncreased)
+                {
+                    // Аналогично: логируем, но не валим запрос
+                }
+            }
 
             // Calculate portfolio risk percentage after deal update
             var riskPercent = await _riskService.CalculatePortfolioRiskPercentAsync(userId);
