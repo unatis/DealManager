@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg: #f6f8fb;
     --card: #ffffff;
     --accent: #06b6d4;
@@ -1013,6 +1013,18 @@ label {
     border-radius: 6px;
     border: 1px solid rgba(11, 17, 36, 0.2);
     width: 90px;
+}
+
+/* ===== Deal chart in deal card ===== */
+
+.deal-chart-section {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+}
+
+.deal-chart-container {
+    width: 100%;
+    height: 624px;
 }
 
 /* ===== Tools panel & pinned tickers ===== */

@@ -167,6 +167,46 @@ function showWeeklyConfirmModal(message) {
     });
 }
 
+// ===== TRADINGVIEW CHART HELPERS =====
+
+function buildSymbolFromTicker(ticker) {
+    if (!ticker) return null;
+    const cleaned = String(ticker).trim().toUpperCase();
+    if (!cleaned) return null;
+    // TradingView widget in this setup expects plain ticker, e.g. "NVDA"
+    return cleaned;
+}
+
+// Render (or re-render) TradingView widget in a given container
+function renderTradingViewChart(containerId, symbol, interval) {
+    if (typeof window.TradingView === 'undefined') {
+        console.warn('TradingView library is not loaded yet');
+        return;
+    }
+
+    const container = document.getElementById(containerId);
+    if (!container) {
+        console.warn('Chart container not found:', containerId);
+        return;
+    }
+
+    // Clear container to avoid multiple iframes
+    container.innerHTML = '';
+
+    // eslint-disable-next-line no-undef
+    new TradingView.widget({
+        container_id: containerId,
+        symbol,
+        interval: interval || 'W',
+        theme: 'dark',
+        style: '1',
+        locale: 'en',
+        autosize: true,
+        hide_top_toolbar: false,
+        hide_legend: false
+    });
+}
+
 // Format total sum for display
 function formatTotalSum(totalSum) {
     if (!totalSum) return '';
@@ -1117,7 +1157,6 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option value="" disabled selected>Loading stocks…</option>
                     </select>
                 </label>
-
                 <label>Share price<input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder=""></label>
                
                 <label>Shares amount to buy at stage 1<input type="text" name="amount_tobuy_stage_1" value="${escapeHtml(deal?.amount_tobuy_stage_1 || '')}" placeholder=""></label>
@@ -1272,6 +1311,12 @@ function createDealFormHTML(deal = null, isNew = false) {
                     </select>
                 </label>
                 <label class="full">Deal details description<textarea name="notes">${escapeHtml(deal?.notes || '')}</textarea></label>
+
+                ${!deal?.closed ? `
+                <div class="deal-chart-section full">
+                    <div id="tv_chart_${dealId}" class="deal-chart-container"></div>
+                </div>
+                ` : ''}
 
                 <div class="full form-actions">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
@@ -1647,6 +1692,13 @@ async function setupDealRowHandlers(row, deal, isNew) {
         setupStopLossListener(form);
         setupTakeProfitListener(form);
         setupTotalSumCalculator(row, form, deal);
+
+        // For new deals (which start expanded) or rows initially expanded,
+        // initialize chart immediately; existing collapsed deals will
+        // initialize chart on expand to avoid rendering into hidden container.
+        if (isNew || row.classList.contains('expanded')) {
+            setupDealChart(row, form, deal, dealId);
+        }
         
         // Cancel button for new deals
         if (isNew) {
@@ -1697,6 +1749,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 setupTrendSelectListeners(form);
                 setupSharePriceListener(form);
                 setupStopLossListener(form);
+                setupDealChart(row, form, deal, dealId);
             }
         }
     });
@@ -1879,6 +1932,55 @@ async function setupDealRowHandlers(row, deal, isNew) {
             });
         }
     }
+}
+
+// Setup TradingView chart for a specific deal row (once per form)
+function setupDealChart(row, form, deal, dealId) {
+    if (!form) return;
+
+    const chartContainerId = `tv_chart_${dealId}`;
+    const chartContainer = form.querySelector(`#${chartContainerId}`) || row.querySelector(`#${chartContainerId}`);
+    if (!chartContainer) {
+        return;
+    }
+
+    const toolbar = form.querySelector('.deal-chart-toolbar');
+    const stockSelect = form.querySelector('.deal-stock-select');
+
+    function getCurrentSymbol() {
+        let ticker = null;
+
+        if (stockSelect && stockSelect.value) {
+            ticker = stockSelect.value;
+        } else if (deal && deal.stock) {
+            ticker = deal.stock;
+        }
+
+        return buildSymbolFromTicker(ticker);
+    }
+
+    // Initial render for existing deals with a stock
+    const initialSymbol = getCurrentSymbol();
+    if (initialSymbol) {
+        renderTradingViewChart(chartContainerId, initialSymbol, 'W');
+    }
+
+    // React to stock selection changes
+    if (stockSelect) {
+        stockSelect.addEventListener('change', () => {
+            const symbol = getCurrentSymbol();
+            if (!symbol) return;
+
+            renderTradingViewChart(chartContainerId, symbol, 'W');
+
+            if (toolbar) {
+                toolbar.querySelectorAll('button[data-interval]').forEach(b => b.classList.remove('active'));
+                const wBtn = toolbar.querySelector('button[data-interval="W"]');
+                if (wBtn) wBtn.classList.add('active');
+            }
+        });
+    }
+
 }
 
 // Setup total sum calculator that updates title when share_price or amount_tobuy_stage_1 changes
@@ -2493,6 +2595,8 @@ function setupStockSelectListener(form, dealId) {
         }
     };
 
+    const chartContainerId = `tv_chart_${dealId}`;
+    
     // Add change event listener
     newSelect.addEventListener('change', async (e) => {
         const ticker = e.target.value;
@@ -2500,8 +2604,14 @@ function setupStockSelectListener(form, dealId) {
         if (ticker !== lastLoadedTicker) {
             await loadDataForTicker(ticker);
         }
+        
+        // Always attempt to render chart for the selected ticker
+        const symbol = buildSymbolFromTicker(ticker);
+        if (symbol) {
+            renderTradingViewChart(chartContainerId, symbol, 'W');
+        }
     });
-
+    
     // Also listen to input event (for when user types in a select with search/autocomplete)
     // But skip if change event already handled it
     newSelect.addEventListener('input', async (e) => {
@@ -2509,6 +2619,11 @@ function setupStockSelectListener(form, dealId) {
         // Only trigger if value actually changed and not already loading
         if (ticker !== lastLoadedTicker && !isLoading) {
             await loadDataForTicker(ticker);
+        }
+        
+        const symbol = buildSymbolFromTicker(ticker);
+        if (symbol) {
+            renderTradingViewChart(chartContainerId, symbol, 'W');
         }
     });
     
