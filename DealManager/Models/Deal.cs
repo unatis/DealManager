@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using System.Text.Json.Serialization;
 using DealManager.Services;
@@ -65,6 +65,12 @@ namespace DealManager.Models
 
         [JsonPropertyName("amount_tobuy_stage_2")]
         public string? Amount_tobuy_stage_2 { get; set; }
+
+        /// <summary>
+        /// Новый формат: список стадий покупки (кол-во акций на каждой стадии).
+        /// </summary>
+        [JsonPropertyName("amount_tobuy_stages")]
+        public List<string>? Amount_tobuy_stages { get; set; }
 
         [JsonPropertyName("take_profit")]
         public string? TakeProfit { get; set; }

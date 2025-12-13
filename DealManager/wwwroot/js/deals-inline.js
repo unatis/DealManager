@@ -36,12 +36,96 @@ function setPriceError(containerEl, message) {
     }
 }
 
-// Calculate total sum: share_price * amount_tobuy_stage_1
+function parseNumber(val) {
+    return parseFloat(String(val || '').trim().replace(',', '.')) || 0;
+}
+
+// Calculate total sum: share_price * sharesCount (returns string with 2 decimals or null)
 function calculateTotalSum(sharePrice, amountToBuy) {
-    const price = parseFloat(String(sharePrice || '').replace(',', '.')) || 0;
-    const amount = parseFloat(String(amountToBuy || '').replace(',', '.')) || 0;
+    const price = parseNumber(sharePrice);
+    const amount = parseNumber(amountToBuy);
     const total = price * amount;
     return total > 0 ? total.toFixed(2) : null;
+}
+
+function sumStages(stages) {
+    if (!Array.isArray(stages)) return 0;
+    return stages.reduce((acc, n) => acc + (Number(n) > 0 ? Number(n) : 0), 0);
+}
+
+function calculateTotalSumFromStages(sharePrice, stages) {
+    const price = parseNumber(sharePrice);
+    const shares = sumStages(stages);
+    const total = price * shares;
+    return total > 0 ? total.toFixed(2) : null;
+}
+
+function getStagesFromDeal(deal) {
+    // New format
+    if (deal && Array.isArray(deal.amount_tobuy_stages) && deal.amount_tobuy_stages.length) {
+        return deal.amount_tobuy_stages
+            .map(v => parseNumber(v))
+            .filter(n => n > 0);
+    }
+    // Legacy fallback (should be auto-migrated on server, but keep for safety)
+    const s1 = parseNumber(deal?.amount_tobuy_stage_1);
+    const s2 = parseNumber(deal?.amount_tobuy_stage_2);
+    return [s1, s2].filter(n => n > 0);
+}
+
+function getStagesFromForm(form) {
+    const inputs = Array.from(form?.querySelectorAll('input[name="amount_tobuy_stages[]"]') || []);
+    return inputs
+        .map(i => parseNumber(i.value))
+        .filter(n => n > 0);
+}
+
+function renderStagesUI(form, deal) {
+    if (!form) return;
+    const stagesBlock = form.querySelector('.stages-block');
+    if (!stagesBlock) return;
+
+    const stages = getStagesFromDeal(deal);
+    const stage1Input = stagesBlock.querySelector('input[name="amount_tobuy_stages[]"][data-stage-index="0"]');
+    if (stage1Input && stages.length > 0 && !stage1Input.value) {
+        stage1Input.value = String(stages[0]);
+    }
+
+    const extra = stagesBlock.querySelector('.stages-extra');
+    if (!extra) return;
+    extra.innerHTML = '';
+
+    for (let i = 1; i < stages.length; i++) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = `
+            <label>
+                Shares amount to buy (stage ${i + 1})
+                <input type="text" class="amount-stage-input" data-stage-index="${i}" name="amount_tobuy_stages[]"
+                       value="${escapeHtml(String(stages[i] ?? ''))}" placeholder="">
+            </label>
+        `;
+        extra.appendChild(wrapper);
+    }
+
+    const addBtn = stagesBlock.querySelector('.add-stage-btn');
+    if (addBtn && !addBtn.dataset.bound) {
+        addBtn.dataset.bound = '1';
+        addBtn.addEventListener('click', () => {
+            const idx = stagesBlock.querySelectorAll('input[name="amount_tobuy_stages[]"]').length;
+            const wrapper = document.createElement('div');
+            wrapper.innerHTML = `
+                <label>
+                    Shares amount to buy (stage ${idx + 1})
+                    <input type="text" class="amount-stage-input" data-stage-index="${idx}" name="amount_tobuy_stages[]"
+                           value="" placeholder="">
+                </label>
+            `;
+            extra.appendChild(wrapper);
+
+            const input = wrapper.querySelector('input');
+            if (input) input.focus();
+        });
+    }
 }
 
 // Function to format total sum for display
@@ -805,10 +889,10 @@ async function calculateAndUpdateInShares() {
                 // Use existing total_sum if available
                 dealTotal = parseFloat(String(deal.total_sum).replace(',', '.')) || 0;
             } else {
-                // Calculate: share_price * amount_tobuy_stage_1
-                const sharePrice = parseFloat(String(deal.share_price || '').replace(',', '.')) || 0;
-                const amount = parseFloat(String(deal.amount_tobuy_stage_1 || '').replace(',', '.')) || 0;
-                dealTotal = sharePrice * amount;
+                // Calculate from share_price * sum(amount_tobuy_stages)
+                const sharePrice = parseNumber(deal.share_price);
+                const stages = getStagesFromDeal(deal);
+                dealTotal = sharePrice * sumStages(stages);
             }
             
             totalInShares += dealTotal;
@@ -871,10 +955,10 @@ async function calculateAndUpdateInPlanned() {
                 // Use existing total_sum if available
                 dealTotal = parseFloat(String(deal.total_sum).replace(',', '.')) || 0;
             } else {
-                // Fallback: calculate from share_price * amount_tobuy_stage_1
-                const sharePrice = parseFloat(String(deal.share_price || '').replace(',', '.')) || 0;
-                const amount = parseFloat(String(deal.amount_tobuy_stage_1 || '').replace(',', '.')) || 0;
-                dealTotal = sharePrice * amount;
+                // Fallback: calculate from share_price * sum(amount_tobuy_stages)
+                const sharePrice = parseNumber(deal.share_price);
+                const stages = getStagesFromDeal(deal);
+                dealTotal = sharePrice * sumStages(stages);
             }
 
             totalPlanned += dealTotal;
@@ -1159,8 +1243,16 @@ function createDealFormHTML(deal = null, isNew = false) {
                 </label>
                 <label>Share price<input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder=""></label>
                
-                <label>Shares amount to buy at stage 1<input type="text" name="amount_tobuy_stage_1" value="${escapeHtml(deal?.amount_tobuy_stage_1 || '')}" placeholder=""></label>
-                <label>Shares amount to buy at stage 2<input type="text" name="amount_tobuy_stage_2" value="${escapeHtml(deal?.amount_tobuy_stage_2 || '')}" placeholder=""></label>
+                <div class="stages-block full">
+                    <label>
+                        Shares amount to buy (stage 1)
+                        <input type="text" class="amount-stage-input" data-stage-index="0" name="amount_tobuy_stages[]"
+                               value="${escapeHtml((deal?.amount_tobuy_stages && deal.amount_tobuy_stages[0]) ? deal.amount_tobuy_stages[0] : (deal?.amount_tobuy_stage_1 || ''))}"
+                               placeholder="">
+                    </label>
+                    <div class="stages-extra"></div>
+                    <button type="button" class="add-stage-btn secondary">Add stage</button>
+                </div>
                 <label>Take profit<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
                 <label>Take profit %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
                 <label>Stop loss<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
@@ -1475,8 +1567,9 @@ function createDealRow(deal, isNew) {
     const summary = document.createElement('div');
     summary.className = 'deal-summary';
     
-    // Calculate and format total sum for display
-    const totalSum = calculateTotalSum(deal?.share_price, deal?.amount_tobuy_stage_1);
+    // Calculate and format total sum for display (all stages)
+    const stagesForDisplay = getStagesFromDeal(deal);
+    const totalSum = calculateTotalSumFromStages(deal?.share_price, stagesForDisplay);
     const totalSumFormatted = formatTotalSum(totalSum || deal?.total_sum);
     const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
     
@@ -1687,6 +1780,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
     
     // Setup trend select listeners for all forms
     if (form) {
+        renderStagesUI(form, deal);
         setupTrendSelectListeners(form);
         setupSharePriceListener(form);
         setupStopLossListener(form);
@@ -1746,6 +1840,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 const tickerToUse = isNew ? null : (deal?.stock || null);
                 await populateStockSelect(form, tickerToUse);
                 setupStockSelectListener(form, dealId);
+                renderStagesUI(form, deal);
                 setupTrendSelectListeners(form);
                 setupSharePriceListener(form);
                 setupStopLossListener(form);
@@ -1769,38 +1864,47 @@ async function setupDealRowHandlers(row, deal, isNew) {
 
                 // Gather latest values from form (fallback to deal if inputs are empty)
                 let sharePriceNum = 0;
-                let amount1Num = 0;
-                let amount2Num = 0;
+                let stages = [];
                 let slPctNum = 0;
 
                 try {
                     if (form) {
                         const spInput  = form.querySelector('input[name="share_price"]');
-                        const a1Input  = form.querySelector('input[name="amount_tobuy_stage_1"]');
-                        const a2Input  = form.querySelector('input[name="amount_tobuy_stage_2"]');
                         const slInput  = form.querySelector('input[name="stop_loss_prcnt"]');
 
-                        if (spInput) sharePriceNum = parseFloat(String(spInput.value || '').replace(',', '.')) || 0;
-                        if (a1Input) amount1Num    = parseFloat(String(a1Input.value || '')) || 0;
-                        if (a2Input) amount2Num    = parseFloat(String(a2Input.value || '')) || 0;
-                        if (slInput) slPctNum      = parseFloat(String(slInput.value || '').replace(',', '.')) || 0;
+                        if (spInput) sharePriceNum = parseNumber(spInput.value);
+                        if (slInput) slPctNum      = parseNumber(slInput.value);
+
+                        const stageInputs = Array.from(form.querySelectorAll('input[name="amount_tobuy_stages[]"]'));
+                        const orderedStageNums = stageInputs.map(i => parseNumber(i.value));
+                        const stage1Num = orderedStageNums[0] || 0;
+                        if (!stage1Num || stage1Num <= 0) {
+                            showDealLimitModal('Stage 1 amount is required and must be > 0.');
+                            return;
+                        }
+                        for (const input of stageInputs) {
+                            const raw = String(input.value || '').trim();
+                            const n = parseNumber(raw);
+                            if (raw && (!n || n <= 0)) {
+                                showDealLimitModal('All stage amounts must be positive numbers.');
+                                return;
+                            }
+                        }
+                        stages = orderedStageNums.filter(n => n > 0);
                     }
 
                     // Fallback to deal values if form fields are empty
                     if (!sharePriceNum && deal.share_price) {
-                        sharePriceNum = parseFloat(String(deal.share_price).replace(',', '.')) || 0;
+                        sharePriceNum = parseNumber(deal.share_price);
                     }
-                    if (!amount1Num && deal.amount_tobuy_stage_1) {
-                        amount1Num = parseFloat(String(deal.amount_tobuy_stage_1)) || 0;
-                    }
-                    if (!amount2Num && deal.amount_tobuy_stage_2) {
-                        amount2Num = parseFloat(String(deal.amount_tobuy_stage_2)) || 0;
+                    if ((!stages || stages.length === 0) && deal) {
+                        stages = getStagesFromDeal(deal);
                     }
                     if (!slPctNum && deal.stop_loss_prcnt) {
-                        slPctNum = parseFloat(String(deal.stop_loss_prcnt).replace(',', '.')) || 0;
+                        slPctNum = parseNumber(deal.stop_loss_prcnt);
                     }
 
-                    const totalPlanned = sharePriceNum * (amount1Num + amount2Num);
+                    const totalPlanned = sharePriceNum * sumStages(stages);
 
                     // 0) Строгая проверка: хватает ли вообще Cash под эту позицию
                     try {
@@ -1827,7 +1931,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         });
                         if (res.ok) {
                             const limits = await res.json();
-                            const isSingle = !amount2Num || amount2Num === 0;
+                            const isSingle = stages.length === 1;
 
                             if (isSingle) {
                                 if (totalPlanned > limits.singleStageMax) {
@@ -1838,10 +1942,10 @@ async function setupDealRowHandlers(row, deal, isNew) {
                                     return;
                                 }
                             } else {
-                                const stage1Sum = sharePriceNum * amount1Num;
+                                const stage1Sum = sharePriceNum * (stages[0] || 0);
                                 if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
                                     showDealLimitModal(
-                                        `Two-stage deal exceeds limits.\n` +
+                                        `Multi-stage deal exceeds limits.\n` +
                                         `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
                                     );
                                     return;
@@ -1983,70 +2087,7 @@ function setupDealChart(row, form, deal, dealId) {
 
 }
 
-// Setup total sum calculator that updates title when share_price or amount_tobuy_stage_1 changes
-function setupTotalSumCalculator(row, form, deal) {
-    const sharePriceInput = form.querySelector('input[name="share_price"]');
-    const amountInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
-    const summary = row.querySelector('.deal-summary');
-    
-    if (!sharePriceInput || !amountInput || !summary) return;
-    
-    const updateTotalSum = () => {
-        const sharePrice = sharePriceInput.value || '';
-        const amount = amountInput.value || '';
-        const totalSum = calculateTotalSum(sharePrice, amount);
-        const totalSumFormatted = formatTotalSum(totalSum);
-        const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
-        
-        const stockNameDiv = summary.querySelector('.stock-name');
-        const titleElement = stockNameDiv?.querySelector('strong');
-        if (!titleElement) return;
-        
-        // Always use deal.stock if available, don't extract from textContent
-        const tickerText = deal?.stock || 'New Deal';
-        
-        // Get warning icons from current DOM (movement metrics are now after price, not here)
-        const warningIcons = Array.from(titleElement.querySelectorAll('.volume-warning-icon'));
-        
-        // Remove any movement metrics that might still be in stock name (cleanup)
-        const movementMetricsInStockName = titleElement.querySelectorAll('.movement-metrics-display');
-        movementMetricsInStockName.forEach(metric => metric.remove());
-        
-        // Build new HTML with only ticker and warning icons (NO movement metrics, NO total sum)
-        let newHTML = escapeHtml(tickerText);
-        
-        // Add warning icons
-        warningIcons.forEach(icon => {
-            newHTML += icon.outerHTML;
-        });
-        
-        // Update titleElement (without total sum, without movement metrics)
-        if (titleElement.innerHTML !== newHTML) {
-            titleElement.innerHTML = newHTML;
-        }
-        
-        // Update total sum in separate div
-        const metaDiv = summary.querySelector('.meta > div:first-child');
-        if (metaDiv) {
-            let totalSumDiv = metaDiv.querySelector('.total-sum-display');
-            if (totalSumDisplay) {
-                if (!totalSumDiv) {
-                    totalSumDiv = document.createElement('div');
-                    totalSumDiv.className = 'total-sum-display';
-                    metaDiv.appendChild(totalSumDiv);
-                }
-                totalSumDiv.textContent = totalSumDisplay;
-                totalSumDiv.style.display = '';
-            } else if (totalSumDiv) {
-                totalSumDiv.style.display = 'none';
-            }
-        }
-    };
-    
-    // Listen to input changes
-    sharePriceInput.addEventListener('input', updateTotalSum);
-    amountInput.addEventListener('input', updateTotalSum);
-}
+// setupTotalSumCalculator is defined later (supports multi-stage).
 
 // Show deal limits (max position, stages, added risk) under the form
 async function updateDealLimitsUI(form) {
@@ -2105,11 +2146,10 @@ async function updateDealLimitsUI(form) {
 
 function setupRiskAndLimits(form) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
-    const amount1Input    = form.querySelector('input[name="amount_tobuy_stage_1"]');
-    const amount2Input    = form.querySelector('input[name="amount_tobuy_stage_2"]');
+    const stageInputs     = Array.from(form.querySelectorAll('input[name="amount_tobuy_stages[]"]'));
     const slPctInput      = form.querySelector('input[name="stop_loss_prcnt"]');
 
-    if (!sharePriceInput || !amount1Input || !slPctInput) return;
+    if (!sharePriceInput || !slPctInput || stageInputs.length === 0) return;
 
     const trigger = () => {
         if (slPctInput.value) {
@@ -2118,9 +2158,19 @@ function setupRiskAndLimits(form) {
     };
 
     sharePriceInput.addEventListener('input', trigger);
-    amount1Input.addEventListener('input', trigger);
-    if (amount2Input) amount2Input.addEventListener('input', trigger);
+    stageInputs.forEach(i => i.addEventListener('input', trigger));
     slPctInput.addEventListener('input', trigger);
+
+    // Also bind delegated listener once (covers dynamically added stages)
+    if (!form.dataset.stagesLimitsBound) {
+        form.dataset.stagesLimitsBound = '1';
+        form.addEventListener('input', (e) => {
+            const t = e.target;
+            if (t && t.matches && t.matches('input[name="amount_tobuy_stages[]"]')) {
+                trigger();
+            }
+        });
+    }
 }
 
 // Setup event listener for share price input to calculate stop loss and take profit percentages
@@ -2645,8 +2695,16 @@ async function handleDealSubmit(form, deal, isNew) {
             closedAt: deal?.closedAt || null
         };
 
+        const stagesPayload = [];
         for (const [k, v] of formData.entries()) {
-            obj[k] = v;
+            if (k === 'amount_tobuy_stages[]') {
+                stagesPayload.push(v);
+            } else {
+                obj[k] = v;
+            }
+        }
+        if (stagesPayload.length > 0) {
+            obj.amount_tobuy_stages = stagesPayload;
         }
 
         // planned_future: new deals are always created as planned; existing keep their flag
@@ -2656,20 +2714,37 @@ async function handleDealSubmit(form, deal, isNew) {
             obj.planned_future = !!(deal && deal.planned_future);
         }
 
-        // Calculate and include total sum (both stages)
+        // Calculate and include total sum (all stages)
         const sharePriceStr = obj.share_price || '';
-        const amount1Str    = obj.amount_tobuy_stage_1 || '';
-        const amount2Str    = obj.amount_tobuy_stage_2 || '';
+        const sharePriceNum = parseNumber(sharePriceStr);
 
-        const sharePriceNum = parseFloat(String(sharePriceStr).replace(',', '.')) || 0;
-        const amount1Num    = parseFloat(String(amount1Str)) || 0;
-        const amount2Num    = parseFloat(String(amount2Str)) || 0;
+        const stageInputs = Array.from(form.querySelectorAll('input[name="amount_tobuy_stages[]"]'));
+        const orderedStageNums = stageInputs.map(i => parseNumber(i.value));
+        const stage1Num = orderedStageNums[0] || 0;
 
-        const totalPlanned  = sharePriceNum * (amount1Num + amount2Num);
-        const totalSum      = calculateTotalSum(sharePriceStr, amount1Str);
-        if (totalSum) {
-            obj.total_sum = totalSum;
+        // Validate: stage 1 must be present and > 0; any non-empty stage must parse to > 0
+        if (!stage1Num || stage1Num <= 0) {
+            showDealLimitModal('Stage 1 amount is required and must be > 0.');
+            setButtonLoading(submitButton, false);
+            return;
         }
+
+        for (const input of stageInputs) {
+            const raw = String(input.value || '').trim();
+            const n = parseNumber(raw);
+            if (raw && (!n || n <= 0)) {
+                showDealLimitModal('All stage amounts must be positive numbers.');
+                setButtonLoading(submitButton, false);
+                return;
+            }
+        }
+
+        const stagesNums = orderedStageNums.filter(n => n > 0);
+
+        const totalSum = calculateTotalSumFromStages(sharePriceStr, stagesNums);
+        if (totalSum) obj.total_sum = totalSum;
+
+        const totalPlanned = sharePriceNum * sumStages(stagesNums);
 
         if (!obj.date) {
             obj.date = new Date().toISOString().slice(0, 10);
@@ -2695,7 +2770,12 @@ async function handleDealSubmit(form, deal, isNew) {
             console.error('Failed to validate cash before saving deal', cashErr);
         }
 
-        const slPctNum = parseFloat(String(obj.stop_loss_prcnt || '').replace(',', '.')) || 0;
+        const slPctNum = parseNumber(obj.stop_loss_prcnt || '');
+        if (!slPctNum || slPctNum <= 0) {
+            showDealLimitModal('Stop loss % is required and must be > 0.');
+            setButtonLoading(submitButton, false);
+            return;
+        }
         if (slPctNum > 0 && totalPlanned > 0) {
             try {
                 const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
@@ -2703,7 +2783,7 @@ async function handleDealSubmit(form, deal, isNew) {
                 });
                 if (res.ok) {
                     const limits = await res.json();
-                    const isSingle = !amount2Num || amount2Num === 0;
+                    const isSingle = stagesNums.length === 1;
 
                     if (isSingle) {
                         if (totalPlanned > limits.singleStageMax) {
@@ -2715,10 +2795,10 @@ async function handleDealSubmit(form, deal, isNew) {
                             return;
                         }
                     } else {
-                        const stage1Sum = sharePriceNum * amount1Num;
+                        const stage1Sum = sharePriceNum * (stagesNums[0] || 0);
                         if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
                             showDealLimitModal(
-                                `Two-stage deal exceeds limits.\n` +
+                                `Multi-stage deal exceeds limits.\n` +
                                 `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
                             );
                             setButtonLoading(submitButton, false);
@@ -3771,24 +3851,21 @@ function setupStopLossListener(form) {
 // Setup total sum calculation and update row title
 function setupTotalSumCalculator(row, form, deal) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
-    const amountToBuyInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
     const stockSelect = form.querySelector('.deal-stock-select');
     const summary = row.querySelector('.deal-summary');
     
-    if (!sharePriceInput || !amountToBuyInput || !summary) return;
+    if (!sharePriceInput || !summary) return;
     
     // Remove existing listeners by cloning
     const newSharePriceInput = sharePriceInput.cloneNode(true);
     sharePriceInput.parentNode.replaceChild(newSharePriceInput, sharePriceInput);
     
-    const newAmountToBuyInput = amountToBuyInput.cloneNode(true);
-    amountToBuyInput.parentNode.replaceChild(newAmountToBuyInput, amountToBuyInput);
-    
     // Function to update the row title (deal-summary) with total sum
     const updateRowTitle = () => {
         const sharePrice = newSharePriceInput.value || '';
-        const amountToBuy = newAmountToBuyInput.value || '';
-        const totalSum = calculateTotalSum(sharePrice, amountToBuy);
+        let stages = getStagesFromForm(form);
+        if (!stages.length && deal) stages = getStagesFromDeal(deal);
+        const totalSum = calculateTotalSumFromStages(sharePrice, stages);
         const totalSumFormatted = formatTotalSum(totalSum);
         const totalSumDisplay = totalSumFormatted ? totalSumFormatted : '';
         
@@ -3875,22 +3952,24 @@ function setupTotalSumCalculator(row, form, deal) {
         updateRowTitle();
     });
     
-    // Add event listeners for amount_tobuy_stage_1
-    newAmountToBuyInput.addEventListener('input', () => {
-        clearTimeout(newAmountToBuyInput._totalSumTimeout);
-        newAmountToBuyInput._totalSumTimeout = setTimeout(() => {
-            updateRowTitle();
-        }, 300);
-    });
-    
-    // Calculate and display total sum when field loses focus (blur)
-    newAmountToBuyInput.addEventListener('blur', () => {
-        calculateAndDisplayTotalSum();
-    });
-    
-    newAmountToBuyInput.addEventListener('change', () => {
-        updateRowTitle();
-    });
+    // Listen to stage inputs (delegated, supports dynamic stages)
+    if (!form.dataset.stagesTotalBound) {
+        form.dataset.stagesTotalBound = '1';
+        let stagesTimeout = null;
+        form.addEventListener('input', (e) => {
+            const t = e.target;
+            if (t && t.matches && t.matches('input[name="amount_tobuy_stages[]"]')) {
+                clearTimeout(stagesTimeout);
+                stagesTimeout = setTimeout(() => updateRowTitle(), 300);
+            }
+        });
+        form.addEventListener('change', (e) => {
+            const t = e.target;
+            if (t && t.matches && t.matches('input[name="amount_tobuy_stages[]"]')) {
+                updateRowTitle();
+            }
+        });
+    }
     
     // Update row title when stock name changes
     if (stockSelect) {
@@ -3934,11 +4013,11 @@ async function calculatePortfolioRiskClientSide(form) {
             let totalSum = 0;
             if (deal.total_sum) {
                 totalSum = parseFloat(String(deal.total_sum).replace(',', '.')) || 0;
-            } else if (deal.share_price && deal.amount_tobuy_stage_1) {
-                // Calculate from share_price * amount_tobuy_stage_1
-                const sharePrice = parseFloat(String(deal.share_price).replace(',', '.')) || 0;
-                const amount = parseFloat(String(deal.amount_tobuy_stage_1).replace(',', '.')) || 0;
-                totalSum = sharePrice * amount;
+            } else if (deal.share_price) {
+                // Calculate from share_price * sum(amount_tobuy_stages)
+                const sharePrice = parseNumber(deal.share_price);
+                const stages = getStagesFromDeal(deal);
+                totalSum = sharePrice * sumStages(stages);
             }
             
             // Parse stop_loss_prcnt
@@ -3959,7 +4038,6 @@ async function calculatePortfolioRiskClientSide(form) {
             const totalSumInput = form.querySelector('input[name="total_sum"]');
             const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
             const sharePriceInput = form.querySelector('input[name="share_price"]');
-            const amountToBuyInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
             
             let formTotalSum = 0;
             let formStopLossPercent = 0;
@@ -3967,11 +4045,11 @@ async function calculatePortfolioRiskClientSide(form) {
             // Get total_sum from form
             if (totalSumInput && totalSumInput.value) {
                 formTotalSum = parseFloat(String(totalSumInput.value).replace(',', '.')) || 0;
-            } else if (sharePriceInput && amountToBuyInput && sharePriceInput.value && amountToBuyInput.value) {
-                // Calculate from share_price * amount_tobuy_stage_1
-                const sharePrice = parseFloat(String(sharePriceInput.value).replace(',', '.')) || 0;
-                const amount = parseFloat(String(amountToBuyInput.value).replace(',', '.')) || 0;
-                formTotalSum = sharePrice * amount;
+            } else if (sharePriceInput && sharePriceInput.value) {
+                // Calculate from share_price * sum(amount_tobuy_stages)
+                const sharePrice = parseNumber(sharePriceInput.value);
+                const stages = getStagesFromForm(form);
+                formTotalSum = sharePrice * sumStages(stages);
             }
             
             // Get stop_loss_prcnt from form
@@ -4003,7 +4081,6 @@ function setupRiskCalculator(form) {
     const totalSumInput = form.querySelector('input[name="total_sum"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     const sharePriceInput = form.querySelector('input[name="share_price"]');
-    const amountToBuyInput = form.querySelector('input[name="amount_tobuy_stage_1"]');
     
     // Function to calculate and display risk
     const calculateAndDisplayRisk = async () => {
@@ -4062,13 +4139,17 @@ function setupRiskCalculator(form) {
             }, 500);
         });
     }
-    
-    if (amountToBuyInput) {
-        amountToBuyInput.addEventListener('change', async () => {
-            // Wait a bit for total_sum to be recalculated
-            setTimeout(async () => {
-                await calculateAndDisplayRisk();
-            }, 500);
+
+    // Listen to stages (delegated, supports dynamic inputs)
+    if (!form.dataset.stagesRiskBound) {
+        form.dataset.stagesRiskBound = '1';
+        form.addEventListener('change', async (e) => {
+            const t = e.target;
+            if (t && t.matches && t.matches('input[name="amount_tobuy_stages[]"]')) {
+                setTimeout(async () => {
+                    await calculateAndDisplayRisk();
+                }, 500);
+            }
         });
     }
     
@@ -4077,7 +4158,7 @@ function setupRiskCalculator(form) {
         // Check if form has values that would affect risk calculation
         const hasValues = (stopLossPrcntInput && stopLossPrcntInput.value) ||
                           (totalSumInput && totalSumInput.value) ||
-                          (sharePriceInput && sharePriceInput.value && amountToBuyInput && amountToBuyInput.value);
+                          (sharePriceInput && sharePriceInput.value && form.querySelector('input[name="amount_tobuy_stages[]"]') && getStagesFromForm(form).length > 0);
         
         if (hasValues) {
             // Wait a bit for form to be fully initialized

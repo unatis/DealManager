@@ -379,6 +379,17 @@ h3 {
     grid-column: 1 / -1;
 }
 
+/* Multi-stage amounts block */
+.deal-form-inline .stages-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.deal-form-inline .stages-block .add-stage-btn {
+    align-self: flex-start;
+}
+
 /* Stock details form - single column layout */
 .stock-details-form .stock-details-grid {
     display: grid;
