@@ -98,11 +98,13 @@ function renderStagesUI(form, deal) {
     for (let i = 1; i < stages.length; i++) {
         const wrapper = document.createElement('div');
         wrapper.innerHTML = `
-            <label>
-                Shares amount to buy (stage ${i + 1})
-                <input type="text" class="amount-stage-input" data-stage-index="${i}" name="amount_tobuy_stages[]"
-                       value="${escapeHtml(String(stages[i] ?? ''))}" placeholder="">
-            </label>
+            <div class="stages-row">
+                <label class="stage-label">
+                    Shares amount to buy (stage ${i + 1})
+                    <input type="text" class="amount-stage-input" data-stage-index="${i}" name="amount_tobuy_stages[]"
+                           value="${escapeHtml(String(stages[i] ?? ''))}" placeholder="">
+                </label>
+            </div>
         `;
         extra.appendChild(wrapper);
     }
@@ -114,11 +116,13 @@ function renderStagesUI(form, deal) {
             const idx = stagesBlock.querySelectorAll('input[name="amount_tobuy_stages[]"]').length;
             const wrapper = document.createElement('div');
             wrapper.innerHTML = `
-                <label>
-                    Shares amount to buy (stage ${idx + 1})
-                    <input type="text" class="amount-stage-input" data-stage-index="${idx}" name="amount_tobuy_stages[]"
-                           value="" placeholder="">
-                </label>
+                <div class="stages-row">
+                    <label class="stage-label">
+                        Shares amount to buy (stage ${idx + 1})
+                        <input type="text" class="amount-stage-input" data-stage-index="${idx}" name="amount_tobuy_stages[]"
+                               value="" placeholder="">
+                    </label>
+                </div>
             `;
             extra.appendChild(wrapper);
 
@@ -1244,21 +1248,23 @@ function createDealFormHTML(deal = null, isNew = false) {
                 <label>Share price<input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder=""></label>
                
                 <div class="stages-block full">
-                    <label>
-                        Shares amount to buy (stage 1)
-                        <input type="text" class="amount-stage-input" data-stage-index="0" name="amount_tobuy_stages[]"
-                               value="${escapeHtml((deal?.amount_tobuy_stages && deal.amount_tobuy_stages[0]) ? deal.amount_tobuy_stages[0] : (deal?.amount_tobuy_stage_1 || ''))}"
-                               placeholder="">
-                    </label>
+                    <div class="stages-row">
+                        <label class="stage-label">
+                            Shares amount to buy (stage 1)
+                            <input type="text" class="amount-stage-input" data-stage-index="0" name="amount_tobuy_stages[]"
+                                   value="${escapeHtml((deal?.amount_tobuy_stages && deal.amount_tobuy_stages[0]) ? deal.amount_tobuy_stages[0] : (deal?.amount_tobuy_stage_1 || ''))}"
+                                   placeholder="">
+                        </label>
+                        <button type="button" class="add-stage-btn secondary">Add stage</button>
+                    </div>
                     <div class="stages-extra"></div>
-                    <button type="button" class="add-stage-btn secondary">Add stage</button>
                 </div>
                 <label>Take profit<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
                 <label>Take profit %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
                 <label>Stop loss<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
                 <label>Stop loss %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
 
-                <label>
+                <!--<label>
                     You're afraid it will be too late?
                     <select name="fear_too_late">
                         <option value="" ${!deal?.fear_too_late ? 'selected' : ''} disabled></option>
@@ -1281,18 +1287,19 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option value="no" ${deal?.from_others === 'no' ? 'selected' : ''}>No</option>
                         <option value="yes" ${deal?.from_others === 'yes' ? 'selected' : ''}>Yes</option>
                     </select>
-                </label>
+                </label>-->
 
                 <label>
-                    Is S&P500 in an upper trend right now on monthly timeframe?
+                    S&P 500 monthly trend
                     <select name="sp500_up">
                         <option value="" ${!deal?.sp500_up ? 'selected' : ''} disabled></option>
-                        <option value="no" ${deal?.sp500_up === 'no' ? 'selected' : ''}>No</option>
-                        <option value="yes" ${deal?.sp500_up === 'yes' ? 'selected' : ''}>Yes</option>
+                        <option ${deal?.sp500_up === 'Down' ? 'selected' : ''}>Down</option>
+                        <option ${deal?.sp500_up === 'Flat' ? 'selected' : ''}>Flat</option>
+                        <option ${deal?.sp500_up === 'Up' ? 'selected' : ''}>Up</option>
                     </select>
                 </label>
 
-                <label>
+                <!--<label>
                     The share is in end of reversal pattern?
                     <select name="reversal">
                         <option value="" ${!deal?.reversal ? 'selected' : ''} disabled></option>
@@ -1307,9 +1314,9 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option value="no" ${deal?.flatpattern === 'no' ? 'selected' : ''}>No</option>
                         <option value="yes" ${deal?.flatpattern === 'yes' ? 'selected' : ''}>Yes</option>
                     </select>
-                </label>
+                </label>-->
                 <label>
-                    What is the current price range position according all share history
+                    Price range according all share history
                     <select name="price_range_pos">
                         <option value="" ${!deal?.price_range_pos ? 'selected' : ''} disabled></option>
                         <option value="1" ${deal?.price_range_pos === '1' ? 'selected' : ''}>Bottom</option>
@@ -1319,12 +1326,12 @@ function createDealFormHTML(deal = null, isNew = false) {
                 </label>
 
                 <label>Support price on week timeline<input type="text" name="support_price" value="${escapeHtml(deal?.support_price || '')}" placeholder=""></label>
-                <label>Resistance price on week timeline<input type="text" name="resist_price" value="${escapeHtml(deal?.resist_price || '')}" placeholder=""></label>
+                <!--<label>Resistance price on week timeline<input type="text" name="resist_price" value="${escapeHtml(deal?.resist_price || '')}" placeholder=""></label>-->
 
                 <label>O price previous week<input type="text" name="o_price" value="${escapeHtml(deal?.o_price || '')}" placeholder=""></label>
                 <label>H price previous week<input type="text" name="h_price" value="${escapeHtml(deal?.h_price || '')}" placeholder=""></label>
 
-                <label>
+                <!--<label>
                     What is the timeframe you make decision
                     <select name="timeframe">
                         <option value="" ${!deal?.timeframe ? 'selected' : ''} disabled></option>
@@ -1332,9 +1339,9 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option ${deal?.timeframe === 'Weekly' ? 'selected' : ''}>Weekly</option>
                         <option ${deal?.timeframe === 'Monthly' ? 'selected' : ''}>Monthly</option>
                     </select>
-                </label>
+                </label>-->
                 <label>
-                    Is share monthly timeframe trand down or up?
+                    Monthly trend
                     <select name="monthly_dir">
                         <option value="" ${!deal?.monthly_dir ? 'selected' : ''} disabled></option>
                         <option ${deal?.monthly_dir === 'Down' ? 'selected' : ''}>Down</option>
@@ -1343,7 +1350,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                     </select>
                 </label>
                 <label>
-                    Is share weekly timeframe trand down or up?
+                    Weekly trend
                     <select name="weekly_dir">
                         <option value="" ${!deal?.weekly_dir ? 'selected' : ''} disabled></option>
                         <option ${deal?.weekly_dir === 'Down' ? 'selected' : ''}>Down</option>
@@ -1352,7 +1359,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                     </select>
                 </label>
 
-                <label>
+                <!--<label>
                     Do you buy on the corrections pattern?
                     <select name="correction_trand">
                         <option value="" ${!deal?.correction_trand ? 'selected' : ''} disabled></option>
@@ -1367,17 +1374,17 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option ${deal?.counter_trend === 'No' ? 'selected' : ''}>No</option>
                         <option ${deal?.counter_trend === 'Yes' ? 'selected' : ''}>Yes</option>
                     </select>
-                </label>
+                </label>-->
 
                 <label>
-                    What is current week candle color?
+                    Week candle color
                     <select name="buy_green_sell_red">
                         <option value="" ${!deal?.buy_green_sell_red ? 'selected' : ''} disabled></option>
                         <option ${deal?.buy_green_sell_red === 'Red' ? 'selected' : ''}>Red</option>
                         <option ${deal?.buy_green_sell_red === 'Green' ? 'selected' : ''}>Green</option>
                     </select>
                 </label>
-                <label>
+                <!--<label>
                     Is the share in flat position before up trend?
                     <select name="flat_before_up">
                         <option value="" ${!deal?.flat_before_up ? 'selected' : ''} disabled></option>
@@ -1392,25 +1399,20 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option ${deal?.flat_before_down === 'No' ? 'selected' : ''}>No</option>
                         <option ${deal?.flat_before_down === 'Yes' ? 'selected' : ''}>Yes</option>
                     </select>
-                </label>
+                </label>-->
   
-                <label>
+                <!--<label>
                     Is current week candle O higher than previous  week O?
                     <select name="green_candle_higher">
                         <option value="" ${!deal?.green_candle_higher ? 'selected' : ''} disabled></option>
                         <option ${deal?.green_candle_higher === 'No' ? 'selected' : ''}>No</option>
                         <option ${deal?.green_candle_higher === 'Yes' ? 'selected' : ''}>Yes</option>
                     </select>
-                </label>
+                </label>-->
                 <label class="full">Deal details description<textarea name="notes">${escapeHtml(deal?.notes || '')}</textarea></label>
 
-                ${!deal?.closed ? `
-                <div class="deal-chart-section full">
-                    <div id="tv_chart_${dealId}" class="deal-chart-container"></div>
-                </div>
-                ` : ''}
 
-                <div class="full form-actions">
+               <div class="full form-actions">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 50px; flex-wrap: wrap;">
                             ${isNew ? `
@@ -1421,16 +1423,24 @@ function createDealFormHTML(deal = null, isNew = false) {
                             ` : `
                             ${!deal?.closed ? `<button type="submit">Save changes</button>` : ''}
                             `}
-                        </div>
-                        ${
-                            isNew
-                                ? `<button type="button" class="cancel-deal-btn secondary">Cancel</button>`
-                                : (isEdit && !deal?.closed
-                                    ? `<button type="button" class="secondary close-deal-btn">Close deal</button>`
-                                    : '')
+              </div>
+
+            ${isNew
+            ? `<button type="button" class="cancel-deal-btn secondary">Cancel</button>`
+            : (isEdit && !deal?.closed
+                ? `<button type="button" class="secondary close-deal-btn">Close deal</button>`
+                : '')
                         }
                     </div>
                 </div>
+
+                ${!deal?.closed ? `
+                <div class="deal-chart-section full">
+                    <div id="tv_chart_${dealId}" class="deal-chart-container"></div>
+                </div>
+                ` : ''}
+
+
             </div>
         </form>
     `;
@@ -2590,6 +2600,14 @@ function setupStockSelectListener(form, dealId) {
                     loadMovementMetricsAndDisplay(ticker, form).catch(err => {
                         console.error('loadMovementMetricsAndDisplay failed:', err);
                         return null;
+                    }),
+                    loadCandleColor(ticker, form).catch(err => {
+                        console.error('loadCandleColor failed:', err);
+                        return null;
+                    }),
+                    loadSp500Trend(form).catch(err => {
+                        console.error('loadSp500Trend failed:', err);
+                        return null;
                     })
                 ]);
                 
@@ -3708,9 +3726,96 @@ function updateSelectDownClass(select) {
     }
 }
 
+function updateTrendSelectClass(select) {
+    if (!select) return;
+    select.classList.remove('has-down-selected', 'has-up-selected', 'has-flat-selected');
+    if (select.value === 'Down') {
+        select.classList.add('has-down-selected');
+    } else if (select.value === 'Up') {
+        select.classList.add('has-up-selected');
+    } else if (select.value === 'Flat') {
+        select.classList.add('has-flat-selected');
+    }
+}
+
+// Auto-set current week candle color based on latest weekly candle (close vs open)
+async function loadCandleColor(ticker, form) {
+    if (!ticker || !form) return;
+    const select = form.querySelector('select[name="buy_green_sell_red"]');
+    if (!select) return;
+
+    try {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) {
+            console.warn('Failed to fetch weekly prices for candle color');
+            return;
+        }
+
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        const last = data[data.length - 1];
+        const open = parseFloat(last.Open ?? last.open);
+        const close = parseFloat(last.Close ?? last.close);
+
+        if (isNaN(open) || isNaN(close)) return;
+
+        const color = close < open ? 'Red' : 'Green';
+        select.value = color;
+        updateCandleColorClass(select, color);
+    } catch (err) {
+        console.error('Error auto-setting candle color:', err);
+    }
+}
+
+function updateCandleColorClass(select, color) {
+    if (!select) return;
+    select.classList.remove('candle-red', 'candle-green');
+    if (color === 'Red') select.classList.add('candle-red');
+    if (color === 'Green') select.classList.add('candle-green');
+}
+
+// Auto-set S&P500 monthly trend (SPY) into sp500_up select if empty
+async function loadSp500Trend(form) {
+    if (!form) return;
+    const select = form.querySelector('select[name="sp500_up"]');
+    if (!select) return;
+
+    // Do not override if user/deal already has a value
+    if (select.value) {
+        updateTrendSelectClass(select);
+        return;
+    }
+
+    try {
+        const res = await apiFetch('/api/prices/SPY/trends', {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) {
+            console.warn('Failed to load SP500 trend (SPY)');
+            return;
+        }
+
+        const data = await res.json();
+        const trend = data?.monthly;
+        if (trend === 'Down' || trend === 'Up' || trend === 'Flat') {
+            select.value = trend;
+            updateTrendSelectClass(select);
+            console.log('Set sp500_up to:', trend);
+        }
+    } catch (err) {
+        console.error('Error auto-setting SP500 trend:', err);
+    }
+}
+
 function setupTrendSelectListeners(form) {
     const monthlySelect = form.querySelector('select[name="monthly_dir"]');
     const weeklySelect = form.querySelector('select[name="weekly_dir"]');
+    const sp500Select = form.querySelector('select[name="sp500_up"]');
     
     if (monthlySelect) {
         updateSelectDownClass(monthlySelect);
@@ -3723,6 +3828,13 @@ function setupTrendSelectListeners(form) {
         updateSelectDownClass(weeklySelect);
         weeklySelect.addEventListener('change', () => {
             updateSelectDownClass(weeklySelect);
+        });
+    }
+
+    if (sp500Select) {
+        updateTrendSelectClass(sp500Select);
+        sp500Select.addEventListener('change', () => {
+            updateTrendSelectClass(sp500Select);
         });
     }
 }
