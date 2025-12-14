@@ -255,6 +255,64 @@ function showWeeklyConfirmModal(message) {
     });
 }
 
+// Reusable timing warning modal (ET Friday 14:00–16:00)
+function showDealTimingModal(message) {
+    return new Promise(resolve => {
+        const modal     = document.getElementById('dealTimingModal');
+        const body      = document.getElementById('dealTimingModalBody');
+        const okBtn     = document.getElementById('dealTimingOkBtn');
+        const cancelBtn = document.getElementById('dealTimingCancelBtn');
+
+        if (!modal || !body || !okBtn || !cancelBtn) {
+            console.error('dealTimingModal elements not found in DOM');
+            resolve(false);
+            return;
+        }
+
+        body.textContent = message;
+        modal.style.display = 'flex';
+
+        function cleanup() {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+        }
+
+        function onOk() {
+            cleanup();
+            resolve(true);
+        }
+
+        function onCancel() {
+            cleanup();
+            resolve(false);
+        }
+
+        function onBackdrop(e) {
+            if (e.target === modal) {
+                onCancel();
+            }
+        }
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+    });
+}
+
+// Check if current time is Friday 14:00–16:00 ET
+function isEtFridayLast2Hours() {
+    const now = new Date();
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const day = et.getDay(); // 0 Sun ... 5 Fri
+    const hour = et.getHours();
+    const minute = et.getMinutes();
+    const isFriday = day === 5;
+    const inWindow = (hour > 14 || (hour === 14 && minute >= 0)) && hour < 16;
+    return isFriday && inWindow;
+}
+
 // ===== TRADINGVIEW CHART HELPERS =====
 
 function buildSymbolFromTicker(ticker) {
@@ -1306,14 +1364,6 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option value="no" ${deal?.reversal === 'no' ? 'selected' : ''}>No</option>
                         <option value="yes" ${deal?.reversal === 'yes' ? 'selected' : ''}>Yes</option>
                     </select>
-                </label>
-                <label>
-                    The share is in a flat pattern?
-                    <select name="flatpattern">
-                        <option value="" ${!deal?.flatpattern ? 'selected' : ''} disabled></option>
-                        <option value="no" ${deal?.flatpattern === 'no' ? 'selected' : ''}>No</option>
-                        <option value="yes" ${deal?.flatpattern === 'yes' ? 'selected' : ''}>Yes</option>
-                    </select>
                 </label>-->
                 <label>
                     Price range according all share history
@@ -1326,8 +1376,6 @@ function createDealFormHTML(deal = null, isNew = false) {
                 </label>
 
                 <label>Support price on week timeline<input type="text" name="support_price" value="${escapeHtml(deal?.support_price || '')}" placeholder=""></label>
-                <!--<label>Resistance price on week timeline<input type="text" name="resist_price" value="${escapeHtml(deal?.resist_price || '')}" placeholder=""></label>-->
-
                 <label>O price previous week<input type="text" name="o_price" value="${escapeHtml(deal?.o_price || '')}" placeholder=""></label>
                 <label>H price previous week<input type="text" name="h_price" value="${escapeHtml(deal?.h_price || '')}" placeholder=""></label>
 
@@ -2252,6 +2300,14 @@ function setupSharePriceListener(form) {
         stopLossInput.addEventListener('blur', calculatePercentages);
         stopLossInput.addEventListener('change', calculatePercentages);
     }
+
+    // Highlight stop loss if it exceeds share price for planned deals (inline feedback)
+    const isPlannedDeal = form.dataset?.dealPlanned === 'true' || form.dataset?.isNew === 'true';
+    if (stopLossInput) {
+        const applyStopLossCheck = () => validateStopLossVsPrice(form, isPlannedDeal);
+        stopLossInput.addEventListener('input', applyStopLossCheck);
+        sharePriceInput.addEventListener('input', applyStopLossCheck);
+    }
     
     if (takeProfitInput) {
         takeProfitInput.addEventListener('input', calculatePercentages);
@@ -2704,6 +2760,34 @@ async function handleDealSubmit(form, deal, isNew) {
     if (!submitButton) return;
     
     try {
+        // Block deal if stop loss > share price
+        const isPlannedDeal = isNew || !!(deal && deal.planned_future);
+        const slOk = validateStopLossVsPrice(form, isPlannedDeal);
+        if (!slOk) {
+            showDealLimitModal('Stop loss cannot be greater than Share price.');
+            return;
+        }
+
+        // Block deal if monthly/weekly trend is Down
+        const monthlySelect = form.querySelector('select[name="monthly_dir"]');
+        const weeklySelect = form.querySelector('select[name="weekly_dir"]');
+        const monthlyVal = monthlySelect?.value;
+        const weeklyVal = weeklySelect?.value;
+        if (monthlyVal === 'Down' || weeklyVal === 'Down') {
+            showDealLimitModal('Deal is blocked: Weekly trend or Monthly trend is Down.\nChange trends before creating the deal.');
+            return;
+        }
+
+        // Timing guard: recommend only Friday 14:00–16:00 ET
+        if (!isEtFridayLast2Hours()) {
+            const proceed = await showDealTimingModal(
+                'Deal is recommended only on Friday between 14:00 and 16:00 ET.\nDo you want to continue?'
+            );
+            if (!proceed) {
+                return;
+            }
+        }
+
         setButtonLoading(submitButton, true);
         
         const formData = new FormData(form);
@@ -2789,8 +2873,8 @@ async function handleDealSubmit(form, deal, isNew) {
         }
 
         const slPctNum = parseNumber(obj.stop_loss_prcnt || '');
-        if (!slPctNum || slPctNum <= 0) {
-            showDealLimitModal('Stop loss % is required and must be > 0.');
+        if (isNaN(slPctNum)) {
+            showDealLimitModal('Stop loss % is required.');
             setButtonLoading(submitButton, false);
             return;
         }
@@ -3125,7 +3209,7 @@ async function loadTrends(ticker, form) {
         if (monthlySelect) {
             if (data.monthly) {
                 monthlySelect.value = data.monthly;
-                updateSelectDownClass(monthlySelect);
+                updateTrendSelectClass(monthlySelect);
                 console.log('Set monthly_dir to:', data.monthly);
             } else {
                 console.warn('No monthly trend in response');
@@ -3139,7 +3223,7 @@ async function loadTrends(ticker, form) {
         if (weeklySelect) {
             if (data.weekly) {
                 weeklySelect.value = data.weekly;
-                updateSelectDownClass(weeklySelect);
+                updateTrendSelectClass(weeklySelect);
                 console.log('Set weekly_dir to:', data.weekly);
             } else {
                 console.warn('No weekly trend in response');
@@ -3569,6 +3653,8 @@ async function loadCurrentPrice(ticker, form) {
         
         if (data && data.price !== undefined && data.price !== null) {
             const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const stopLossInput = form.querySelector('input[name="stop_loss"]');
+            const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
             console.log('loadCurrentPrice: sharePriceInput found:', !!sharePriceInput);
             
             if (sharePriceInput) {
@@ -3587,8 +3673,15 @@ async function loadCurrentPrice(ticker, form) {
                 sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
                 sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
                 
+                // Reset stop loss fields so that calculateStopLoss can refill for this ticker
+                if (stopLossInput) stopLossInput.value = '';
+                if (stopLossPrcntInput) stopLossPrcntInput.value = '';
+
                 // Calculate stop loss after autofilling share price
                 await calculateStopLoss(form);
+
+                // Validate stop loss vs share price after autofill (highlight if planned)
+                validateStopLossVsPrice(form, true);
                 
                 // Recalculate take profit percentage if take profit is already set
                 // Use multiple delays to catch cases where take profit is entered after share price loads
@@ -3630,14 +3723,6 @@ async function calculateStopLoss(form) {
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     
     if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) return;
-    
-    // If stop loss is already set (from DB or manually), do NOT override it with auto-calculated value.
-    // In this case we only recalculate percentage and exit.
-    const currentStop = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
-    if (!isNaN(currentStop) && currentStop > 0) {
-        calculateStopLossPercentage(form);
-        return;
-    }
     
     const sharePrice = parseFloat(sharePriceInput.value);
     if (!sharePrice || isNaN(sharePrice) || sharePrice <= 0) {
@@ -3715,15 +3800,6 @@ function calculateStopLossPercentage(form) {
     updateStopLossErrorClass(stopLossPrcntInput, percentage);
     
     console.log(`Stop loss percentage recalculated: ${percentage.toFixed(2)}% (Share: ${sharePrice}, Stop Loss: ${stopLoss})`);
-}
-
-function updateSelectDownClass(select) {
-    if (!select) return;
-    if (select.value === 'Down') {
-        select.classList.add('has-down-selected');
-    } else {
-        select.classList.remove('has-down-selected');
-    }
 }
 
 function updateTrendSelectClass(select) {
@@ -3818,16 +3894,16 @@ function setupTrendSelectListeners(form) {
     const sp500Select = form.querySelector('select[name="sp500_up"]');
     
     if (monthlySelect) {
-        updateSelectDownClass(monthlySelect);
+        updateTrendSelectClass(monthlySelect);
         monthlySelect.addEventListener('change', () => {
-            updateSelectDownClass(monthlySelect);
+            updateTrendSelectClass(monthlySelect);
         });
     }
     
     if (weeklySelect) {
-        updateSelectDownClass(weeklySelect);
+        updateTrendSelectClass(weeklySelect);
         weeklySelect.addEventListener('change', () => {
-            updateSelectDownClass(weeklySelect);
+            updateTrendSelectClass(weeklySelect);
         });
     }
 
@@ -3836,6 +3912,15 @@ function setupTrendSelectListeners(form) {
         sp500Select.addEventListener('change', () => {
             updateTrendSelectClass(sp500Select);
         });
+    }
+
+    // Week candle color (buy_green_sell_red) manual selection colorization
+    const candleSelect = form.querySelector('select[name="buy_green_sell_red"]');
+    if (candleSelect) {
+        const applyCandleClass = () => updateCandleColorClass(candleSelect, candleSelect.value);
+        applyCandleClass(); // apply on init (existing value)
+        candleSelect.addEventListener('change', applyCandleClass);
+        candleSelect.addEventListener('input', applyCandleClass);
     }
 }
 
@@ -3855,8 +3940,35 @@ function updateStopLossErrorClass(input, value) {
     }
 }
 
+// Validate that stop loss is not greater than share price
+function validateStopLossVsPrice(form, isPlanned) {
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const stopLossInput   = form.querySelector('input[name="stop_loss"]');
+    if (!sharePriceInput || !stopLossInput) return true;
+
+    // Reset previous highlight
+    stopLossInput.classList.remove('has-stop-loss-error');
+
+    const share = parseNumber(sharePriceInput.value);
+    const sl    = parseNumber(stopLossInput.value);
+
+    // If cannot parse numbers, do not block
+    if (isNaN(share) || isNaN(sl)) return true;
+
+    if (sl > share) {
+        // For planned deals, highlight the field
+        if (isPlanned) {
+            stopLossInput.classList.add('has-stop-loss-error');
+        }
+        return false; // signal to block submission
+    }
+
+    return true;
+}
+
 function setupSharePriceListener(form) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
+    const stopLossInput = form.querySelector('input[name="stop_loss"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     const takeProfitInput = form.querySelector('input[name="take_profit"]');
     const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
@@ -3890,6 +4002,15 @@ function setupSharePriceListener(form) {
     newInput.addEventListener('change', () => {
         calculatePercentages();
     });
+
+    // Also validate stop loss vs share price (highlight and later block on submit)
+    const applyStopLossCheck = () => validateStopLossVsPrice(form, true);
+    newInput.addEventListener('input', applyStopLossCheck);
+    newInput.addEventListener('change', applyStopLossCheck);
+    if (stopLossInput) {
+        stopLossInput.addEventListener('input', applyStopLossCheck);
+        stopLossInput.addEventListener('change', applyStopLossCheck);
+    }
     
     // Also trigger calculation if share price is already set and take profit is also set
     if (newInput.value && takeProfitInput && takeProfitInput.value) {

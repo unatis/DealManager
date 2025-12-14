@@ -93,9 +93,6 @@ namespace DealManager.Models
         [JsonPropertyName("reversal")]
         public string? Reversal { get; set; }
 
-        [JsonPropertyName("flatpattern")]
-        public string? FlatPattern { get; set; }
-
         [JsonPropertyName("price_range_pos")]
         public string? PriceRangePos { get; set; }
 
@@ -110,9 +107,6 @@ namespace DealManager.Models
         [JsonPropertyName("h_price")]
         public string? HPrice { get; set; }
 
-
-        [JsonPropertyName("resist_price")]
-        public string? ResistancePrice { get; set; }
 
         [JsonPropertyName("timeframe")]
         public string? Timeframe { get; set; }
