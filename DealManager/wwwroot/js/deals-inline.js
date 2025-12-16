@@ -1105,9 +1105,9 @@ async function calculateAndUpdateTotalSum() {
 }
 
 async function saveDealToServer(deal, isEdit) {
-    const hasId = !!deal.id;
-    const url = isEdit && hasId ? `/api/deals/${deal.id}` : '/api/deals';
-    const method = isEdit && hasId ? 'PUT' : 'POST';
+    const hasValidId = typeof deal.id === 'string' && deal.id.trim().length === 24;
+    const url = isEdit && hasValidId ? `/api/deals/${deal.id}` : '/api/deals';
+    const method = isEdit && hasValidId ? 'PUT' : 'POST';
 
     const res = await apiFetch(url, {
         method,
@@ -1840,6 +1840,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
     if (form) {
         renderStagesUI(form, deal);
         setupTrendSelectListeners(form);
+        console.log('[CALL] setupSharePriceListener called, form:', form);
         setupSharePriceListener(form);
         setupStopLossListener(form);
         setupTakeProfitListener(form);
@@ -1900,6 +1901,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 setupStockSelectListener(form, dealId);
                 renderStagesUI(form, deal);
                 setupTrendSelectListeners(form);
+                console.log('[CALL] setupSharePriceListener called, form:', form);
                 setupSharePriceListener(form);
                 setupStopLossListener(form);
                 setupDealChart(row, form, deal, dealId);
@@ -2019,6 +2021,16 @@ async function setupDealRowHandlers(row, deal, isNew) {
                             }
                         }
                     }
+
+            // Timing guard: recommend only Friday 14:00–16:00 ET
+            if (!isEtFridayLast2Hours()) {
+                const proceed = await showDealTimingModal(
+                    'Deal is recommended only on Friday between 14:00 and 16:00 ET.\nDo you want to continue?'
+                );
+                if (!proceed) {
+                    return;
+                }
+            }
 
                     // 2) Мягкое предупреждение, если уже было 2 и более активаций за неделю
                     try {
@@ -2231,99 +2243,6 @@ function setupRiskAndLimits(form) {
     }
 }
 
-// Setup event listener for share price input to calculate stop loss and take profit percentages
-function setupSharePriceListener(form) {
-    const sharePriceInput = form.querySelector('input[name="share_price"]');
-    const stopLossInput = form.querySelector('input[name="stop_loss"]');
-    const takeProfitInput = form.querySelector('input[name="take_profit"]');
-    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
-    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
-    
-    if (!sharePriceInput) return;
-    
-    const calculatePercentages = () => {
-        const sharePriceStr = String(sharePriceInput.value || '').trim().replace(',', '.');
-        const sharePrice = parseFloat(sharePriceStr);
-        
-        console.log('setupSharePriceListener: calculatePercentages called', {
-            sharePriceStr,
-            sharePrice,
-            sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
-            takeProfitValue: takeProfitInput?.value
-        });
-        
-        if (isNaN(sharePrice) || sharePrice <= 0) {
-            // Only clear percentages if share price is explicitly invalid (not just empty)
-            // Don't clear if share price is just empty (might be loading)
-            if (sharePriceStr && (isNaN(sharePrice) || sharePrice <= 0)) {
-                console.log('setupSharePriceListener: Share price invalid, clearing percentages');
-                if (stopLossPrcntInput) stopLossPrcntInput.value = '';
-                if (takeProfitPrcntInput) takeProfitPrcntInput.value = '';
-            }
-            return;
-        }
-        
-        // Calculate stop loss percentage if stop loss is set
-        if (stopLossInput && stopLossInput.value) {
-            const stopLoss = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
-            if (!isNaN(stopLoss) && stopLoss > 0) {
-                const stopLossPrcnt = ((stopLoss - sharePrice) / sharePrice) * 100;
-                if (stopLossPrcntInput) {
-                    stopLossPrcntInput.value = stopLossPrcnt.toFixed(2);
-                }
-            }
-        }
-        
-        // Calculate take profit percentage if take profit is set
-        if (takeProfitInput && takeProfitInput.value) {
-            const takeProfitStr = String(takeProfitInput.value || '').trim().replace(',', '.');
-            if (takeProfitStr) {
-                const takeProfit = parseFloat(takeProfitStr);
-                if (!isNaN(takeProfit) && takeProfit > 0) {
-                    const takeProfitPrcnt = ((takeProfit - sharePrice) / sharePrice) * 100;
-                    if (takeProfitPrcntInput) {
-                        takeProfitPrcntInput.value = takeProfitPrcnt.toFixed(2);
-                    }
-                }
-            }
-        }
-    };
-    
-    // Listen to share price changes
-    sharePriceInput.addEventListener('input', calculatePercentages);
-    sharePriceInput.addEventListener('blur', calculatePercentages);
-    sharePriceInput.addEventListener('change', calculatePercentages);
-    
-    // Also listen to stop loss and take profit changes
-    if (stopLossInput) {
-        stopLossInput.addEventListener('input', calculatePercentages);
-        stopLossInput.addEventListener('blur', calculatePercentages);
-        stopLossInput.addEventListener('change', calculatePercentages);
-    }
-
-    // Highlight stop loss if it exceeds share price for planned deals (inline feedback)
-    const isPlannedDeal = form.dataset?.dealPlanned === 'true' || form.dataset?.isNew === 'true';
-    if (stopLossInput) {
-        const applyStopLossCheck = () => validateStopLossVsPrice(form, isPlannedDeal);
-        stopLossInput.addEventListener('input', applyStopLossCheck);
-        sharePriceInput.addEventListener('input', applyStopLossCheck);
-    }
-    
-    if (takeProfitInput) {
-        takeProfitInput.addEventListener('input', calculatePercentages);
-        takeProfitInput.addEventListener('blur', calculatePercentages);
-        takeProfitInput.addEventListener('change', calculatePercentages);
-    }
-    
-    // Calculate immediately if values are already present
-    // This will work for both new deals (after stock is selected) and existing deals
-    if (sharePriceInput.value) {
-        setTimeout(() => {
-            calculatePercentages();
-        }, 100);
-    }
-}
-
 // Setup event listener for stop loss input to calculate stop loss percentage
 function setupStopLossListener(form) {
     const sharePriceInput = form.querySelector('input[name="share_price"]');
@@ -2346,7 +2265,7 @@ function setupStopLossListener(form) {
             return;
         }
         
-        const stopLossPrcnt = ((stopLoss - sharePrice) / sharePrice) * 100;
+        const stopLossPrcnt = ((sharePrice - stopLoss) / sharePrice) * 100;
         if (stopLossPrcntInput) {
             stopLossPrcntInput.value = stopLossPrcnt.toFixed(2);
         }
@@ -2425,6 +2344,12 @@ function setupTakeProfitListener(form) {
     if (!takeProfitInput || !takeProfitPrcntInput) {
         return;
     }
+
+    // Avoid duplicate listeners (setup can be called more than once)
+    if (form.dataset.takeProfitBound === '1') {
+        return;
+    }
+    form.dataset.takeProfitBound = '1';
     
     // Track if we're waiting for share price to load
     let waitingForSharePrice = false;
@@ -2778,16 +2703,6 @@ async function handleDealSubmit(form, deal, isNew) {
             return;
         }
 
-        // Timing guard: recommend only Friday 14:00–16:00 ET
-        if (!isEtFridayLast2Hours()) {
-            const proceed = await showDealTimingModal(
-                'Deal is recommended only on Friday between 14:00 and 16:00 ET.\nDo you want to continue?'
-            );
-            if (!proceed) {
-                return;
-            }
-        }
-
         setButtonLoading(submitButton, true);
         
         const formData = new FormData(form);
@@ -2878,7 +2793,8 @@ async function handleDealSubmit(form, deal, isNew) {
             setButtonLoading(submitButton, false);
             return;
         }
-        if (slPctNum > 0 && totalPlanned > 0) {
+        // Limit checks only for new deals; existing edits should not be blocked
+        if (isNew && slPctNum > 0 && totalPlanned > 0) {
             try {
                 const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
                     headers: authHeaders()
@@ -2922,7 +2838,14 @@ async function handleDealSubmit(form, deal, isNew) {
             }
         }
 
-        await saveDealToServer(obj, !isNew);
+        const isEdit = !isNew;
+        const hasValidId = typeof obj.id === 'string' && obj.id.trim().length === 24;
+        if (isEdit && !hasValidId) {
+            alert('Не найден корректный id сделки, обновите список и попробуйте снова.');
+            return;
+        }
+
+        await saveDealToServer(obj, isEdit);
 
         // New planned deals should NOT affect cash / In Shares until activated.
         const isPlannedNew = isNew && obj.planned_future === true;
@@ -3729,6 +3652,11 @@ async function calculateStopLoss(form) {
         return; // Invalid share price
     }
     
+    // Keep manual stop-loss: if user already set a value, do not overwrite
+    if (stopLossInput.value && stopLossInput.value.trim() !== '') {
+        return;
+    }
+
     // Get the ticker to fetch previous week Low price
     const stockSelect = form.querySelector('select[name="stock"]');
     if (!stockSelect || !stockSelect.value) {
@@ -3749,16 +3677,16 @@ async function calculateStopLoss(form) {
         }
         
         const data = await res.json();
-        if (data && Array.isArray(data) && data.length >= 2) {
-            // Get the second-to-last week (previous week)
-            const previousWeek = data[data.length - 2];
+        if (data && Array.isArray(data) && data.length >= 1) {
+            // Get the latest completed week (last element, data sorted ascending)
+            const latestWeek = data[data.length - 1];
             
-            // Get Low price from previous week
-            const lowPrice = previousWeek.Low !== undefined ? previousWeek.Low : 
-                           (previousWeek.low !== undefined ? previousWeek.low : null);
+            // Get Low price from latest week
+            const lowPrice = latestWeek.Low !== undefined ? latestWeek.Low : 
+                           (latestWeek.low !== undefined ? latestWeek.low : null);
             
             if (lowPrice !== null && lowPrice !== undefined && !isNaN(lowPrice)) {
-                // Set stop loss price to previous week Low
+                // Set stop loss price to latest week Low
                 stopLossInput.value = lowPrice.toString();
                 
                 // Calculate percentage: ((share_price - stop_loss) / share_price) * 100
@@ -3778,17 +3706,37 @@ async function calculateStopLoss(form) {
 
 // Calculate stop loss percentage from share price and stop loss value
 function calculateStopLossPercentage(form) {
+    console.log('[calculateStopLossPercentage] START');
     const sharePriceInput = form.querySelector('input[name="share_price"]');
     const stopLossInput = form.querySelector('input[name="stop_loss"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     
-    if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) return;
+    console.log('[calculateStopLossPercentage] Inputs found:', {
+        sharePriceInput: !!sharePriceInput,
+        stopLossInput: !!stopLossInput,
+        stopLossPrcntInput: !!stopLossPrcntInput,
+        sharePriceValue: sharePriceInput?.value,
+        stopLossValue: stopLossInput?.value
+    });
+    
+    if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) {
+        console.log('[calculateStopLossPercentage] EXIT: Missing inputs');
+        return;
+    }
     
     const sharePrice = parseFloat(String(sharePriceInput.value || '').replace(',', '.'));
     const stopLoss = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
     
+    console.log('[calculateStopLossPercentage] Parsed values:', {
+        sharePrice,
+        stopLoss,
+        sharePriceValid: !isNaN(sharePrice) && sharePrice > 0,
+        stopLossValid: !isNaN(stopLoss) && stopLoss > 0
+    });
+    
     // Both values must be valid numbers
     if (isNaN(sharePrice) || sharePrice <= 0 || isNaN(stopLoss) || stopLoss <= 0) {
+        console.log('[calculateStopLossPercentage] EXIT: Invalid values');
         return; // Invalid values
     }
     
@@ -3796,8 +3744,18 @@ function calculateStopLossPercentage(form) {
     const percentage = ((sharePrice - stopLoss) / sharePrice) * 100;
     stopLossPrcntInput.value = percentage.toFixed(2);
     
+    console.log('[calculateStopLossPercentage] Calculated:', {
+        percentage: percentage.toFixed(2),
+        sharePrice,
+        stopLoss,
+        resultValue: stopLossPrcntInput.value
+    });
+    
     // Check and apply error styling if needed
     updateStopLossErrorClass(stopLossPrcntInput, percentage);
+
+    // Notify listeners (e.g., risk calculator) that the value changed
+    stopLossPrcntInput.dispatchEvent(new Event('input', { bubbles: true }));
     
     console.log(`Stop loss percentage recalculated: ${percentage.toFixed(2)}% (Share: ${sharePrice}, Stop Loss: ${stopLoss})`);
 }
@@ -3967,53 +3925,115 @@ function validateStopLossVsPrice(form, isPlanned) {
 }
 
 function setupSharePriceListener(form) {
+    console.log('[setupSharePriceListener] START - Setting up share price listener', { form, formId: form?.id, formName: form?.name });
     const sharePriceInput = form.querySelector('input[name="share_price"]');
-    const stopLossInput = form.querySelector('input[name="stop_loss"]');
-    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
-    const takeProfitInput = form.querySelector('input[name="take_profit"]');
-    const takeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
+    console.log('[setupSharePriceListener] sharePriceInput found:', sharePriceInput, 'value:', sharePriceInput?.value);
     
-    if (!sharePriceInput) return;
+    if (!sharePriceInput) {
+        console.log('[setupSharePriceListener] ERROR: sharePriceInput not found! Form:', form);
+        return;
+    }
+
+    // Avoid duplicate listeners (setup is called on expand/collapse)
+    if (form.dataset.sharePriceBound === '1') {
+        return;
+    }
+    form.dataset.sharePriceBound = '1';
     
-    // Remove existing listeners by cloning
-    const newInput = sharePriceInput.cloneNode(true);
-    sharePriceInput.parentNode.replaceChild(newInput, sharePriceInput);
+    // Store timeout ID on form to avoid conflicts
+    if (!form._sharePriceTimeout) {
+        form._sharePriceTimeout = null;
+    }
     
     // Function to calculate percentages when share price changes
-    const calculatePercentages = () => {
-        // Calculate stop loss
-        calculateStopLoss(form);
+    const calculatePercentages = async () => {
+        console.log('[calculatePercentages] START - Share price changed');
+        // Get fresh references to inputs in case they were replaced
+        const currentSharePriceInput = form.querySelector('input[name="share_price"]');
+        const currentStopLossInput = form.querySelector('input[name="stop_loss"]');
+        const currentTakeProfitInput = form.querySelector('input[name="take_profit"]');
+        const currentTakeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
+        
+        if (!currentSharePriceInput) {
+            console.log('[calculatePercentages] ERROR: sharePriceInput not found in form');
+            return;
+        }
+        
+        const sharePriceValue = currentSharePriceInput.value;
+        const stopLossValue = currentStopLossInput?.value;
+        console.log('[calculatePercentages] Before calculateStopLoss:', {
+            sharePrice: sharePriceValue,
+            stopLoss: stopLossValue
+        });
+        
+        // First try to auto-fill stop loss (if user hasn't set it)
+        await calculateStopLoss(form);
+        
+        // Get fresh reference again after calculateStopLoss
+        const stopLossValueAfter = form.querySelector('input[name="stop_loss"]')?.value;
+        console.log('[calculatePercentages] After calculateStopLoss:', {
+            sharePrice: sharePriceValue,
+            stopLoss: stopLossValueAfter,
+            stopLossChanged: stopLossValue !== stopLossValueAfter
+        });
+        
+        // Always recalc stop loss percentage when share price changes
+        console.log('[calculatePercentages] Calling calculateStopLossPercentage...');
+        calculateStopLossPercentage(form);
+        console.log('[calculatePercentages] After calculateStopLossPercentage');
         
         // Calculate take profit percentage if take profit is set
-        if (takeProfitInput && takeProfitInput.value && takeProfitPrcntInput) {
+        const freshTakeProfitInput = form.querySelector('input[name="take_profit"]');
+        const freshTakeProfitPrcntInput = form.querySelector('input[name="take_profit_prcnt"]');
+        if (freshTakeProfitInput && freshTakeProfitInput.value && freshTakeProfitPrcntInput) {
             recalculateTakeProfitPercent(form);
         }
     };
     
     // Add listeners for both 'input' (real-time) and 'change' (on blur)
-    newInput.addEventListener('input', () => {
+    sharePriceInput.addEventListener('input', (e) => {
+        console.log('[setupSharePriceListener] input event fired, value:', e.target.value, 'target:', e.target);
         // Debounce to avoid too many calculations while typing
-        clearTimeout(newInput._stopLossTimeout);
-        newInput._stopLossTimeout = setTimeout(() => {
+        if (form._sharePriceTimeout) {
+            clearTimeout(form._sharePriceTimeout);
+        }
+        form._sharePriceTimeout = setTimeout(() => {
             calculatePercentages();
         }, 500); // Wait 500ms after user stops typing
     });
     
-    newInput.addEventListener('change', () => {
+    sharePriceInput.addEventListener('change', (e) => {
+        console.log('[setupSharePriceListener] change event fired, value:', e.target.value, 'target:', e.target);
+        if (form._sharePriceTimeout) {
+            clearTimeout(form._sharePriceTimeout);
+        }
         calculatePercentages();
     });
+    
+    // Recalculate on blur (immediate, no debounce)
+    sharePriceInput.addEventListener('blur', (e) => {
+        console.log('[setupSharePriceListener] blur event fired, value:', e.target.value, 'target:', e.target);
+        if (form._sharePriceTimeout) {
+            clearTimeout(form._sharePriceTimeout);
+        }
+        calculatePercentages();
+    });
+    
+    console.log('[setupSharePriceListener] Event listeners added to sharePriceInput. Element:', sharePriceInput, 'has input listener:', true, 'has change listener:', true, 'has blur listener:', true);
 
     // Also validate stop loss vs share price (highlight and later block on submit)
     const applyStopLossCheck = () => validateStopLossVsPrice(form, true);
-    newInput.addEventListener('input', applyStopLossCheck);
-    newInput.addEventListener('change', applyStopLossCheck);
-    if (stopLossInput) {
-        stopLossInput.addEventListener('input', applyStopLossCheck);
-        stopLossInput.addEventListener('change', applyStopLossCheck);
+    sharePriceInput.addEventListener('input', applyStopLossCheck);
+    sharePriceInput.addEventListener('change', applyStopLossCheck);
+    const currentStopLossInput = form.querySelector('input[name="stop_loss"]');
+    if (currentStopLossInput) {
+        currentStopLossInput.addEventListener('input', applyStopLossCheck);
+        currentStopLossInput.addEventListener('change', applyStopLossCheck);
     }
     
     // Also trigger calculation if share price is already set and take profit is also set
-    if (newInput.value && takeProfitInput && takeProfitInput.value) {
+    const currentTakeProfitInput = form.querySelector('input[name="take_profit"]');
+    if (sharePriceInput.value && currentTakeProfitInput && currentTakeProfitInput.value) {
         setTimeout(() => {
             calculatePercentages();
         }, 100);
@@ -4022,12 +4042,15 @@ function setupSharePriceListener(form) {
     // Also trigger calculation after a delay to catch cases where share price is loaded via API
     // This ensures that if share price is set programmatically, the calculation still happens
     setTimeout(() => {
-        if (newInput.value && takeProfitInput && takeProfitInput.value) {
+        const freshSharePriceInput = form.querySelector('input[name="share_price"]');
+        const freshTakeProfitInput = form.querySelector('input[name="take_profit"]');
+        if (freshSharePriceInput && freshSharePriceInput.value && freshTakeProfitInput && freshTakeProfitInput.value) {
             calculatePercentages();
         }
     }, 500);
     
     // Also check stop loss % field when user manually changes it
+    const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     if (stopLossPrcntInput) {
         // Check initial value
         const initialValue = parseFloat(stopLossPrcntInput.value);
@@ -4062,6 +4085,12 @@ function setupStopLossListener(form) {
     const stopLossInput = form.querySelector('input[name="stop_loss"]');
     
     if (!stopLossInput) return;
+
+    // Avoid duplicate listeners (setup is called on expand/collapse)
+    if (form.dataset.stopLossBound === '1') {
+        return;
+    }
+    form.dataset.stopLossBound = '1';
     
     // Remove existing listeners by cloning
     const newInput = stopLossInput.cloneNode(true);
@@ -4079,6 +4108,19 @@ function setupStopLossListener(form) {
     newInput.addEventListener('change', () => {
         calculateStopLossPercentage(form);
     });
+    
+    // Recalculate on blur (immediate, no debounce)
+    newInput.addEventListener('blur', () => {
+        calculateStopLossPercentage(form);
+    });
+
+    // Also recalc stop loss % when share price changes
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    if (sharePriceInput) {
+        const handleSharePriceChange = () => calculateStopLossPercentage(form);
+        sharePriceInput.addEventListener('input', handleSharePriceChange);
+        sharePriceInput.addEventListener('change', handleSharePriceChange);
+    }
 }
 
 // Setup total sum calculation and update row title
@@ -4088,14 +4130,16 @@ function setupTotalSumCalculator(row, form, deal) {
     const summary = row.querySelector('.deal-summary');
     
     if (!sharePriceInput || !summary) return;
-    
-    // Remove existing listeners by cloning
-    const newSharePriceInput = sharePriceInput.cloneNode(true);
-    sharePriceInput.parentNode.replaceChild(newSharePriceInput, sharePriceInput);
+
+    // Avoid duplicate listeners (setup can be called more than once)
+    if (form.dataset.totalSumBound === '1') {
+        return;
+    }
+    form.dataset.totalSumBound = '1';
     
     // Function to update the row title (deal-summary) with total sum
     const updateRowTitle = () => {
-        const sharePrice = newSharePriceInput.value || '';
+        const sharePrice = sharePriceInput.value || '';
         let stages = getStagesFromForm(form);
         if (!stages.length && deal) stages = getStagesFromDeal(deal);
         const totalSum = calculateTotalSumFromStages(sharePrice, stages);
@@ -4169,19 +4213,19 @@ function setupTotalSumCalculator(row, form, deal) {
     };
     
     // Add event listeners for share_price
-    newSharePriceInput.addEventListener('input', () => {
-        clearTimeout(newSharePriceInput._totalSumTimeout);
-        newSharePriceInput._totalSumTimeout = setTimeout(() => {
+    sharePriceInput.addEventListener('input', () => {
+        clearTimeout(sharePriceInput._totalSumTimeout);
+        sharePriceInput._totalSumTimeout = setTimeout(() => {
             updateRowTitle();
         }, 300);
     });
     
     // Calculate and display total sum when share_price loses focus (blur)
-    newSharePriceInput.addEventListener('blur', () => {
+    sharePriceInput.addEventListener('blur', () => {
         calculateAndDisplayTotalSum();
     });
     
-    newSharePriceInput.addEventListener('change', () => {
+    sharePriceInput.addEventListener('change', () => {
         updateRowTitle();
     });
     

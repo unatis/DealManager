@@ -1,4 +1,4 @@
-﻿using DealManager.Models;
+using DealManager.Models;
 using DealManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -115,7 +115,7 @@ public class PricesController : ControllerBase
             TrendAnalyzer.TrendWeeks weeklyTrend;
             try
             {
-                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(priceData, weeks: 2);
+                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(priceData, weeks: 3);
                 _logger.LogInformation("Weekly trend for {Ticker}: {Trend}", ticker, weeklyTrend);
             }
             catch (Exception ex)

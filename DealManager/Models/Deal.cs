@@ -123,6 +123,9 @@ namespace DealManager.Models
 
         [JsonPropertyName("counter_trend")]
         public string? CounterTrend { get; set; }
+
+        [JsonPropertyName("buy_green_sell_red")]
+        public string? BuyGreenSellRed { get; set; }
         
 
         [JsonPropertyName("flat_before_up")]
