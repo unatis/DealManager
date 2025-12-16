@@ -1862,6 +1862,11 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     newDealRow = null;
                     expandedDealId = null;
                     renderAll();
+                    // Reset risk UI back to saved deals (discard temporary new-deal edits)
+                    setTimeout(() => {
+                        calculateAndDisplayPortfolioRisk();
+                        calculateAndDisplayInSharesRisk();
+                    }, 0);
                 });
             }
         }
@@ -1880,6 +1885,11 @@ async function setupDealRowHandlers(row, deal, isNew) {
             if (isNew) {
                 newDealRow = null;
                 renderAll();
+                // Reset risk UI back to saved deals (discard temporary new-deal edits)
+                setTimeout(() => {
+                    calculateAndDisplayPortfolioRisk();
+                    calculateAndDisplayInSharesRisk();
+                }, 0);
             }
         } else {
             // Collapse any other expanded row
