@@ -3340,23 +3340,56 @@ async function loadCompositeMovementMetrics(tickersArray) {
         return null;
     }
 
-    const query = encodeURIComponent(symbols.join(','));
-    const url = `/api/prices/composite/movement-score?lookback=52&tickers=${query}`;
+    const s = window.movementSettings || defaultMovementSettings;
+    let lookback = parseInt(String(s.lookback || 52), 10);
+    if (!Number.isFinite(lookback) || lookback < 2) lookback = 52;
+
+    const buildUrl = (lb) => {
+        const params = new URLSearchParams();
+        params.set('lookback', String(lb));
+        params.set('tickers', symbols.join(','));
+        return `/api/prices/composite/movement-score?${params.toString()}`;
+    };
+
+    const tryFetch = async (lb) => {
+        const url = buildUrl(lb);
+        const res = await apiFetch(url, { headers: { ...authHeaders() } });
+        if (res.ok) return { ok: true, data: await res.json(), url, status: res.status };
+        const errorText = await res.text().catch(() => '');
+        return { ok: false, errorText, url, status: res.status };
+    };
 
     try {
-        const res = await apiFetch(url, {
-            headers: { ...authHeaders() }
-        });
+        // First attempt: current settings lookback
+        let attempt = await tryFetch(lookback);
 
-        if (!res.ok) {
-            const errorText = await res.text().catch(() => '');
-            console.warn('Failed to load composite movement metrics', res.status, errorText);
+        // If backend says "not enough common history", clamp and retry once
+        if (!attempt.ok && attempt.status === 400) {
+            const msg = attempt.errorText || '';
+            const haveMatch = msg.match(/have\s+(\d+)/i);
+            const have = haveMatch ? parseInt(haveMatch[1], 10) : NaN;
+
+            // Need at least lookback+1 bars -> max usable lookback is (have-1)
+            if (Number.isFinite(have) && have > 2) {
+                const clamped = Math.max(2, Math.min(lookback, have - 1));
+                if (clamped !== lookback) {
+                    console.warn(
+                        'Composite movement metrics: clamping lookback due to common history limit',
+                        { requested: lookback, have, clamped }
+                    );
+                    lookback = clamped;
+                    attempt = await tryFetch(lookback);
+                }
+            }
+        }
+
+        if (!attempt.ok) {
+            console.warn('Failed to load composite movement metrics', attempt.status, attempt.url, attempt.errorText);
             return null;
         }
 
-        const data = await res.json();
-        console.log('Composite movement metrics loaded for', symbols.join('+'), ':', JSON.stringify(data, null, 2));
-        return data;
+        console.log('Composite movement metrics loaded for', symbols.join('+'), ':', JSON.stringify(attempt.data, null, 2));
+        return attempt.data;
     } catch (err) {
         console.error('Error loading composite movement metrics:', err);
         return null;

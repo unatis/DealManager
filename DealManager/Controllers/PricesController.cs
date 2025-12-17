@@ -3,6 +3,7 @@ using DealManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -844,37 +845,61 @@ public class PricesController : ControllerBase
                 seriesList.Add(data);
             }
 
-            var dateSets = seriesList
-                .Select(list => list.Select(p => p.Date).ToHashSet())
+            // IMPORTANT:
+            // Different data sources (API vs MongoDB) can store weekly bars with different timestamps/timezones,
+            // which can shift the calendar DAY while still representing the same trading WEEK.
+            // Example we observed locally:
+            // - AAPL bars: 1999-11-11T22:00:00Z (effectively 1999-11-12 in UTC+2)
+            // - TSLA bars: 2010-07-09T00:00:00Z
+            // Intersecting by exact Date/DateOnly can become empty ("have 0").
+            // For weekly bars, align by ISO week (year + week number) instead.
+            static (int Year, int Week) WeekKey(DateTime dt)
+            {
+                // Stabilize kind to avoid implicit Local conversions on Unspecified values.
+                if (dt.Kind == DateTimeKind.Unspecified)
+                    dt = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                else
+                    dt = dt.ToUniversalTime();
+
+                return (ISOWeek.GetYear(dt), ISOWeek.GetWeekOfYear(dt));
+            }
+
+            var weekSets = seriesList
+                .Select(list => list.Select(p => WeekKey(p.Date)).ToHashSet())
                 .ToList();
 
-            var commonDates = dateSets
+            var commonWeeks = weekSets
                 .Skip(1)
                 .Aggregate(
-                    new HashSet<DateTime>(dateSets.First()),
+                    new HashSet<(int Year, int Week)>(weekSets.First()),
                     (acc, set) =>
                     {
                         acc.IntersectWith(set);
                         return acc;
                     });
 
-            if (commonDates.Count < lookback + 1)
+            if (commonWeeks.Count < lookback + 1)
                 return BadRequest(
                     $"Not enough common history for all tickers. " +
-                    $"Need at least {lookback + 1} common weekly bars, have {commonDates.Count}.");
+                    $"Need at least {lookback + 1} common weekly bars, have {commonWeeks.Count}.");
 
-            var orderedDates = commonDates
-                .OrderBy(d => d)
+            var orderedWeeks = commonWeeks
+                .OrderBy(w => w.Year)
+                .ThenBy(w => w.Week)
                 .ToList();
 
             var dicts = seriesList
-                .Select(list => list.ToDictionary(p => p.Date))
+                .Select(list =>
+                    list.GroupBy(p => WeekKey(p.Date))
+                        // If duplicates exist for the same ISO week, take the most recent point
+                        // (this is safer than failing the whole request).
+                        .ToDictionary(g => g.Key, g => g.OrderByDescending(p => p.Date).First()))
                 .ToList();
 
             var composite = new List<PricePoint>();
-            foreach (var date in orderedDates)
+            foreach (var wk in orderedWeeks)
             {
-                var pointsAtDate = dicts.Select(d => d[date]).ToList();
+                var pointsAtDate = dicts.Select(d => d[wk]).ToList();
 
                 var open   = pointsAtDate.Average(p => p.Open);
                 var high   = pointsAtDate.Average(p => p.High);
@@ -884,7 +909,8 @@ public class PricesController : ControllerBase
 
                 composite.Add(new PricePoint
                 {
-                    Date   = date,
+                    // Pick a stable representative date for the week (Friday).
+                    Date   = DateTime.SpecifyKind(ISOWeek.ToDateTime(wk.Year, wk.Week, DayOfWeek.Friday), DateTimeKind.Utc),
                     Open   = open,
                     High   = high,
                     Low    = low,
