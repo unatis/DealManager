@@ -58,6 +58,36 @@ public class PricesController : ControllerBase
         }
     }
 
+    [HttpGet("{ticker}/monthly")]
+    public async Task<IActionResult> GetMonthly(string ticker)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        try
+        {
+            _logger.LogInformation("Fetching monthly prices for {Ticker}", ticker);
+            var data = await _alpha.GetMonthlyAsync(ticker);
+            _logger.LogInformation("Retrieved {Count} monthly price points for {Ticker}", data.Count, ticker);
+
+            if (data.Count == 0)
+                return NotFound("No data for this ticker");
+
+            return Ok(data);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage monthly error for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load monthly prices for {Ticker}. Exception: {ExceptionType}, Message: {Message}, StackTrace: {StackTrace}",
+                ticker, ex.GetType().Name, ex.Message, ex.StackTrace);
+            return StatusCode(500, $"Internal error while loading monthly prices: {ex.Message}");
+        }
+    }
+
     [HttpGet("{ticker}/quote")]
     public async Task<IActionResult> GetQuote(string ticker)
     {
@@ -105,17 +135,19 @@ public class PricesController : ControllerBase
             }
 
             _logger.LogInformation("Fetching trends for {Ticker}", ticker);
-            var priceData = await _alpha.GetWeeklyAsync(ticker);
-            _logger.LogInformation("Retrieved {Count} price points for trends calculation for {Ticker}", priceData.Count, ticker);
+            var weeklyPriceData = await _alpha.GetWeeklyAsync(ticker);
+            var monthlyPriceData = await _alpha.GetMonthlyAsync(ticker);
+            _logger.LogInformation("Retrieved {WeeklyCount} weekly points and {MonthlyCount} monthly points for trends calculation for {Ticker}",
+                weeklyPriceData.Count, monthlyPriceData.Count, ticker);
             
-            if (priceData.Count == 0)
+            if (weeklyPriceData.Count == 0 || monthlyPriceData.Count == 0)
                 return NotFound("No data for this ticker");
 
             // Calculate weekly trend (last 2 weeks)
             TrendAnalyzer.TrendWeeks weeklyTrend;
             try
             {
-                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(priceData, weeks: 3);
+                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(weeklyPriceData, weeks: 3);
                 _logger.LogInformation("Weekly trend for {Ticker}: {Trend}", ticker, weeklyTrend);
             }
             catch (Exception ex)
@@ -124,11 +156,11 @@ public class PricesController : ControllerBase
                 weeklyTrend = TrendAnalyzer.TrendWeeks.Flat;
             }
             
-            // Calculate monthly trend (last 2 months = ~8 weeks)
+            // Calculate monthly trend from MONTHLY candles (last 2 months)
             TrendAnalyzer.TrendMonthes monthlyTrend;
             try
             {
-                monthlyTrend = _trendAnalyzer.DetectTrendByLowsForMonths(priceData, months: 2);
+                monthlyTrend = _trendAnalyzer.DetectTrendByLowsForMonths(monthlyPriceData, months: 2);
                 _logger.LogInformation("Monthly trend for {Ticker}: {Trend}", ticker, monthlyTrend);
             }
             catch (Exception ex)

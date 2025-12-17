@@ -360,6 +360,23 @@ h3 {
     white-space: nowrap;
 }
 
+/* New Deal title: keep RR badge on the right */
+.new-deal-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.new-deal-title > strong {
+    flex: 1 1 auto;
+}
+
+.new-deal-title .reward-to-risk-badge {
+    margin-left: auto;
+    white-space: nowrap;
+}
+
 /* Каждый label в inline-форме занимает всю ширину своей колонки */
 .deal-form-inline .form-grid label {
     width: 100%;
@@ -1593,6 +1610,11 @@ label.inline-checkbox > input[type="checkbox"] {
 
 .badge.reward-risk-yellow {
     background-color: #f59e0b !important; /* Yellow/Orange */
+    color: white !important;
+}
+
+.badge.reward-risk-green {
+    background-color: #22c55e !important; /* Green */
     color: white !important;
 }
 

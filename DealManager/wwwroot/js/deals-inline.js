@@ -40,6 +40,78 @@ function parseNumber(val) {
     return parseFloat(String(val || '').trim().replace(',', '.')) || 0;
 }
 
+function calculateRewardToRisk(entry, stopLoss, takeProfit) {
+    const e = parseNumber(entry);
+    const sl = parseNumber(stopLoss);
+    const tp = parseNumber(takeProfit);
+
+    if (!e || !sl || !tp) return null;
+
+    const risk = e - sl;
+    const reward = tp - e;
+
+    if (risk <= 0 || reward <= 0) return null;
+    return reward / risk;
+}
+
+function updateNewDealRewardToRiskBadge(row, form) {
+    const badgeHost = row?.querySelector('.new-deal-title .reward-to-risk-badge');
+    if (!badgeHost) return;
+
+    const spInput = form?.querySelector('input[name="share_price"]');
+    const slInput = form?.querySelector('input[name="stop_loss"]');
+    const tpInput = form?.querySelector('input[name="take_profit"]');
+
+    let ratio = calculateRewardToRisk(spInput?.value, slInput?.value, tpInput?.value);
+
+    // Fallback: if user filled percentages (SL% / TP%) but not absolute prices,
+    // ratio can be computed as TP% / SL%.
+    if (!ratio) {
+        const slPctInput = form?.querySelector('input[name="stop_loss_prcnt"]');
+        const tpPctInput = form?.querySelector('input[name="take_profit_prcnt"]');
+        const slPct = parseNumber(slPctInput?.value);
+        const tpPct = parseNumber(tpPctInput?.value);
+        if (slPct > 0 && tpPct > 0) {
+            ratio = tpPct / slPct;
+        }
+    }
+
+    if (!ratio) {
+        badgeHost.innerHTML = '';
+        return;
+    }
+
+    const ratioText = `1:${ratio.toFixed(1)}`;
+    let colorClass = '';
+    if (ratio <= 1.0) colorClass = 'reward-risk-red';
+    else if (ratio <= 2.0) colorClass = 'reward-risk-yellow';
+    else colorClass = 'reward-risk-green';
+
+    badgeHost.innerHTML =
+        `<div class="badge movement-metric-tooltip ${colorClass}" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(ratioText)}</div>`;
+}
+
+function setupNewDealRewardToRiskBadge(row, form) {
+    if (!row || !form) return;
+    if (form.dataset.rrBadgeBound === '1') return;
+    form.dataset.rrBadgeBound = '1';
+
+    const handler = (e) => {
+        const t = e?.target;
+        // Update for any of the price fields (and allow bubbling to survive input cloning).
+        if (t?.name === 'share_price' || t?.name === 'stop_loss' || t?.name === 'take_profit') {
+            updateNewDealRewardToRiskBadge(row, form);
+        }
+    };
+
+    form.addEventListener('input', handler);
+    form.addEventListener('change', handler);
+
+    // Initial render + delayed render (covers programmatic value updates after async loads).
+    updateNewDealRewardToRiskBadge(row, form);
+    setTimeout(() => updateNewDealRewardToRiskBadge(row, form), 600);
+}
+
 // Calculate total sum: share_price * sharesCount (returns string with 2 decimals or null)
 function calculateTotalSum(sharePrice, amountToBuy) {
     const price = parseNumber(sharePrice);
@@ -1700,7 +1772,7 @@ function createDealRow(deal, isNew) {
                     ${totalSumDisplay ? `<div class="total-sum-display">${totalSumDisplay}</div>` : ''}
                     <div class="movement-metrics-container"></div>
                 </div>`
-                : `<div class="new-deal-title"><strong>New Deal</strong></div>`
+                : `<div class="new-deal-title"><strong>New Deal</strong><div class="total-sum-display" style="display:none"></div><div class="reward-to-risk-badge"></div></div>`
             }
             ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}${plannedFutureLabel}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
@@ -1740,6 +1812,8 @@ function createDealRow(deal, isNew) {
                     colorClass = 'reward-risk-red'; // Red for 1:1 or worse
                 } else if (ratioValue <= 2.0) {
                     colorClass = 'reward-risk-yellow'; // Yellow for 1:2 or worse (but better than 1:1)
+                } else {
+                    colorClass = 'reward-risk-green'; // Green for better than 1:2
                 }
                 
                 return `<div class="badge movement-metric-tooltip ${colorClass}" data-tooltip="Reward to Risk Ratio">R ${escapeHtml(deal.reward_to_risk)}</div>`;
@@ -1845,6 +1919,9 @@ async function setupDealRowHandlers(row, deal, isNew) {
         setupStopLossListener(form);
         setupTakeProfitListener(form);
         setupTotalSumCalculator(row, form, deal);
+        if (isNew) {
+            setupNewDealRewardToRiskBadge(row, form);
+        }
 
         // For new deals (which start expanded) or rows initially expanded,
         // initialize chart immediately; existing collapsed deals will
