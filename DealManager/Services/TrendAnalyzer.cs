@@ -259,6 +259,59 @@ namespace DealManager.Services
             return DetectTrendByLowsForMonths(series.Points, months, tolerance);
         }
 
+        /// <summary>
+        /// "Monthly" trend computed from WEEKLY candles (last N weeks).
+        /// Used to derive a smoother monthly direction without fetching monthly series.
+        /// </summary>
+        public TrendMonthes DetectTrendByLowsForMonthsFromWeeks(
+            IReadOnlyList<PricePoint> weeklyPoints,
+            int weeks = 3,
+            decimal? tolerance = null)
+        {
+            if (weeklyPoints == null || weeklyPoints.Count < 2)
+                return TrendMonthes.Flat;
+
+            var ordered = weeklyPoints
+                .OrderBy(p => p.Date)
+                .ToList();
+
+            var tol = tolerance ?? _defaultTolerance;
+
+            // Flat-check on last 3 weekly bars (same structure as DetectTrendByLowsForWeeks)
+            var last3 = ordered.Skip(Math.Max(0, ordered.Count - 3)).ToList();
+            if (last3.Count == 3)
+            {
+                var oldest = last3[0];
+                var mid = last3[1];
+                var latest = last3[2];
+
+                bool highsNonIncreasing =
+                    latest.High <= mid.High + tol &&
+                    mid.High <= oldest.High + tol;
+
+                bool lowsCondition =
+                    latest.Low >= mid.Low - tol &&
+                    oldest.Low >= mid.Low - tol;
+
+                bool opensNonIncreasing =
+                    latest.Open <= mid.Open + tol &&
+                    mid.Open <= oldest.Open + tol;
+
+                bool closesNonIncreasing =
+                    latest.Close <= mid.Close + tol &&
+                    mid.Close <= oldest.Close + tol;
+
+                if (highsNonIncreasing && lowsCondition && opensNonIncreasing && closesNonIncreasing)
+                    return TrendMonthes.Flat;
+            }
+
+            int sign = DetectTrendByLowsCore(ordered, weeks, tolerance);
+
+            if (sign > 0) return TrendMonthes.Up;
+            if (sign < 0) return TrendMonthes.Down;
+            return TrendMonthes.Flat;
+        }
+
         // ---------- ДНИ ----------
 
         public TrendDays DetectTrendByLowsForDays(

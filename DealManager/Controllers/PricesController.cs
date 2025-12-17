@@ -136,18 +136,17 @@ public class PricesController : ControllerBase
 
             _logger.LogInformation("Fetching trends for {Ticker}", ticker);
             var weeklyPriceData = await _alpha.GetWeeklyAsync(ticker);
-            var monthlyPriceData = await _alpha.GetMonthlyAsync(ticker);
-            _logger.LogInformation("Retrieved {WeeklyCount} weekly points and {MonthlyCount} monthly points for trends calculation for {Ticker}",
-                weeklyPriceData.Count, monthlyPriceData.Count, ticker);
+            _logger.LogInformation("Retrieved {WeeklyCount} weekly points for trends calculation for {Ticker}",
+                weeklyPriceData.Count, ticker);
             
-            if (weeklyPriceData.Count == 0 || monthlyPriceData.Count == 0)
+            if (weeklyPriceData.Count == 0)
                 return NotFound("No data for this ticker");
 
             // Calculate weekly trend (last 2 weeks)
             TrendAnalyzer.TrendWeeks weeklyTrend;
             try
             {
-                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(weeklyPriceData, weeks: 3);
+                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(weeklyPriceData, weeks: 2);
                 _logger.LogInformation("Weekly trend for {Ticker}: {Trend}", ticker, weeklyTrend);
             }
             catch (Exception ex)
@@ -156,11 +155,11 @@ public class PricesController : ControllerBase
                 weeklyTrend = TrendAnalyzer.TrendWeeks.Flat;
             }
             
-            // Calculate monthly trend from MONTHLY candles (last 2 months)
+            // Calculate "monthly" trend from WEEKLY candles (last 3 weeks)
             TrendAnalyzer.TrendMonthes monthlyTrend;
             try
             {
-                monthlyTrend = _trendAnalyzer.DetectTrendByLowsForMonths(monthlyPriceData, months: 2);
+                monthlyTrend = _trendAnalyzer.DetectTrendByLowsForMonthsFromWeeks(weeklyPriceData, weeks: 3);
                 _logger.LogInformation("Monthly trend for {Ticker}: {Trend}", ticker, monthlyTrend);
             }
             catch (Exception ex)
