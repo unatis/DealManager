@@ -25,6 +25,8 @@ namespace DealManager.Services
         private const string Function = "TIME_SERIES_WEEKLY";  // бесплатный endpoint
         private const string MonthlyFunction = "TIME_SERIES_MONTHLY";
 
+        public sealed record QuoteSnapshot(decimal Price, DateTime LastUpdatedUtc);
+
         public AlphaVantageService(
             HttpClient http,
             IOptions<AlphaVantageSettings> settings,
@@ -439,16 +441,16 @@ namespace DealManager.Services
             }
         }
 
-        public async Task<decimal?> GetCurrentPriceAsync(string symbol)
+        public async Task<QuoteSnapshot?> GetCurrentQuoteAsync(string symbol)
         {
             if (string.IsNullOrWhiteSpace(symbol))
                 throw new ArgumentException("Ticker is required", nameof(symbol));
 
             symbol = symbol.Trim().ToUpperInvariant();
 
-            var cacheKey = $"av_quote_{symbol}";
-            if (_cache.TryGetValue(cacheKey, out decimal? cached) && cached.HasValue)
-                return cached;
+            var cacheKey = $"av_quote_snapshot_{symbol}";
+            if (_cache.TryGetValue(cacheKey, out QuoteSnapshot? cachedSnapshot) && cachedSnapshot != null)
+                return cachedSnapshot;
 
             CachedQuote? cachedFromDb = null;
             try
@@ -465,8 +467,9 @@ namespace DealManager.Services
 
             if (cachedFromDb != null && IsSameDay(cachedFromDb.LastUpdatedUtc))
             {
-                _cache.Set(cacheKey, cachedFromDb.Price, TimeSpan.FromMinutes(1));
-                return cachedFromDb.Price;
+                var snap = new QuoteSnapshot(cachedFromDb.Price, cachedFromDb.LastUpdatedUtc);
+                _cache.Set(cacheKey, snap, TimeSpan.FromMinutes(1));
+                return snap;
             }
 
             var url =
@@ -580,10 +583,11 @@ namespace DealManager.Services
             {
                 // Use UpdateOneAsync with $set operator - MongoDB will auto-generate Id for new documents
                 var filter = Builders<CachedQuote>.Filter.Eq(x => x.Ticker, symbol);
+                var nowUtc = DateTime.UtcNow;
                 var updateBuilder = Builders<CachedQuote>.Update
                     .Set(x => x.Ticker, symbol)
                     .Set(x => x.Price, price.Value)
-                    .Set(x => x.LastUpdatedUtc, DateTime.UtcNow);
+                    .Set(x => x.LastUpdatedUtc, nowUtc);
                 
                 if (open.HasValue) updateBuilder = updateBuilder.Set(x => x.Open, open.Value);
                 if (high.HasValue) updateBuilder = updateBuilder.Set(x => x.High, high.Value);
@@ -622,9 +626,17 @@ namespace DealManager.Services
                 // Continue even if DB save fails - we still have the price
             }
 
-            _cache.Set(cacheKey, price, TimeSpan.FromMinutes(1)); // Cache for 1 minute
+            // Even if MongoDB save failed, we can still return the fetched quote with "now" timestamp.
+            var snapshot = new QuoteSnapshot(price.Value, DateTime.UtcNow);
+            _cache.Set(cacheKey, snapshot, TimeSpan.FromMinutes(1)); // Cache for 1 minute
 
-            return price;
+            return snapshot;
+        }
+
+        public async Task<decimal?> GetCurrentPriceAsync(string symbol)
+        {
+            var quote = await GetCurrentQuoteAsync(symbol);
+            return quote?.Price;
         }
 
         private static bool IsSameDay(DateTime storedUtc) =>

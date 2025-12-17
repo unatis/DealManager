@@ -1770,6 +1770,7 @@ function createDealRow(deal, isNew) {
                         <strong>${escapeHtml(deal.stock)}${volumeIndicator}${sp500Indicator}${atrIndicator}${syncSp500Indicator}${betaVolatilityIndicator}</strong>
                     </div>
                     ${totalSumDisplay ? `<div class="total-sum-display">${totalSumDisplay}</div>` : ''}
+                    ${deal && !deal.closed ? `<div class="badge movement-metric-tooltip current-price-badge" data-tooltip="Current price (daily)">CP:-</div>` : ''}
                     <div class="movement-metrics-container"></div>
                 </div>`
                 : `<div class="new-deal-title"><strong>New Deal</strong><div class="total-sum-display" style="display:none"></div><div class="reward-to-risk-badge"></div></div>`
@@ -1821,6 +1822,15 @@ function createDealRow(deal, isNew) {
         </div>
         ` : ''}
     `;
+
+    // Add current price badge (CP) in the title for open + planned deals (not closed)
+    if (deal?.stock && deal?.id && !deal?.closed && !isNew) {
+        const cpBadge = summary.querySelector('.current-price-badge');
+        // Fire-and-forget; result is cached per UTC day
+        attachCurrentPriceBadge(cpBadge, deal.stock).catch(err => {
+            console.warn('attachCurrentPriceBadge failed', deal.stock, err);
+        });
+    }
     
     // Add movement metrics near the price (load asynchronously)
     // Only for open deals (not closed, and not new deals - new deals will get metrics when stock is selected)
@@ -3274,6 +3284,130 @@ function saveMovementSettings(settings) {
 }
 
 window.movementSettings = loadMovementSettings();
+
+// ======== Current Price badge (CP) in deal title (open + planned only) ========
+// Goal:
+// - Share price remains the entry/buy price in the form.
+// - Current price is shown as CP:<value> in the title.
+// - Cache once per UTC day to avoid API quota issues.
+
+const quotePromiseCache = new Map(); // key -> Promise<{price,lastUpdatedUtc} | null>
+
+function getUtcDayKey() {
+    // Use UTC day to match backend IsSameDay(DateTime.UtcNow.Date)
+    return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function getQuoteStorageKey(ticker) {
+    const t = (ticker || '').trim().toUpperCase();
+    return `dm_quote_${t}_${getUtcDayKey()}`;
+}
+
+function formatPriceForBadge(price) {
+    const n = typeof price === 'number' ? price : parseFloat(String(price));
+    if (!isFinite(n)) return String(price ?? '-');
+    return n.toFixed(2);
+}
+
+function formatLastUpdatedUtcForTooltip(lastUpdatedUtc) {
+    if (!lastUpdatedUtc) return '';
+    try {
+        // Display explicitly as UTC to avoid confusion
+        const iso = new Date(lastUpdatedUtc).toISOString(); // always UTC
+        return iso.replace('T', ' ').replace('.000Z', 'Z').replace('Z', ' UTC');
+    } catch {
+        return String(lastUpdatedUtc);
+    }
+}
+
+async function getDailyQuote(ticker) {
+    const t = (ticker || '').trim().toUpperCase();
+    if (!t) return null;
+
+    const storageKey = getQuoteStorageKey(t);
+
+    // 1) localStorage cache (per UTC day)
+    try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.price != null) return parsed;
+        }
+    } catch {
+        // ignore cache errors
+    }
+
+    // 2) in-flight dedupe (avoid concurrent requests for many rows)
+    if (quotePromiseCache.has(storageKey)) {
+        return await quotePromiseCache.get(storageKey);
+    }
+
+    const p = (async () => {
+        try {
+            const res = await apiFetch(`/api/prices/${encodeURIComponent(t)}/quote`, {
+                headers: { ...authHeaders() }
+            });
+
+            if (!res.ok) return null;
+
+            const data = await res.json();
+            if (!data || data.price == null) return null;
+
+            // Expected from backend: { price, lastUpdatedUtc }
+            const payload = {
+                price: data.price,
+                lastUpdatedUtc: data.lastUpdatedUtc || null
+            };
+
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(payload));
+            } catch {
+                // ignore storage quota issues
+            }
+
+            return payload;
+        } catch (e) {
+            console.warn('Failed to load current quote for badge', t, e);
+            return null;
+        } finally {
+            // Allow retries on subsequent renders if something transient happened
+            quotePromiseCache.delete(storageKey);
+        }
+    })();
+
+    quotePromiseCache.set(storageKey, p);
+    return await p;
+}
+
+async function attachCurrentPriceBadge(badgeEl, ticker) {
+    if (!badgeEl || !ticker) return;
+
+    const t = (ticker || '').trim().toUpperCase();
+    if (!t) return;
+
+    // Show loading state (small and non-intrusive)
+    if (!badgeEl.textContent || badgeEl.textContent.trim() === '') {
+        badgeEl.textContent = 'CP:-';
+    }
+
+    const quote = await getDailyQuote(t);
+    if (!quote) {
+        badgeEl.textContent = 'CP:-';
+        badgeEl.setAttribute('data-tooltip', 'Current price is unavailable');
+        return;
+    }
+
+    const priceText = formatPriceForBadge(quote.price);
+    badgeEl.textContent = `CP:${priceText}`;
+
+    const updated = formatLastUpdatedUtcForTooltip(quote.lastUpdatedUtc);
+    badgeEl.setAttribute(
+        'data-tooltip',
+        updated
+            ? `Current price (as of ${updated})`
+            : 'Current price (cached today)'
+    );
+}
 
 // Load movement metrics for a ticker
 async function loadMovementMetrics(ticker) {

@@ -97,11 +97,11 @@ public class PricesController : ControllerBase
 
         try
         {
-            var price = await _alpha.GetCurrentPriceAsync(ticker);
-            if (!price.HasValue)
+            var quote = await _alpha.GetCurrentQuoteAsync(ticker);
+            if (quote == null)
                 return NotFound("No current price available for this ticker");
 
-            return Ok(new { price = price.Value });
+            return Ok(new { price = quote.Price, lastUpdatedUtc = quote.LastUpdatedUtc });
         }
         catch (InvalidOperationException ex)
         {
