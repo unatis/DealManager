@@ -987,12 +987,15 @@ async function loadDeals() {
         await loadWarnings();
         
         renderAll();
-        
-        // Calculate and display portfolio risk after loading deals
+
+        // IMPORTANT:
+        // Server-side portfolio risk uses user.TotalSum as denominator.
+        // TotalSum/InShares are maintained by the client (via /api/users/inshares and /api/users/totalsum),
+        // so we must update those first before requesting risk to avoid showing 0.00%.
+        await calculateAndUpdateInShares(); // also updates TotalSum and InShares risk
+
+        // Now calculate and display portfolio risk after totals are up to date
         await calculateAndDisplayPortfolioRisk();
-        
-        // Calculate total sum of all deals and update In Shares
-        await calculateAndUpdateInShares();
     } catch (e) {
         console.error('Load deals error', e);
         dealsLoaded = true;
@@ -1170,6 +1173,13 @@ async function calculateAndUpdateTotalSum() {
             }
         } catch (e) {
             console.error('Error saving Total Sum', e);
+        }
+
+        // Update planned "+Risk" badges (depends on Total Sum in header)
+        try {
+            updatePlannedRiskBadges();
+        } catch {
+            // ignore
         }
     } catch (e) {
         console.error('Error calculating Total Sum', e);
@@ -1771,6 +1781,7 @@ function createDealRow(deal, isNew) {
                     </div>
                     ${totalSumDisplay ? `<div class="total-sum-display">${totalSumDisplay}</div>` : ''}
                     ${deal && !deal.closed ? `<div class="badge movement-metric-tooltip current-price-badge" data-tooltip="Current price (daily)" data-entry-price="${escapeHtml(deal.share_price || '')}">CP:-</div>` : ''}
+                    ${deal && !deal.closed && deal.planned_future && deal.id ? `<div class="badge portfolio-display movement-metric-tooltip planned-risk-badge" data-deal-id="${deal.id}" data-tooltip="Planned deal: added risk if activated">+Risk:-</div>` : ''}
                     <div class="movement-metrics-container"></div>
                 </div>`
                 : `<div class="new-deal-title"><strong>New Deal</strong><div class="total-sum-display" style="display:none"></div><div class="reward-to-risk-badge"></div></div>`
@@ -1830,6 +1841,32 @@ function createDealRow(deal, isNew) {
         attachCurrentPriceBadge(cpBadge, deal.stock).catch(err => {
             console.warn('attachCurrentPriceBadge failed', deal.stock, err);
         });
+    }
+
+    // Planned deal: show "assumed/added risk if activated"
+    if (deal?.id && deal?.planned_future && !deal?.closed && !isNew) {
+        const plannedBadge = summary.querySelector('.planned-risk-badge');
+        if (plannedBadge) {
+            // Try to compute immediately; will be refreshed globally after risk/totalSum updates.
+            try {
+                const added = calcAddedRiskPercentForPlannedDeal(deal);
+                if (added > 0) {
+                    const currentRisk =
+                        (typeof latestPortfolioRiskPercent === 'number' ? latestPortfolioRiskPercent : null)
+                        ?? getCurrentPortfolioRiskFromHeader();
+                    const predicted = (Number(currentRisk) || 0) + added;
+                    plannedBadge.textContent = `+Risk:+${added.toFixed(2)}%`;
+                    applyPortfolioRiskClasses(plannedBadge, predicted);
+                    plannedBadge.setAttribute(
+                        'data-tooltip',
+                        `Planned deal: added risk if activated: +${added.toFixed(2)}%.\n` +
+                        `If active: ${predicted.toFixed(2)}% (current: ${(Number(currentRisk) || 0).toFixed(2)}%).`
+                    );
+                }
+            } catch (e) {
+                // ignore; placeholder stays
+            }
+        }
     }
     
     // Add movement metrics near the price (load asynchronously)
@@ -2023,14 +2060,20 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 let sharePriceNum = 0;
                 let stages = [];
                 let slPctNum = 0;
+                let monthlyVal = '';
+                let weeklyVal = '';
 
                 try {
                     if (form) {
                         const spInput  = form.querySelector('input[name="share_price"]');
                         const slInput  = form.querySelector('input[name="stop_loss_prcnt"]');
+                        const monthlySelect = form.querySelector('select[name="monthly_dir"]');
+                        const weeklySelect = form.querySelector('select[name="weekly_dir"]');
 
                         if (spInput) sharePriceNum = parseNumber(spInput.value);
                         if (slInput) slPctNum      = parseNumber(slInput.value);
+                        monthlyVal = monthlySelect?.value || '';
+                        weeklyVal = weeklySelect?.value || '';
 
                         const stageInputs = Array.from(form.querySelectorAll('input[name="amount_tobuy_stages[]"]'));
                         const orderedStageNums = stageInputs.map(i => parseNumber(i.value));
@@ -2059,6 +2102,15 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     }
                     if (!slPctNum && deal.stop_loss_prcnt) {
                         slPctNum = parseNumber(deal.stop_loss_prcnt);
+                    }
+
+                    // Block activation if monthly/weekly trend is Down
+                    if (monthlyVal === 'Down' || weeklyVal === 'Down') {
+                        showDealLimitModal(
+                            'Cannot activate this deal: Weekly trend or Monthly trend is Down.\n' +
+                            'Change trends before creating the deal.'
+                        );
+                        return;
                     }
 
                     const totalPlanned = sharePriceNum * sumStages(stages);
@@ -2277,7 +2329,7 @@ async function updateDealLimitsUI(form) {
         let info = form.querySelector('.deal-limits-info');
         if (!info) {
             info = document.createElement('div');
-            info.className = 'deal-limits-info small';
+            info.className = 'deal-limits-info big';
             info.style.marginTop = '8px';
             info.style.color = 'var(--muted)';
 
@@ -2790,15 +2842,9 @@ async function handleDealSubmit(form, deal, isNew) {
             return;
         }
 
-        // Block deal if monthly/weekly trend is Down
-        const monthlySelect = form.querySelector('select[name="monthly_dir"]');
-        const weeklySelect = form.querySelector('select[name="weekly_dir"]');
-        const monthlyVal = monthlySelect?.value;
-        const weeklyVal = weeklySelect?.value;
-        if (monthlyVal === 'Down' || weeklyVal === 'Down') {
-            showDealLimitModal('Deal is blocked: Weekly trend or Monthly trend is Down.\nChange trends before creating the deal.');
-            return;
-        }
+        // NOTE:
+        // Do NOT block planning/saving deals by trends.
+        // Trends blocking is enforced only when activating planned -> real (Create deal).
 
         setButtonLoading(submitButton, true);
         
@@ -3292,6 +3338,104 @@ window.movementSettings = loadMovementSettings();
 // - Cache once per UTC day to avoid API quota issues.
 
 const quotePromiseCache = new Map(); // key -> Promise<{price,lastUpdatedUtc} | null>
+
+// ======== Portfolio Risk badge in deal title (open + planned only) ========
+// Mirrors header color thresholds: green <=5%, orange (5..10], red >10%
+let latestPortfolioRiskPercent = null;
+
+function applyPortfolioRiskClasses(el, riskValue) {
+    if (!el) return;
+    el.classList.remove('risk-low', 'risk-medium', 'risk-high');
+    if (riskValue > 10) el.classList.add('risk-high');
+    else if (riskValue > 5) el.classList.add('risk-medium');
+    else el.classList.add('risk-low');
+}
+
+function getHeaderTotalSumValue() {
+    const el = document.getElementById('totalSumValue');
+    if (!el) return 0;
+    const raw = String(el.textContent || '').trim().replace(',', '.');
+    return parseFloat(raw) || 0;
+}
+
+function getCurrentPortfolioRiskFromHeader() {
+    const el = document.getElementById('portfolioRiskValue');
+    if (!el) return 0;
+    // Might be formatted like "3.42%" or "3.42% [..]"
+    return parseNumber(String(el.textContent || ''));
+}
+
+function getPlannedDealTotalSumValue(deal) {
+    if (!deal) return 0;
+
+    // Prefer persisted total_sum
+    const totalSumRaw = deal.total_sum;
+    if (totalSumRaw != null && String(totalSumRaw).trim() !== '') {
+        const n = parseFloat(String(totalSumRaw).trim().replace(',', '.')) || 0;
+        if (n > 0) return n;
+    }
+
+    // Fallback: share_price * sum(stages)
+    const sharePrice = parseNumber(deal.share_price);
+    const stages = getStagesFromDeal(deal);
+    const shares = sumStages(stages);
+    const total = sharePrice * shares;
+    return total > 0 ? total : 0;
+}
+
+function calcAddedRiskPercentForPlannedDeal(deal) {
+    const totalSum = getHeaderTotalSumValue();
+    if (totalSum <= 0) return 0;
+
+    const plannedTotal = getPlannedDealTotalSumValue(deal);
+    const slPct = parseNumber(deal?.stop_loss_prcnt);
+    if (plannedTotal <= 0 || slPct <= 0) return 0;
+
+    const addedRiskAmount = plannedTotal * (slPct / 100);
+    const addedRiskPercent = (addedRiskAmount / totalSum) * 100;
+    return Math.round(addedRiskPercent * 100) / 100; // 2 decimals
+}
+
+function updatePlannedRiskBadges() {
+    const badges = document.querySelectorAll('.planned-risk-badge');
+    if (!badges || badges.length === 0) return;
+
+    const currentRisk =
+        (typeof latestPortfolioRiskPercent === 'number' ? latestPortfolioRiskPercent : null)
+        ?? getCurrentPortfolioRiskFromHeader();
+
+    badges.forEach(badge => {
+        const dealId = badge.getAttribute('data-deal-id') || '';
+        const deal = deals?.find?.(d => d && String(d.id) === dealId);
+        if (!deal || deal.closed || !deal.planned_future) {
+            badge.textContent = '+Risk:-';
+            badge.setAttribute('data-tooltip', 'Planned deal: added risk if activated');
+            badge.classList.remove('risk-low', 'risk-medium', 'risk-high');
+            return;
+        }
+
+        const added = calcAddedRiskPercentForPlannedDeal(deal);
+        if (!added) {
+            badge.textContent = '+Risk:-';
+            badge.setAttribute('data-tooltip', 'Planned deal: added risk if activated');
+            badge.classList.remove('risk-low', 'risk-medium', 'risk-high');
+            return;
+        }
+
+        const predicted = (Number(currentRisk) || 0) + added;
+        const sign = added > 0 ? '+' : '';
+        badge.textContent = `+Risk:${sign}${added.toFixed(2)}%`;
+
+        // Color by predicted portfolio risk if activated
+        applyPortfolioRiskClasses(badge, predicted);
+
+        badge.setAttribute(
+            'data-tooltip',
+            `Planned deal: added risk if activated: ${sign}${added.toFixed(2)}%.\n` +
+            `If active: ${predicted.toFixed(2)}% (current: ${(Number(currentRisk) || 0).toFixed(2)}%).`
+        );
+    });
+}
 
 function getUtcDayKey() {
     // Use UTC day to match backend IsSameDay(DateTime.UtcNow.Date)
@@ -4813,6 +4957,10 @@ async function calculateAndDisplayPortfolioRisk() {
                     riskSpan.classList.add('risk-low'); // Green color for low risk
                 }
             }
+
+            // Keep last known value for fast UI re-renders and update all title badges.
+            latestPortfolioRiskPercent = Number(riskPercent) || 0;
+            updatePlannedRiskBadges();
         } else {
             console.error('Failed to load portfolio risk', res.status);
             const riskSpan = document.getElementById('portfolioRiskValue');
@@ -4822,6 +4970,9 @@ async function calculateAndDisplayPortfolioRisk() {
                 riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
                 riskSpan.classList.add('risk-low');
             }
+
+            latestPortfolioRiskPercent = 0;
+            updatePlannedRiskBadges();
         }
     } catch (e) {
         console.error('Error loading portfolio risk', e);
@@ -4832,6 +4983,9 @@ async function calculateAndDisplayPortfolioRisk() {
             riskSpan.classList.remove('risk-low', 'risk-medium', 'risk-high');
             riskSpan.classList.add('risk-low');
         }
+
+        latestPortfolioRiskPercent = 0;
+        updatePlannedRiskBadges();
     }
 }
 

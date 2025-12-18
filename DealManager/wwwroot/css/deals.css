@@ -246,6 +246,11 @@ h3 {
     color: var(--muted)
 }
 
+.big {
+    font-size: 18px;
+    color: var(--muted)
+}
+
 .list {
     display: flex;
     flex-direction: column;
