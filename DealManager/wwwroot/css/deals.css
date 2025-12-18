@@ -557,6 +557,19 @@ select.beta-volatility-high-readonly {
     border: 1px solid rgba(6,182,212,0.08)
 }
 
+/* Current Price (CP) badge coloring vs Share Price (SP) */
+.badge.current-price-badge.cp-green {
+    color: #16a34a;
+    background: rgba(34,197,94,0.12);
+    border-color: rgba(34,197,94,0.25);
+}
+
+.badge.current-price-badge.cp-red {
+    color: #dc2626;
+    background: rgba(239,68,68,0.10);
+    border-color: rgba(239,68,68,0.25);
+}
+
 .center {
     display: flex;
     flex-direction: column;
@@ -1631,6 +1644,17 @@ label.inline-checkbox > input[type="checkbox"] {
 
 /* Green badge for negative Stop Loss Percentage on title chips */
 .badge.sl-percent-green {
+    background-color: #22c55e !important; /* Green */
+    color: white !important;
+}
+
+/* Current Price (CP) vs Share Price (entry) color coding */
+.badge.cp-red {
+    background-color: #ef4444 !important; /* Red */
+    color: white !important;
+}
+
+.badge.cp-green {
     background-color: #22c55e !important; /* Green */
     color: white !important;
 }

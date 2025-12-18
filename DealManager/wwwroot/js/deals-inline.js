@@ -1770,7 +1770,7 @@ function createDealRow(deal, isNew) {
                         <strong>${escapeHtml(deal.stock)}${volumeIndicator}${sp500Indicator}${atrIndicator}${syncSp500Indicator}${betaVolatilityIndicator}</strong>
                     </div>
                     ${totalSumDisplay ? `<div class="total-sum-display">${totalSumDisplay}</div>` : ''}
-                    ${deal && !deal.closed ? `<div class="badge movement-metric-tooltip current-price-badge" data-tooltip="Current price (daily)">CP:-</div>` : ''}
+                    ${deal && !deal.closed ? `<div class="badge movement-metric-tooltip current-price-badge" data-tooltip="Current price (daily)" data-entry-price="${escapeHtml(deal.share_price || '')}">CP:-</div>` : ''}
                     <div class="movement-metrics-container"></div>
                 </div>`
                 : `<div class="new-deal-title"><strong>New Deal</strong><div class="total-sum-display" style="display:none"></div><div class="reward-to-risk-badge"></div></div>`
@@ -3385,6 +3385,18 @@ async function attachCurrentPriceBadge(badgeEl, ticker) {
     const t = (ticker || '').trim().toUpperCase();
     if (!t) return;
 
+    // Color rules vs entry/share price:
+    // - CP >= SP: green
+    // - CP <  SP: red
+    const updateColorByEntry = (currentPriceRaw) => {
+        badgeEl.classList.remove('cp-green', 'cp-red');
+        const entryRaw = badgeEl.getAttribute('data-entry-price') || '';
+        const entry = parseNumber(entryRaw);
+        const current = parseNumber(currentPriceRaw);
+        if (!entry || !current) return;
+        badgeEl.classList.add(current >= entry ? 'cp-green' : 'cp-red');
+    };
+
     // Show loading state (small and non-intrusive)
     if (!badgeEl.textContent || badgeEl.textContent.trim() === '') {
         badgeEl.textContent = 'CP:-';
@@ -3394,11 +3406,13 @@ async function attachCurrentPriceBadge(badgeEl, ticker) {
     if (!quote) {
         badgeEl.textContent = 'CP:-';
         badgeEl.setAttribute('data-tooltip', 'Current price is unavailable');
+        badgeEl.classList.remove('cp-green', 'cp-red');
         return;
     }
 
     const priceText = formatPriceForBadge(quote.price);
     badgeEl.textContent = `CP:${priceText}`;
+    updateColorByEntry(quote.price);
 
     const updated = formatLastUpdatedUtcForTooltip(quote.lastUpdatedUtc);
     badgeEl.setAttribute(
