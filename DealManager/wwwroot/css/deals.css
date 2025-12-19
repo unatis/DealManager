@@ -330,8 +330,33 @@ h3 {
     transition: max-height 0.3s ease, padding 0.3s ease;
     display: flex;
     flex-direction: column;
+    position: relative;
     border-bottom-left-radius: 10px; /* Round bottom-left corner */
     border-bottom-right-radius: 10px; /* Round bottom-right corner */
+}
+
+.deal-form-loading {
+    position: absolute;
+    inset: 0;
+    display: none; /* toggled by JS */
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.75);
+    z-index: 20;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+.deal-form-loading-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    color: #334155;
+    font-weight: 600;
 }
 
 .deal-row.expanded .deal-form-container {
@@ -425,6 +450,13 @@ h3 {
         height: 40px; /* если нужно оставить прежнюю высоту */
         white-space: nowrap;
         align-self: flex-start; /* или center, если нужно по центру */
+    }
+    
+    .stages-row .remove-stage-btn {
+        margin-top: 22px;
+        height: 40px;
+        white-space: nowrap;
+        align-self: flex-start;
     }
 
 .deal-form-inline .stages-block .add-stage-btn {

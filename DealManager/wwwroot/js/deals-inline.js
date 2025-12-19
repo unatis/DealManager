@@ -8,6 +8,81 @@ let stocksCache = []; // Cache stocks data for checking regular_volume
 // warningsCache is now a window property to share with stocks.js
 window.warningsCache = window.warningsCache || [];
 
+// ===== UI-only per-deal state (stored in deals[]) =====
+// Used to prevent auto-refresh overwriting manual edits.
+function getDealIdFromForm(form) {
+    return form?.closest('.deal-row')?.dataset?.dealId || null;
+}
+
+function getDealById(dealId) {
+    if (!dealId || dealId === 'new') return null;
+    return (deals || []).find(d => d?.id === dealId) || null;
+}
+
+function ensureDealUi(deal) {
+    deal._ui ??= {};
+    deal._ui.dirty ??= {};
+    return deal._ui;
+}
+
+function markDirty(form, field) {
+    const id = getDealIdFromForm(form);
+    const d = getDealById(id);
+    if (!d) return;
+    ensureDealUi(d).dirty[field] = true;
+}
+
+function isDirty(form, field) {
+    const id = getDealIdFromForm(form);
+    const d = getDealById(id);
+    return !!d?._ui?.dirty?.[field];
+}
+
+function captureDirtyMap(oldDeals) {
+    const m = new Map();
+    for (const d of (oldDeals || [])) {
+        if (!d?.id) continue;
+        const dirty = d?._ui?.dirty;
+        if (dirty) m.set(d.id, { ...dirty });
+    }
+    return m;
+}
+
+function applyDirtyMap(newDeals, dirtyMap) {
+    for (const d of (newDeals || [])) {
+        if (!d?.id) continue;
+        const dirty = dirtyMap.get(d.id);
+        if (!dirty) continue;
+        d._ui ??= {};
+        d._ui.dirty = { ...dirty };
+    }
+}
+
+async function refreshPlannedAutoFieldsOnExpand(form, deal) {
+    if (!form || !deal?.planned_future || deal?.closed || !deal?.stock) return;
+
+    const monthlySelect = form.querySelector('select[name="monthly_dir"]');
+    const weeklySelect = form.querySelector('select[name="weekly_dir"]');
+    const sp500Select = form.querySelector('select[name="sp500_up"]');
+    const candleSelect = form.querySelector('select[name="buy_green_sell_red"]');
+
+    const needTrends =
+        (!!monthlySelect && !monthlySelect.value && !isDirty(form, 'monthly_dir')) ||
+        (!!weeklySelect && !weeklySelect.value && !isDirty(form, 'weekly_dir'));
+    const needSp500 =
+        !!sp500Select && !sp500Select.value && !isDirty(form, 'sp500_up');
+    const needCandle =
+        !!candleSelect && !candleSelect.value && !isDirty(form, 'buy_green_sell_red');
+
+    const tasks = [];
+    if (needTrends) tasks.push(loadTrends(deal.stock, form));
+    if (needCandle) tasks.push(loadCandleColor(deal.stock, form));
+    if (needSp500) tasks.push(loadSp500Trend(form));
+
+    if (tasks.length === 0) return;
+    await Promise.allSettled(tasks);
+}
+
 // ---------- элементы DOM ----------
 const elements = {
     newDealBtn: document.getElementById('newDealBtn'),
@@ -34,6 +109,28 @@ function setPriceError(containerEl, message) {
         errorEl.textContent = message || '';
         errorEl.style.display = message ? 'block' : 'none';
     }
+}
+
+function setDealFormLoading(formContainer, isLoading, text = 'Loading...') {
+    if (!formContainer) return;
+
+    let overlay = formContainer.querySelector('.deal-form-loading');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'deal-form-loading';
+        overlay.innerHTML = `
+            <div class="deal-form-loading-inner">
+                <span class="loading-spinner"></span>
+                <span class="deal-form-loading-text"></span>
+            </div>
+        `;
+        formContainer.appendChild(overlay);
+    }
+
+    const textEl = overlay.querySelector('.deal-form-loading-text');
+    if (textEl) textEl.textContent = text || 'Loading...';
+
+    overlay.style.display = isLoading ? 'flex' : 'none';
 }
 
 function parseNumber(val) {
@@ -152,6 +249,18 @@ function getStagesFromForm(form) {
         .filter(n => n > 0);
 }
 
+function reindexStageRows(stagesBlock) {
+    if (!stagesBlock) return;
+    const inputs = Array.from(stagesBlock.querySelectorAll('input[name="amount_tobuy_stages[]"]'));
+    inputs.forEach((input, i) => {
+        input.dataset.stageIndex = String(i);
+        if (i === 0) return; // stage 1 has no remove button and is rendered in base HTML
+        const row = input.closest('.stages-row');
+        const title = row?.querySelector('.stage-title');
+        if (title) title.textContent = `Shares amount to buy (stage ${i + 1})`;
+    });
+}
+
 function renderStagesUI(form, deal) {
     if (!form) return;
     const stagesBlock = form.querySelector('.stages-block');
@@ -169,13 +278,15 @@ function renderStagesUI(form, deal) {
 
     for (let i = 1; i < stages.length; i++) {
         const wrapper = document.createElement('div');
+        wrapper.className = 'stage-wrapper';
         wrapper.innerHTML = `
             <div class="stages-row">
                 <label class="stage-label">
-                    Shares amount to buy (stage ${i + 1})
+                    <span class="stage-title">Shares amount to buy (stage ${i + 1})</span>
                     <input type="text" class="amount-stage-input" data-stage-index="${i}" name="amount_tobuy_stages[]"
                            value="${escapeHtml(String(stages[i] ?? ''))}" placeholder="">
                 </label>
+                <button type="button" class="remove-stage-btn secondary">Remove stage</button>
             </div>
         `;
         extra.appendChild(wrapper);
@@ -187,21 +298,46 @@ function renderStagesUI(form, deal) {
         addBtn.addEventListener('click', () => {
             const idx = stagesBlock.querySelectorAll('input[name="amount_tobuy_stages[]"]').length;
             const wrapper = document.createElement('div');
+            wrapper.className = 'stage-wrapper';
             wrapper.innerHTML = `
                 <div class="stages-row">
                     <label class="stage-label">
-                        Shares amount to buy (stage ${idx + 1})
+                        <span class="stage-title">Shares amount to buy (stage ${idx + 1})</span>
                         <input type="text" class="amount-stage-input" data-stage-index="${idx}" name="amount_tobuy_stages[]"
                                value="" placeholder="">
                     </label>
+                    <button type="button" class="remove-stage-btn secondary">Remove stage</button>
                 </div>
             `;
             extra.appendChild(wrapper);
+            reindexStageRows(stagesBlock);
 
             const input = wrapper.querySelector('input');
             if (input) input.focus();
         });
     }
+
+    // Bind remove handler once per stages block (event delegation).
+    if (!stagesBlock.dataset.removeBound) {
+        stagesBlock.dataset.removeBound = '1';
+        stagesBlock.addEventListener('click', (e) => {
+            const btn = e.target?.closest?.('.remove-stage-btn');
+            if (!btn) return;
+
+            const wrapper = btn.closest('.stage-wrapper') || btn.closest('.stages-row')?.parentElement;
+            if (wrapper) wrapper.remove();
+
+            reindexStageRows(stagesBlock);
+
+            // Trigger recalculations (total sum / limits) since DOM removal itself doesn't fire input events.
+            const stage1 = stagesBlock.querySelector('input[name="amount_tobuy_stages[]"][data-stage-index="0"]')
+                || stagesBlock.querySelector('input[name="amount_tobuy_stages[]"]');
+            if (stage1) stage1.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+
+    // Ensure indices/titles are consistent after initial render
+    reindexStageRows(stagesBlock);
 }
 
 // Function to format total sum for display
@@ -956,6 +1092,7 @@ function getWarningByTicker(ticker) {
 
 async function loadDeals() {
     try {
+        const dirtyMap = captureDirtyMap(deals);
         const res = await apiFetch('/api/deals', {
             headers: {
                 ...authHeaders()
@@ -979,7 +1116,9 @@ async function loadDeals() {
             return;
         }
 
-        deals = await res.json();
+        const freshDeals = await res.json();
+        applyDirtyMap(freshDeals, dirtyMap);
+        deals = freshDeals;
         dealsLoaded = true;
         
         // Load stocks and warnings to cache for volume indicator
@@ -1946,15 +2085,20 @@ async function setupDealRowHandlers(row, deal, isNew) {
 
     // If this is a new deal row that starts expanded, populate stocks immediately
     if (isNew && row.classList.contains('expanded') && form) {
-        // Explicitly reset select to ensure it's empty
-        const select = form.querySelector('.deal-stock-select');
-        if (select) {
-            select.value = '';
-            select.selectedIndex = -1;
+        setDealFormLoading(formContainer, true, 'Loading…');
+        try {
+            // Explicitly reset select to ensure it's empty
+            const select = form.querySelector('.deal-stock-select');
+            if (select) {
+                select.value = '';
+                select.selectedIndex = -1;
+            }
+            await populateStockSelect(form, null);
+            setupStockSelectListener(form, dealId);
+            setupTrendSelectListeners(form);
+        } finally {
+            setDealFormLoading(formContainer, false);
         }
-        await populateStockSelect(form, null);
-        setupStockSelectListener(form, dealId);
-        setupTrendSelectListeners(form);
     }
     
     // Setup trend select listeners for all forms
@@ -1968,6 +2112,18 @@ async function setupDealRowHandlers(row, deal, isNew) {
         setupTotalSumCalculator(row, form, deal);
         if (isNew) {
             setupNewDealRewardToRiskBadge(row, form);
+        }
+
+        // Planned deals: refresh auto fields on initial expanded render
+        if (!isNew && row.classList.contains('expanded')) {
+            setDealFormLoading(formContainer, true, 'Loading…');
+            try {
+                await refreshPlannedAutoFieldsOnExpand(form, deal);
+            } catch (err) {
+                console.warn('refreshPlannedAutoFieldsOnExpand failed:', err);
+            } finally {
+                setDealFormLoading(formContainer, false);
+            }
         }
 
         // For new deals (which start expanded) or rows initially expanded,
@@ -2030,15 +2186,21 @@ async function setupDealRowHandlers(row, deal, isNew) {
             
             // Load stocks for the select
             if (form) {
-                const tickerToUse = isNew ? null : (deal?.stock || null);
-                await populateStockSelect(form, tickerToUse);
-                setupStockSelectListener(form, dealId);
-                renderStagesUI(form, deal);
-                setupTrendSelectListeners(form);
-                console.log('[CALL] setupSharePriceListener called, form:', form);
-                setupSharePriceListener(form);
-                setupStopLossListener(form);
-                setupDealChart(row, form, deal, dealId);
+                setDealFormLoading(formContainer, true, 'Loading…');
+                try {
+                    const tickerToUse = isNew ? null : (deal?.stock || null);
+                    await populateStockSelect(form, tickerToUse);
+                    setupStockSelectListener(form, dealId);
+                    renderStagesUI(form, deal);
+                    setupTrendSelectListeners(form);
+                    await refreshPlannedAutoFieldsOnExpand(form, deal);
+                    console.log('[CALL] setupSharePriceListener called, form:', form);
+                    setupSharePriceListener(form);
+                    setupStopLossListener(form);
+                    setupDealChart(row, form, deal, dealId);
+                } finally {
+                    setDealFormLoading(formContainer, false);
+                }
             }
         }
     });
@@ -3274,9 +3436,14 @@ async function loadTrends(ticker, form) {
         const monthlySelect = form.querySelector('select[name="monthly_dir"]');
         if (monthlySelect) {
             if (data.monthly) {
-                monthlySelect.value = data.monthly;
-                updateTrendSelectClass(monthlySelect);
-                console.log('Set monthly_dir to:', data.monthly);
+                const canAutoMonthly = !monthlySelect.value && !isDirty(form, 'monthly_dir');
+                if (canAutoMonthly) {
+                    monthlySelect.value = data.monthly;
+                    updateTrendSelectClass(monthlySelect);
+                    console.log('Auto-set monthly_dir to:', data.monthly);
+                } else {
+                    updateTrendSelectClass(monthlySelect);
+                }
             } else {
                 console.warn('No monthly trend in response');
             }
@@ -3288,9 +3455,14 @@ async function loadTrends(ticker, form) {
         const weeklySelect = form.querySelector('select[name="weekly_dir"]');
         if (weeklySelect) {
             if (data.weekly) {
-                weeklySelect.value = data.weekly;
-                updateTrendSelectClass(weeklySelect);
-                console.log('Set weekly_dir to:', data.weekly);
+                const canAutoWeekly = !weeklySelect.value && !isDirty(form, 'weekly_dir');
+                if (canAutoWeekly) {
+                    weeklySelect.value = data.weekly;
+                    updateTrendSelectClass(weeklySelect);
+                    console.log('Auto-set weekly_dir to:', data.weekly);
+                } else {
+                    updateTrendSelectClass(weeklySelect);
+                }
             } else {
                 console.warn('No weekly trend in response');
             }
@@ -4189,6 +4361,8 @@ async function loadCandleColor(ticker, form) {
     if (!ticker || !form) return;
     const select = form.querySelector('select[name="buy_green_sell_red"]');
     if (!select) return;
+    if (select.value) return; // do not override existing value
+    if (isDirty(form, 'buy_green_sell_red')) return; // do not override manual edits
 
     try {
         const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, {
@@ -4229,6 +4403,10 @@ async function loadSp500Trend(form) {
     if (!form) return;
     const select = form.querySelector('select[name="sp500_up"]');
     if (!select) return;
+    if (isDirty(form, 'sp500_up')) {
+        updateTrendSelectClass(select);
+        return;
+    }
 
     // Do not override if user/deal already has a value
     if (select.value) {
@@ -4265,22 +4443,25 @@ function setupTrendSelectListeners(form) {
     
     if (monthlySelect) {
         updateTrendSelectClass(monthlySelect);
-        monthlySelect.addEventListener('change', () => {
+        monthlySelect.addEventListener('change', (e) => {
             updateTrendSelectClass(monthlySelect);
+            if (e?.isTrusted) markDirty(form, 'monthly_dir');
         });
     }
     
     if (weeklySelect) {
         updateTrendSelectClass(weeklySelect);
-        weeklySelect.addEventListener('change', () => {
+        weeklySelect.addEventListener('change', (e) => {
             updateTrendSelectClass(weeklySelect);
+            if (e?.isTrusted) markDirty(form, 'weekly_dir');
         });
     }
 
     if (sp500Select) {
         updateTrendSelectClass(sp500Select);
-        sp500Select.addEventListener('change', () => {
+        sp500Select.addEventListener('change', (e) => {
             updateTrendSelectClass(sp500Select);
+            if (e?.isTrusted) markDirty(form, 'sp500_up');
         });
     }
 
@@ -4289,8 +4470,14 @@ function setupTrendSelectListeners(form) {
     if (candleSelect) {
         const applyCandleClass = () => updateCandleColorClass(candleSelect, candleSelect.value);
         applyCandleClass(); // apply on init (existing value)
-        candleSelect.addEventListener('change', applyCandleClass);
-        candleSelect.addEventListener('input', applyCandleClass);
+        candleSelect.addEventListener('change', (e) => {
+            applyCandleClass();
+            if (e?.isTrusted) markDirty(form, 'buy_green_sell_red');
+        });
+        candleSelect.addEventListener('input', (e) => {
+            applyCandleClass();
+            if (e?.isTrusted) markDirty(form, 'buy_green_sell_red');
+        });
     }
 }
 
