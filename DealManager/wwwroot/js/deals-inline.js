@@ -2867,6 +2867,9 @@ function setupStockSelectListener(form, dealId) {
             console.log('Loading data for ticker:', ticker);
             
             try {
+                // Show overlay spinner while all async fields are loading.
+                setDealFormLoading(formContainer, true, 'Loading…');
+
                 // Use Promise.allSettled so one failure doesn't stop the others
                 const results = await Promise.allSettled([
                     loadPreviousWeekLowPrice(ticker, form).catch(err => {
@@ -2905,6 +2908,7 @@ function setupStockSelectListener(form, dealId) {
                 
                 console.log('All requests completed:', results);
             } finally {
+                setDealFormLoading(formContainer, false);
                 // Reset loading flag after all requests complete
                 isLoading = false;
             }
