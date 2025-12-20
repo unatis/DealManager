@@ -1,4 +1,4 @@
-﻿using DealManager.Models;
+using DealManager.Models;
 using MongoDB.Driver;
 
 namespace DealManager.Services
@@ -58,12 +58,10 @@ namespace DealManager.Services
             await _stocks.ReplaceOneAsync(filter, stock);
         }
 
-        public Task<Stock?> GetByIdAsync(string id, string ownerId)
-        {
-            return _stocks
+        public async Task<Stock?> GetByIdAsync(string id, string ownerId) =>
+            await _stocks
                 .Find(s => s.Id == id && s.OwnerId == ownerId)
                 .FirstOrDefaultAsync();
-        }
 
         public Task UpdateOrderAsync(string ownerId, string stockId, int order)
         {

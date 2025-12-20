@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg: #f6f8fb;
     --card: #ffffff;
     --accent: #06b6d4;
@@ -246,6 +246,11 @@ h3 {
     color: var(--muted)
 }
 
+.big {
+    font-size: 18px;
+    color: var(--muted)
+}
+
 .list {
     display: flex;
     flex-direction: column;
@@ -325,8 +330,33 @@ h3 {
     transition: max-height 0.3s ease, padding 0.3s ease;
     display: flex;
     flex-direction: column;
+    position: relative;
     border-bottom-left-radius: 10px; /* Round bottom-left corner */
     border-bottom-right-radius: 10px; /* Round bottom-right corner */
+}
+
+.deal-form-loading {
+    position: absolute;
+    inset: 0;
+    display: none; /* toggled by JS */
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.75);
+    z-index: 20;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+.deal-form-loading-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    color: #334155;
+    font-weight: 600;
 }
 
 .deal-row.expanded .deal-form-container {
@@ -360,6 +390,23 @@ h3 {
     white-space: nowrap;
 }
 
+/* New Deal title: keep RR badge on the right */
+.new-deal-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.new-deal-title > strong {
+    flex: 1 1 auto;
+}
+
+.new-deal-title .reward-to-risk-badge {
+    margin-left: auto;
+    white-space: nowrap;
+}
+
 /* Каждый label в inline-форме занимает всю ширину своей колонки */
 .deal-form-inline .form-grid label {
     width: 100%;
@@ -377,6 +424,43 @@ h3 {
 
 .deal-form-inline .form-grid .full {
     grid-column: 1 / -1;
+}
+
+/* Multi-stage amounts block */
+.deal-form-inline .stages-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Строка со Stage 1 и кнопкой Add stage */
+.stages-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.stages-row .stage-label {
+    flex: 1 1 auto;
+    margin: 0;
+}
+
+    .stages-row .add-stage-btn {
+        margin-top: 22px; /* только кнопке */
+        height: 40px; /* если нужно оставить прежнюю высоту */
+        white-space: nowrap;
+        align-self: flex-start; /* или center, если нужно по центру */
+    }
+    
+    .stages-row .remove-stage-btn {
+        margin-top: 22px;
+        height: 40px;
+        white-space: nowrap;
+        align-self: flex-start;
+    }
+
+.deal-form-inline .stages-block .add-stage-btn {
+    align-self: flex-start;
 }
 
 /* Stock details form - single column layout */
@@ -510,6 +594,19 @@ select.beta-volatility-high-readonly {
     border: 1px solid rgba(6,182,212,0.08)
 }
 
+/* Current Price (CP) badge coloring vs Share Price (SP) */
+.badge.current-price-badge.cp-green {
+    color: #16a34a;
+    background: rgba(34,197,94,0.12);
+    border-color: rgba(34,197,94,0.25);
+}
+
+.badge.current-price-badge.cp-red {
+    color: #dc2626;
+    background: rgba(239,68,68,0.10);
+    border-color: rgba(239,68,68,0.25);
+}
+
 .center {
     display: flex;
     flex-direction: column;
@@ -525,26 +622,136 @@ select.beta-volatility-high-readonly {
     margin-bottom: 8px
 }
 
-/* поля ввода */
+/* Обёртка поля (опционально использовать в разметке) */
+.field {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0;
+    font-family: inherit;
+    font-size: 14px;
+}
+
+.field label {
+    font-weight: 600;
+    color: #2f3342;
+}
+
+/* Базовый стиль для input/textarea */
 input[type=text],
 input[type=date],
 input[type=number],
 textarea {
-    padding: 2px 4px;
-    border-radius: 3px;
-    border: 1px solid rgba(11,17,36,0.06);
-    background: transparent;
-    color: inherit;
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid #d0d7de;
+    background-color: #fff;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #111827;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    box-sizing: border-box;
 }
 
-/* селект — отдельный стиль, чтобы он выглядел именно как выпадающий список */
+input::placeholder,
+textarea::placeholder {
+    color: #9aa3b5;
+}
+
+input:hover,
+textarea:hover {
+    border-color: #9ca3af;
+}
+
+input:focus,
+textarea:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    background-color: #f9fbff;
+}
+
+input:disabled,
+textarea:disabled {
+    background-color: #f3f4f6;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+/* Селекты приводим к тому же виду + кастомная стрелка */
 select {
-    padding: 2px 4px;
-    border-radius: 3px;
-    border: 1px solid rgba(11,17,36,0.06);
-    background: #ffffff;
-    color: inherit;
-    transition: border-color 0.2s ease, color 0.2s ease;
+    width: 100%;
+    padding: 9px 12px;
+    padding-right: 36px; /* место под стрелку */
+    border-radius: 8px;
+    border: 1px solid #d0d7de;
+    background-color: #fff;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #111827;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    box-sizing: border-box;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23718185' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px 8px;
+}
+
+select:hover {
+    border-color: #9ca3af;
+}
+
+select:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    background-color: #f9fbff;
+}
+
+select:disabled {
+    background-color: #f3f4f6;
+    color: #9ca3af;
+    cursor: not-allowed;
+}
+
+/* Скрыть стрелку у IE/старых Edge */
+select::-ms-expand {
+    display: none;
+}
+
+/* Состояния успех/ошибка (можно навесить класс на label или .field) */
+.input-success input,
+.input-success select,
+.field.success input,
+.field.success select {
+    border-color: #16a34a;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.input-error input,
+.input-error select,
+.field.error input,
+.field.error select {
+    border-color: #e11d48;
+    box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.12);
+}
+
+.field .hint {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+.field.error .hint {
+    color: #e11d48;
+}
+
+.field.success .hint {
+    color: #16a34a;
 }
 
 /* Red border and text when "Down" is selected */
@@ -557,6 +764,28 @@ select {
             color: #ef4444;
             font-weight: 600;
         }
+
+/* Green border and text when "Up" is selected */
+select.has-up-selected {
+    border: 2px solid #16a34a;
+    color: #16a34a;
+}
+
+    select.has-up-selected option[value="Up"] {
+        color: #16a34a;
+        font-weight: 600;
+    }
+
+/* Amber border and text when "Flat" is selected */
+select.has-flat-selected {
+    border: 2px solid #f59e0b;
+    color: #f59e0b;
+}
+
+    select.has-flat-selected option[value="Flat"] {
+        color: #f59e0b;
+        font-weight: 600;
+    }
 
 /* Red border and text for stop loss percentage error (too high risk) */
 input.has-stop-loss-error {
@@ -619,6 +848,17 @@ select[name="regular_volume"].volume-200m option:not(:checked) {
 /* General rule for all unselected options */
 select[name="regular_volume"] option:not(:checked) {
     color: #0b1724; /* default text color */
+}
+
+/* Current week candle color select */
+select[name="buy_green_sell_red"].candle-red {
+    border: 2px solid #e11d48;
+    color: #e11d48;
+}
+
+select[name="buy_green_sell_red"].candle-green {
+    border: 2px solid #16a34a;
+    color: #16a34a;
 }
 
 /* Colored borders and text for read-only regular_volume input in stock details */
@@ -1013,6 +1253,18 @@ label {
     border-radius: 6px;
     border: 1px solid rgba(11, 17, 36, 0.2);
     width: 90px;
+}
+
+/* ===== Deal chart in deal card ===== */
+
+.deal-chart-section {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+}
+
+.deal-chart-container {
+    width: 100%;
+    height: 624px;
 }
 
 /* ===== Tools panel & pinned tickers ===== */
@@ -1411,6 +1663,11 @@ label.inline-checkbox > input[type="checkbox"] {
     color: white !important;
 }
 
+.badge.reward-risk-green {
+    background-color: #22c55e !important; /* Green */
+    color: white !important;
+}
+
 /* Stop Loss Percentage color coding */
 .badge.sl-percent-red {
     background-color: #ef4444 !important; /* Red */
@@ -1424,6 +1681,17 @@ label.inline-checkbox > input[type="checkbox"] {
 
 /* Green badge for negative Stop Loss Percentage on title chips */
 .badge.sl-percent-green {
+    background-color: #22c55e !important; /* Green */
+    color: white !important;
+}
+
+/* Current Price (CP) vs Share Price (entry) color coding */
+.badge.cp-red {
+    background-color: #ef4444 !important; /* Red */
+    color: white !important;
+}
+
+.badge.cp-green {
     background-color: #22c55e !important; /* Green */
     color: white !important;
 }

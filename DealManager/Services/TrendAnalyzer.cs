@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using DealManager.Models;
@@ -133,7 +133,7 @@ namespace DealManager.Services
 
         public TrendWeeks DetectTrendByLowsForWeeks(
             IReadOnlyList<PricePoint> points,
-            int weeks = 4,
+            int weeks = 3,
             decimal? tolerance = null)
         {
             if (points == null || points.Count < 2)
@@ -142,6 +142,35 @@ namespace DealManager.Services
             var ordered = points
                 .OrderBy(p => p.Date)
                 .ToList();
+
+            // Проверка последних трёх недель с допуском по high/low/open/close
+            var tol = tolerance ?? _defaultTolerance;
+            var last3 = ordered.Skip(Math.Max(0, ordered.Count - 3)).ToList();
+            if (last3.Count == 3)
+            {
+                var oldest = last3[0];
+                var mid = last3[1];
+                var latest = last3[2];
+
+                bool highsNonIncreasing =
+                    latest.High <= mid.High + tol &&
+                    mid.High <= oldest.High + tol;
+
+                bool lowsCondition =
+                    latest.Low >= mid.Low - tol &&
+                    oldest.Low >= mid.Low - tol;
+
+                bool opensNonIncreasing =
+                    latest.Open <= mid.Open + tol &&
+                    mid.Open <= oldest.Open + tol;
+
+                bool closesNonIncreasing =
+                    latest.Close <= mid.Close + tol &&
+                    mid.Close <= oldest.Close + tol;
+
+                if (highsNonIncreasing && lowsCondition && opensNonIncreasing && closesNonIncreasing)
+                    return TrendWeeks.Flat;
+            }
 
             int sign = DetectTrendByLowsCore(ordered, weeks, tolerance);
 
@@ -152,7 +181,7 @@ namespace DealManager.Services
 
         public TrendWeeks DetectTrendByLowsForWeeks(
             PriceSeriesDto series,
-            int weeks = 4,
+            int weeks = 3,
             decimal? tolerance = null)
         {
             if (series == null)
@@ -175,6 +204,43 @@ namespace DealManager.Services
                 .OrderBy(p => p.Date)
                 .ToList();
 
+            // Структурная проверка флэта по двум последним месячным барам
+            // Оба бара должны лежать в коридоре mid ± tol по ключевым ценам.
+            var tol = tolerance ?? _defaultTolerance;
+            var last2 = ordered.Skip(Math.Max(0, ordered.Count - 2)).ToList();
+            if (last2.Count == 2)
+            {
+                var older = last2[0];
+                var latest = last2[1];
+
+                var midHigh = (older.High + latest.High) / 2m;
+                var midLow = (older.Low + latest.Low) / 2m;
+                var midOpen = (older.Open + latest.Open) / 2m;
+                var midClose = (older.Close + latest.Close) / 2m;
+
+                bool highsTight =
+                    Math.Abs(older.High - midHigh) <= tol &&
+                    Math.Abs(latest.High - midHigh) <= tol;
+
+                bool lowsTight =
+                    Math.Abs(older.Low - midLow) <= tol &&
+                    Math.Abs(latest.Low - midLow) <= tol;
+
+                bool opensTight =
+                    Math.Abs(older.Open - midOpen) <= tol &&
+                    Math.Abs(latest.Open - midOpen) <= tol;
+
+                bool closesTight =
+                    Math.Abs(older.Close - midClose) <= tol &&
+                    Math.Abs(latest.Close - midClose) <= tol;
+
+                if (highsTight &&
+                    lowsTight &&
+                    opensTight &&
+                    closesTight)
+                    return TrendMonthes.Flat;
+            }
+
             int sign = DetectTrendByLowsCore(ordered, months, tolerance);
 
             if (sign > 0) return TrendMonthes.Up;
@@ -191,6 +257,59 @@ namespace DealManager.Services
                 return TrendMonthes.Flat;
 
             return DetectTrendByLowsForMonths(series.Points, months, tolerance);
+        }
+
+        /// <summary>
+        /// "Monthly" trend computed from WEEKLY candles (last N weeks).
+        /// Used to derive a smoother monthly direction without fetching monthly series.
+        /// </summary>
+        public TrendMonthes DetectTrendByLowsForMonthsFromWeeks(
+            IReadOnlyList<PricePoint> weeklyPoints,
+            int weeks = 3,
+            decimal? tolerance = null)
+        {
+            if (weeklyPoints == null || weeklyPoints.Count < 2)
+                return TrendMonthes.Flat;
+
+            var ordered = weeklyPoints
+                .OrderBy(p => p.Date)
+                .ToList();
+
+            var tol = tolerance ?? _defaultTolerance;
+
+            // Flat-check on last 3 weekly bars (same structure as DetectTrendByLowsForWeeks)
+            var last3 = ordered.Skip(Math.Max(0, ordered.Count - 3)).ToList();
+            if (last3.Count == 3)
+            {
+                var oldest = last3[0];
+                var mid = last3[1];
+                var latest = last3[2];
+
+                bool highsNonIncreasing =
+                    latest.High <= mid.High + tol &&
+                    mid.High <= oldest.High + tol;
+
+                bool lowsCondition =
+                    latest.Low >= mid.Low - tol &&
+                    oldest.Low >= mid.Low - tol;
+
+                bool opensNonIncreasing =
+                    latest.Open <= mid.Open + tol &&
+                    mid.Open <= oldest.Open + tol;
+
+                bool closesNonIncreasing =
+                    latest.Close <= mid.Close + tol &&
+                    mid.Close <= oldest.Close + tol;
+
+                if (highsNonIncreasing && lowsCondition && opensNonIncreasing && closesNonIncreasing)
+                    return TrendMonthes.Flat;
+            }
+
+            int sign = DetectTrendByLowsCore(ordered, weeks, tolerance);
+
+            if (sign > 0) return TrendMonthes.Up;
+            if (sign < 0) return TrendMonthes.Down;
+            return TrendMonthes.Flat;
         }
 
         // ---------- ДНИ ----------

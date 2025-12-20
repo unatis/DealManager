@@ -150,17 +150,53 @@ namespace DealManager.Services
                 }
             }
 
-            // -------------------- FLAT CLUSTER --------------------
-            // slice – последние (lookbackBars + 1) баров
-            // returns[lastIndex] – доходность последнего бара
-
+            // -------------------- FLAT DETECTION (сближение с карточкой) --------------------
             // Порог, когда один бар сам по себе считается "незначительным"
             double flatBarThreshold = 0.003; // 0.3%
 
+            // Допуск для сравнения high/low/open/close (как в карточке)
+            decimal tol = 0.1m;
+
+            // Структурный флэт по последним 2 барам (коридор mid ± tol)
+            bool structuralFlat = false;
+            var last2 = slice.Skip(Math.Max(0, slice.Count - 2)).ToList();
+            if (last2.Count == 2)
+            {
+                var older = last2[0];
+                var latest = last2[1];
+
+                var midHigh = (older.High + latest.High) / 2m;
+                var midLow = (older.Low + latest.Low) / 2m;
+                var midOpen = (older.Open + latest.Open) / 2m;
+                var midClose = (older.Close + latest.Close) / 2m;
+
+                bool highsTight =
+                    Math.Abs(older.High - midHigh) <= tol &&
+                    Math.Abs(latest.High - midHigh) <= tol;
+
+                bool lowsTight =
+                    Math.Abs(older.Low - midLow) <= tol &&
+                    Math.Abs(latest.Low - midLow) <= tol;
+
+                bool opensTight =
+                    Math.Abs(older.Open - midOpen) <= tol &&
+                    Math.Abs(latest.Open - midOpen) <= tol;
+
+                bool closesTight =
+                    Math.Abs(older.Close - midClose) <= tol &&
+                    Math.Abs(latest.Close - midClose) <= tol;
+
+                structuralFlat = highsTight &&
+                                 lowsTight &&
+                                 opensTight &&
+                                 closesTight;
+            }
+
+            // Кластер по диапазону закрытий, но теперь на 3 бара
             bool isFlatCluster = IsFlatCluster(
-                slice,            // тот же список баров, что анализируем
+                slice,
                 lastIndex,
-                flatWindowBars: 4,          // последние 4 бара
+                flatWindowBars: 3,            // последние 3 бара
                 flatRangePctThreshold: 0.02,  // весь диапазон < 2%
                 flatWindowRetThreshold: 0.01  // общий ход < 1%
             );
@@ -168,9 +204,9 @@ namespace DealManager.Services
             // 5. Определяем направление последнего бара
             int direction;
 
-            if (isFlatCluster && Math.Abs(lastReturn) < flatBarThreshold)
+            if (structuralFlat && isFlatCluster && Math.Abs(lastReturn) < flatBarThreshold)
             {
-                // настоящий флет: и кластер в узком диапазоне, и последний бар маленький
+                // Флэт: структура по high/low/open/close + узкий диапазон по close + маленький бар
                 direction = 0;
             }
             else if (lastReturn > flatBarThreshold)

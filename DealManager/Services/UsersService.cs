@@ -17,8 +17,8 @@ namespace DealManager.Services
             _users = db.GetCollection<AppUser>("users");
         }
 
-        public Task<AppUser?> GetByEmailAsync(string email) =>
-            _users.Find(u => u.Email == email).FirstOrDefaultAsync();
+        public async Task<AppUser?> GetByEmailAsync(string email) =>
+            await _users.Find(u => u.Email == email).FirstOrDefaultAsync();
 
         public Task CreateAsync(AppUser user) =>
             _users.InsertOneAsync(user);

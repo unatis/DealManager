@@ -1,4 +1,4 @@
-﻿using MongoDB.Bson;
+using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 using System.Text.Json.Serialization;
 using DealManager.Services;
@@ -66,6 +66,12 @@ namespace DealManager.Models
         [JsonPropertyName("amount_tobuy_stage_2")]
         public string? Amount_tobuy_stage_2 { get; set; }
 
+        /// <summary>
+        /// Новый формат: список стадий покупки (кол-во акций на каждой стадии).
+        /// </summary>
+        [JsonPropertyName("amount_tobuy_stages")]
+        public List<string>? Amount_tobuy_stages { get; set; }
+
         [JsonPropertyName("take_profit")]
         public string? TakeProfit { get; set; }
 
@@ -87,9 +93,6 @@ namespace DealManager.Models
         [JsonPropertyName("reversal")]
         public string? Reversal { get; set; }
 
-        [JsonPropertyName("flatpattern")]
-        public string? FlatPattern { get; set; }
-
         [JsonPropertyName("price_range_pos")]
         public string? PriceRangePos { get; set; }
 
@@ -104,9 +107,6 @@ namespace DealManager.Models
         [JsonPropertyName("h_price")]
         public string? HPrice { get; set; }
 
-
-        [JsonPropertyName("resist_price")]
-        public string? ResistancePrice { get; set; }
 
         [JsonPropertyName("timeframe")]
         public string? Timeframe { get; set; }
@@ -123,6 +123,9 @@ namespace DealManager.Models
 
         [JsonPropertyName("counter_trend")]
         public string? CounterTrend { get; set; }
+
+        [JsonPropertyName("buy_green_sell_red")]
+        public string? BuyGreenSellRed { get; set; }
         
 
         [JsonPropertyName("flat_before_up")]

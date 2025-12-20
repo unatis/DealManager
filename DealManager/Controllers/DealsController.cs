@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Globalization;
 using DealManager.Models;
 using DealManager.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +31,51 @@ namespace DealManager.Controllers
             // sub мы кладём в токен в AuthController
             return User.FindFirstValue(JwtRegisteredClaimNames.Sub)
                    ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+        }
+
+        private static bool TryParsePositiveDecimal(string? s, out decimal value)
+        {
+            value = 0m;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            var normalized = s.Trim().Replace(',', '.');
+            return decimal.TryParse(normalized, NumberStyles.Any, CultureInfo.InvariantCulture, out value) && value > 0;
+        }
+
+        private static decimal? TryCalculateTotalSumFromStages(Deal deal)
+        {
+            if (!TryParsePositiveDecimal(deal.SharePrice, out var price)) return null;
+            if (deal.Amount_tobuy_stages == null || deal.Amount_tobuy_stages.Count == 0) return null;
+
+            decimal shares = 0m;
+            foreach (var s in deal.Amount_tobuy_stages)
+            {
+                if (!TryParsePositiveDecimal(s, out var n)) return null;
+                shares += n;
+            }
+
+            if (shares <= 0 || price <= 0) return null;
+            return Math.Round(price * shares, 2);
+        }
+
+        private static string? ValidateStagesStrict(Deal deal)
+        {
+            // Block old client payload (Variant A)
+            if (!string.IsNullOrWhiteSpace(deal.Amount_tobuy_stage_1) ||
+                !string.IsNullOrWhiteSpace(deal.Amount_tobuy_stage_2))
+            {
+                return "Old deal format is not supported. Use amount_tobuy_stages.";
+            }
+
+            if (deal.Amount_tobuy_stages == null || deal.Amount_tobuy_stages.Count < 1)
+                return "amount_tobuy_stages is required and must have at least 1 stage.";
+
+            foreach (var s in deal.Amount_tobuy_stages)
+            {
+                if (!TryParsePositiveDecimal(s, out _))
+                    return "All amount_tobuy_stages values must be positive numbers.";
+            }
+
+            return null;
         }
 
         [HttpGet]
@@ -67,13 +113,22 @@ namespace DealManager.Controllers
                 deal.Date = DateTime.UtcNow.ToString("yyyy-MM-dd");
             }
 
+            // Strictly require stop_loss_prcnt > 0
+            if (!TryParsePositiveDecimal(deal.StopLossPercent, out _))
+                return BadRequest("stop_loss_prcnt is required and must be a positive number.");
+
+            // Strict stages validation (Variant B only)
+            var stagesError = ValidateStagesStrict(deal);
+            if (stagesError != null)
+                return BadRequest(stagesError);
+
             // Если сделка создаётся сразу как реальная (не planned) – проставим время активации
             if (!deal.PlannedFuture && deal.ActivatedAt == null)
             {
                 deal.ActivatedAt = DateTime.UtcNow;
             }
 
-            // Validate and parse total_sum if provided
+            // Validate and parse total_sum if provided; otherwise compute from stages
             decimal? totalSumValue = null;
             if (!string.IsNullOrWhiteSpace(deal.TotalSum))
             {
@@ -82,6 +137,14 @@ namespace DealManager.Controllers
                     return BadRequest("Invalid total_sum value. Must be a non-negative number.");
                 }
                 totalSumValue = parsedTotalSum;
+            }
+            else
+            {
+                totalSumValue = TryCalculateTotalSumFromStages(deal);
+                if (totalSumValue.HasValue)
+                {
+                    deal.TotalSum = totalSumValue.Value.ToString(CultureInfo.InvariantCulture);
+                }
             }
 
             // Create the deal
@@ -122,7 +185,16 @@ namespace DealManager.Controllers
             if (existing == null)
                 return NotFound();
 
-            // Validate and parse total_sum if provided
+            // Strictly require stop_loss_prcnt > 0
+            if (!TryParsePositiveDecimal(deal.StopLossPercent, out _))
+                return BadRequest("stop_loss_prcnt is required and must be a positive number.");
+
+            // Strict stages validation (Variant B only)
+            var stagesError = ValidateStagesStrict(deal);
+            if (stagesError != null)
+                return BadRequest(stagesError);
+
+            // Validate and parse total_sum if provided; otherwise compute from stages
             decimal? totalSumValue = null;
             if (!string.IsNullOrWhiteSpace(deal.TotalSum))
             {
@@ -131,6 +203,14 @@ namespace DealManager.Controllers
                     return BadRequest("Invalid total_sum value. Must be a non-negative number.");
                 }
                 totalSumValue = parsedTotalSum;
+            }
+            else
+            {
+                totalSumValue = TryCalculateTotalSumFromStages(deal);
+                if (totalSumValue.HasValue)
+                {
+                    deal.TotalSum = totalSumValue.Value.ToString(CultureInfo.InvariantCulture);
+                }
             }
 
             // Копируем технические поля
@@ -141,6 +221,16 @@ namespace DealManager.Controllers
             var isActivation = existing.PlannedFuture && !deal.PlannedFuture;
             if (isActivation)
             {
+                // Block activation if trends are Down (planning is allowed; activation is not).
+                // Use incoming values if provided, otherwise fall back to existing persisted values.
+                var monthly = deal.MonthlyDir ?? existing.MonthlyDir ?? string.Empty;
+                var weekly  = deal.WeeklyDir  ?? existing.WeeklyDir  ?? string.Empty;
+                if (string.Equals(monthly, "Down", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(weekly, "Down", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest("Cannot activate deal: Weekly trend or Monthly trend is Down.");
+                }
+
                 // Если раньше не было – считаем, что это первая активация
                 deal.ActivatedAt = existing.ActivatedAt ?? DateTime.UtcNow;
             }

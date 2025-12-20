@@ -1,8 +1,9 @@
-﻿using DealManager.Models;
+using DealManager.Models;
 using DealManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -58,6 +59,36 @@ public class PricesController : ControllerBase
         }
     }
 
+    [HttpGet("{ticker}/monthly")]
+    public async Task<IActionResult> GetMonthly(string ticker)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        try
+        {
+            _logger.LogInformation("Fetching monthly prices for {Ticker}", ticker);
+            var data = await _alpha.GetMonthlyAsync(ticker);
+            _logger.LogInformation("Retrieved {Count} monthly price points for {Ticker}", data.Count, ticker);
+
+            if (data.Count == 0)
+                return NotFound("No data for this ticker");
+
+            return Ok(data);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage monthly error for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load monthly prices for {Ticker}. Exception: {ExceptionType}, Message: {Message}, StackTrace: {StackTrace}",
+                ticker, ex.GetType().Name, ex.Message, ex.StackTrace);
+            return StatusCode(500, $"Internal error while loading monthly prices: {ex.Message}");
+        }
+    }
+
     [HttpGet("{ticker}/quote")]
     public async Task<IActionResult> GetQuote(string ticker)
     {
@@ -66,11 +97,11 @@ public class PricesController : ControllerBase
 
         try
         {
-            var price = await _alpha.GetCurrentPriceAsync(ticker);
-            if (!price.HasValue)
+            var quote = await _alpha.GetCurrentQuoteAsync(ticker);
+            if (quote == null)
                 return NotFound("No current price available for this ticker");
 
-            return Ok(new { price = price.Value });
+            return Ok(new { price = quote.Price, lastUpdatedUtc = quote.LastUpdatedUtc });
         }
         catch (InvalidOperationException ex)
         {
@@ -105,17 +136,18 @@ public class PricesController : ControllerBase
             }
 
             _logger.LogInformation("Fetching trends for {Ticker}", ticker);
-            var priceData = await _alpha.GetWeeklyAsync(ticker);
-            _logger.LogInformation("Retrieved {Count} price points for trends calculation for {Ticker}", priceData.Count, ticker);
+            var weeklyPriceData = await _alpha.GetWeeklyAsync(ticker);
+            _logger.LogInformation("Retrieved {WeeklyCount} weekly points for trends calculation for {Ticker}",
+                weeklyPriceData.Count, ticker);
             
-            if (priceData.Count == 0)
+            if (weeklyPriceData.Count == 0)
                 return NotFound("No data for this ticker");
 
             // Calculate weekly trend (last 2 weeks)
             TrendAnalyzer.TrendWeeks weeklyTrend;
             try
             {
-                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(priceData, weeks: 2);
+                weeklyTrend = _trendAnalyzer.DetectTrendByLowsForWeeks(weeklyPriceData, weeks: 2);
                 _logger.LogInformation("Weekly trend for {Ticker}: {Trend}", ticker, weeklyTrend);
             }
             catch (Exception ex)
@@ -124,11 +156,11 @@ public class PricesController : ControllerBase
                 weeklyTrend = TrendAnalyzer.TrendWeeks.Flat;
             }
             
-            // Calculate monthly trend (last 2 months = ~8 weeks)
+            // Calculate "monthly" trend from WEEKLY candles (last 3 weeks)
             TrendAnalyzer.TrendMonthes monthlyTrend;
             try
             {
-                monthlyTrend = _trendAnalyzer.DetectTrendByLowsForMonths(priceData, months: 2);
+                monthlyTrend = _trendAnalyzer.DetectTrendByLowsForMonthsFromWeeks(weeklyPriceData, weeks: 3);
                 _logger.LogInformation("Monthly trend for {Ticker}: {Trend}", ticker, monthlyTrend);
             }
             catch (Exception ex)
@@ -813,37 +845,61 @@ public class PricesController : ControllerBase
                 seriesList.Add(data);
             }
 
-            var dateSets = seriesList
-                .Select(list => list.Select(p => p.Date).ToHashSet())
+            // IMPORTANT:
+            // Different data sources (API vs MongoDB) can store weekly bars with different timestamps/timezones,
+            // which can shift the calendar DAY while still representing the same trading WEEK.
+            // Example we observed locally:
+            // - AAPL bars: 1999-11-11T22:00:00Z (effectively 1999-11-12 in UTC+2)
+            // - TSLA bars: 2010-07-09T00:00:00Z
+            // Intersecting by exact Date/DateOnly can become empty ("have 0").
+            // For weekly bars, align by ISO week (year + week number) instead.
+            static (int Year, int Week) WeekKey(DateTime dt)
+            {
+                // Stabilize kind to avoid implicit Local conversions on Unspecified values.
+                if (dt.Kind == DateTimeKind.Unspecified)
+                    dt = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+                else
+                    dt = dt.ToUniversalTime();
+
+                return (ISOWeek.GetYear(dt), ISOWeek.GetWeekOfYear(dt));
+            }
+
+            var weekSets = seriesList
+                .Select(list => list.Select(p => WeekKey(p.Date)).ToHashSet())
                 .ToList();
 
-            var commonDates = dateSets
+            var commonWeeks = weekSets
                 .Skip(1)
                 .Aggregate(
-                    new HashSet<DateTime>(dateSets.First()),
+                    new HashSet<(int Year, int Week)>(weekSets.First()),
                     (acc, set) =>
                     {
                         acc.IntersectWith(set);
                         return acc;
                     });
 
-            if (commonDates.Count < lookback + 1)
+            if (commonWeeks.Count < lookback + 1)
                 return BadRequest(
                     $"Not enough common history for all tickers. " +
-                    $"Need at least {lookback + 1} common weekly bars, have {commonDates.Count}.");
+                    $"Need at least {lookback + 1} common weekly bars, have {commonWeeks.Count}.");
 
-            var orderedDates = commonDates
-                .OrderBy(d => d)
+            var orderedWeeks = commonWeeks
+                .OrderBy(w => w.Year)
+                .ThenBy(w => w.Week)
                 .ToList();
 
             var dicts = seriesList
-                .Select(list => list.ToDictionary(p => p.Date))
+                .Select(list =>
+                    list.GroupBy(p => WeekKey(p.Date))
+                        // If duplicates exist for the same ISO week, take the most recent point
+                        // (this is safer than failing the whole request).
+                        .ToDictionary(g => g.Key, g => g.OrderByDescending(p => p.Date).First()))
                 .ToList();
 
             var composite = new List<PricePoint>();
-            foreach (var date in orderedDates)
+            foreach (var wk in orderedWeeks)
             {
-                var pointsAtDate = dicts.Select(d => d[date]).ToList();
+                var pointsAtDate = dicts.Select(d => d[wk]).ToList();
 
                 var open   = pointsAtDate.Average(p => p.Open);
                 var high   = pointsAtDate.Average(p => p.High);
@@ -853,7 +909,8 @@ public class PricesController : ControllerBase
 
                 composite.Add(new PricePoint
                 {
-                    Date   = date,
+                    // Pick a stable representative date for the week (Friday).
+                    Date   = DateTime.SpecifyKind(ISOWeek.ToDateTime(wk.Year, wk.Week, DayOfWeek.Friday), DateTimeKind.Utc),
                     Open   = open,
                     High   = high,
                     Low    = low,
