@@ -319,11 +319,43 @@
             </div>
         </div>
     </div>
+
+    <!-- Modal for AI chat -->
+    <div id="aiChatModal" class="modal" style="display:none">
+        <div class="card" style="max-width: 720px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                    <strong id="aiChatTitle">AI chat</strong>
+                    <span id="aiChatTickerBadge" class="chip"></span>
+                </div>
+                <div class="actions" style="display:flex;gap:8px;align-items:center">
+                    <button id="aiChatClearBtn" class="secondary">Clear</button>
+                    <button id="aiChatCloseBtn" class="secondary">Close</button>
+                </div>
+            </div>
+
+            <div class="ai-chat-meta">
+                <label class="ai-chat-meta-item">
+                    Stop loss %
+                    <input id="aiChatStopLossPercent" type="number" step="0.1" min="0" placeholder="optional (for sizing)" />
+                </label>
+                <div id="aiChatStatus" class="ai-chat-status"></div>
+            </div>
+
+            <div id="aiChatMessages" class="ai-chat-messages" aria-live="polite"></div>
+
+            <div class="ai-chat-input-row">
+                <textarea id="aiChatInput" rows="2" placeholder="Ask about the ticker... (Enter to send, Shift+Enter for newline)"></textarea>
+                <button id="aiChatSendBtn">Send</button>
+            </div>
+        </div>
+    </div>
     
     <!-- TradingView charts library (used in deal cards) -->
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <script src="js/deals-inline.js?v=2025-12-17-7"></script>
     <script src="js/stocks.js?v=2025-12-17-7"></script>
+    <script src="js/ai-chat.js?v=2025-12-21-1"></script>
 
 </body>
 </html>

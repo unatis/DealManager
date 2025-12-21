@@ -10,6 +10,7 @@
         public string WeeklyPricesCollection { get; set; } = "weekly_prices";
         public string WarningsCollection { get; set; } = "warnings";
         public string PinnedStocksCollection { get; set; } = "pinned_stocks";
+        public string AiChatsCollection { get; set; } = "ai_chats";
     }
 }
 

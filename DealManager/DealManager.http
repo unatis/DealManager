@@ -4,3 +4,26 @@ GET {{DealManager_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+# 1) Login to get JWT
+# POST {{DealManager_HostAddress}}/api/auth/login
+# Content-Type: application/json
+#
+# {
+#   "email": "you@example.com",
+#   "password": "yourPassword"
+# }
+
+###
+# 2) Call AI chat (requires JWT)
+# @TOKEN = PUT_JWT_HERE
+#
+# POST {{DealManager_HostAddress}}/api/ai/stock-chat
+# Authorization: Bearer {{TOKEN}}
+# Content-Type: application/json
+#
+# {
+#   "ticker": "AAPL",
+#   "message": "Составь план: когда докупить по стадиям, куда переставить стоп, когда частично фиксировать прибыль.",
+#   "stopLossPercent": 6
+# }

@@ -63,6 +63,15 @@ namespace DealManager.Services
                 .Find(s => s.Id == id && s.OwnerId == ownerId)
                 .FirstOrDefaultAsync();
 
+        public async Task<Stock?> GetByTickerAsync(string ownerId, string ticker)
+        {
+            var norm = (ticker ?? "").Trim().ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(norm)) return null;
+            return await _stocks
+                .Find(s => s.OwnerId == ownerId && s.Ticker == norm)
+                .FirstOrDefaultAsync();
+        }
+
         public Task UpdateOrderAsync(string ownerId, string stockId, int order)
         {
             var filter = Builders<Stock>.Filter.And(
