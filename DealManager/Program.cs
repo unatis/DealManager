@@ -30,6 +30,28 @@ internal class Program
         builder.Services.AddSingleton<IRiskService, RiskService>();
         builder.Services.AddSingleton<DealsService>();
         builder.Services.AddSingleton<TrendAnalyzer>();
+        builder.Services.AddSingleton<AiChatHistoryService>();
+
+        // ---------- AI settings ----------
+        // Load defaults from appsettings (Ai section) and override from environment variables (Render).
+        var aiSettings = builder.Configuration.GetSection("Ai").Get<AiSettings>() ?? new AiSettings();
+        aiSettings.Provider = Environment.GetEnvironmentVariable("AI_PROVIDER") ?? aiSettings.Provider;
+        aiSettings.Model = Environment.GetEnvironmentVariable("AI_MODEL") ?? aiSettings.Model;
+
+        // Key is read from:
+        // - User Secrets (local dev): Ai:GroqApiKey
+        // - Environment variables (Render/prod): GROQ_API_KEY (has priority if set)
+        var envGroqKey = Environment.GetEnvironmentVariable("GROQ_API_KEY");
+        if (!string.IsNullOrWhiteSpace(envGroqKey))
+        {
+            aiSettings.GroqApiKey = envGroqKey;
+        }
+        aiSettings.Temperature = double.TryParse(Environment.GetEnvironmentVariable("AI_TEMPERATURE"), out var t)
+            ? t
+            : aiSettings.Temperature;
+
+        builder.Services.AddSingleton(aiSettings);
+        builder.Services.AddHttpClient<GroqChatClient>();
 
         // ---------- JWT settings ----------
         var jwtSection = builder.Configuration.GetSection("Jwt");

@@ -1697,7 +1697,18 @@ function createDealFormHTML(deal = null, isNew = false) {
             ${isNew
             ? `<button type="button" class="cancel-deal-btn secondary">Cancel</button>`
             : (isEdit && !deal?.closed
-                ? `<button type="button" class="secondary close-deal-btn">Close deal</button>`
+                ? `
+                    <button type="button" class="secondary close-deal-btn">Close deal</button>
+                    ${deal?.stock ? `
+                        <button
+                            type="button"
+                            class="secondary ai-chat-btn"
+                            data-ticker="${escapeHtml(deal.stock)}"
+                            data-stock-id="${escapeHtml(dealId)}"
+                            data-sl-pct="${escapeHtml(String(deal.stop_loss_prcnt || ''))}"
+                        >AI chat</button>
+                    ` : ''}
+                  `
                 : '')
                         }
                     </div>
