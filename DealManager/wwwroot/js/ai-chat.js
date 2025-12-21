@@ -113,9 +113,14 @@
 
         // Assistant often returns JSON; show a friendly summary + raw JSON collapsible
         if (role !== 'user') {
-            const parsed = tryParseAssistantJson(content);
+            const parsedAny = tryParseAssistantJson(content);
+            const envelopeText = parsedAny && typeof parsedAny === 'object' ? (parsedAny.assistantText || parsedAny.AssistantText || '') : '';
+            const parsed = parsedAny && typeof parsedAny === 'object' && (parsedAny.policy || parsedAny.Policy)
+                ? (parsedAny.policy || parsedAny.Policy)
+                : parsedAny;
 
             if (parsed && typeof parsed === 'object') {
+                const freeText = envelopeText ? `<div class="ai-free-text">${escapeHtml(envelopeText)}</div>` : '';
                 const header =
                     `<div class="ai-head">` +
                     (parsed.summary ? `<div class="ai-summary">${escapeHtml(parsed.summary)}</div>` : '') +
@@ -123,6 +128,7 @@
                     `</div>`;
 
                 const why = renderList('Why', parsed.why);
+                const conditions = renderList('Conditions (to act)', parsed.conditions);
                 const riskNotes = renderList('Risk notes', parsed.riskNotes);
                 const questions = renderList('Questions', parsed.questions);
 
@@ -149,7 +155,7 @@
 
                 const raw = `<details><summary>Raw JSON</summary><pre class="ai-raw">${escapeHtml(content)}</pre></details>`;
 
-                bubble.innerHTML = `${header}${why}${buyLevels}${sellLevels}${stop}${add}${riskNotes}${questions}${raw}`;
+                bubble.innerHTML = `${freeText}${header}${why}${conditions}${buyLevels}${sellLevels}${stop}${add}${riskNotes}${questions}${raw}`;
             } else {
                 bubble.textContent = content;
             }

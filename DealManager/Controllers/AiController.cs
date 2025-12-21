@@ -57,12 +57,19 @@ public class AiController : ControllerBase
         [JsonPropertyName("summary")] public string? Summary { get; set; }
         [JsonPropertyName("action")] public string? Action { get; set; }
         [JsonPropertyName("why")] public List<string>? Why { get; set; }
+        [JsonPropertyName("conditions")] public List<string>? Conditions { get; set; }
         [JsonPropertyName("buyLevels")] public List<decimal>? BuyLevels { get; set; }
         [JsonPropertyName("sellLevels")] public List<decimal>? SellLevels { get; set; }
         [JsonPropertyName("stop")] public AiStop? Stop { get; set; }
         [JsonPropertyName("add")] public AiAdd? Add { get; set; }
         [JsonPropertyName("riskNotes")] public List<string>? RiskNotes { get; set; }
         [JsonPropertyName("questions")] public List<string>? Questions { get; set; }
+    }
+
+    private sealed class AiEnvelope
+    {
+        [JsonPropertyName("assistantText")] public string? AssistantText { get; set; }
+        [JsonPropertyName("policy")] public AiAdvice? Policy { get; set; }
     }
 
     private sealed class AiStop
@@ -142,8 +149,41 @@ public class AiController : ControllerBase
         }
     }
 
+    private static AiEnvelope? TryParseAiEnvelope(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return null;
+        var s = content.Trim();
+
+        // Strip markdown fences if present
+        if (s.StartsWith("```", StringComparison.Ordinal))
+        {
+            s = System.Text.RegularExpressions.Regex.Replace(s, "^```[a-zA-Z0-9_-]*\\s*", "");
+            s = System.Text.RegularExpressions.Regex.Replace(s, "```\\s*$", "");
+            s = s.Trim();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<AiEnvelope>(s, JsonIn);
+        }
+        catch
+        {
+            var first = s.IndexOf('{');
+            var last = s.LastIndexOf('}');
+            if (first >= 0 && last > first)
+            {
+                var sub = s.Substring(first, last - first + 1);
+                try { return JsonSerializer.Deserialize<AiEnvelope>(sub, JsonIn); } catch { }
+            }
+            return null;
+        }
+    }
+
     private static string SerializeAdvice(AiAdvice advice) =>
         JsonSerializer.Serialize(advice, JsonOut);
+
+    private static string SerializeEnvelope(AiEnvelope env) =>
+        JsonSerializer.Serialize(env, JsonOut);
 
     private string GetUserId()
     {
@@ -470,15 +510,19 @@ public class AiController : ControllerBase
 Return STRICT JSON only (no markdown, no extra text).
 Schema:
 {
-  ""summary"": string,
-  ""action"": ""wait""|""buy""|""add""|""trim""|""sell"",
-  ""why"": string[],
-  ""buyLevels"": number[],
-  ""sellLevels"": number[],
-  ""stop"": { ""recommended"": number|null, ""why"": string },
-  ""add"": { ""maxShares"": number|null, ""stage1Shares"": number|null, ""stage2Shares"": number|null, ""note"": string },
-  ""riskNotes"": string[],
-  ""questions"": string[]
+  ""assistantText"": string,
+  ""policy"": {
+    ""summary"": string,
+    ""action"": ""wait""|""buy""|""add""|""trim""|""sell"",
+    ""why"": string[],
+    ""conditions"": string[],
+    ""buyLevels"": number[],
+    ""sellLevels"": number[],
+    ""stop"": { ""recommended"": number|null, ""why"": string },
+    ""add"": { ""maxShares"": number|null, ""stage1Shares"": number|null, ""stage2Shares"": number|null, ""note"": string },
+    ""riskNotes"": string[],
+    ""questions"": string[]
+  }
 }
 
 Hard rules (must follow):
@@ -510,7 +554,8 @@ Be conservative.";
         }
 
         // Server-side enforcement of hard rules
-        var advice = TryParseAiAdvice(llm) ?? new AiAdvice
+        var env = TryParseAiEnvelope(llm);
+        var advice = env?.Policy ?? TryParseAiAdvice(llm) ?? new AiAdvice
         {
             Summary = "AI response was not valid JSON. Please retry.",
             Action = "wait",
@@ -521,6 +566,7 @@ Be conservative.";
 
         advice.Action = NormalizeAction(advice.Action);
         advice.Why ??= new List<string>();
+        advice.Conditions ??= new List<string>();
         advice.RiskNotes ??= new List<string>();
         advice.Questions ??= new List<string>();
         advice.Stop ??= new AiStop();
@@ -539,6 +585,7 @@ Be conservative.";
         {
             if (advice.Action is "buy" or "add")
                 advice.Action = "wait";
+            advice.Conditions.Add("Provide Stop loss % (stop_loss_prcnt) so position sizing can be calculated.");
             advice.Questions.Add("Provide Stop loss % (stop_loss_prcnt) so position sizing can be calculated safely.");
             advice.Add = new AiAdd { Note = "Sizing disabled: stopLossPercent missing." };
         }
@@ -546,6 +593,7 @@ Be conservative.";
         {
             if (advice.Action is "buy" or "add")
                 advice.Action = "wait";
+            advice.Conditions.Add("Portfolio risk must be below limit: limits.allowed must be true.");
             advice.RiskNotes.Add("Risk rule: portfolio risk limit would be exceeded (limits.allowed=false).");
             advice.Add = new AiAdd { Note = "Sizing disabled: limits.allowed=false." };
         }
@@ -556,12 +604,14 @@ Be conservative.";
             if (!entryPrice.HasValue || entryPrice.Value <= 0)
             {
                 advice.Action = "wait";
+                advice.Conditions.Add("Entry price must be set (share_price) to enforce 'never average down' and breakeven stop rule.");
                 advice.Questions.Add("What is your entry price? (Needed to enforce 'never average down' and breakeven stop rule.)");
                 advice.RiskNotes.Add("Add blocked: entry price missing.");
             }
             else if (price < entryPrice.Value)
             {
                 advice.Action = "wait";
+                advice.Conditions.Add($"Never average down: wait until price >= entry ({entryPrice.Value:F2}).");
                 advice.RiskNotes.Add($"Add blocked: never average down (price {price:F2} < entry {entryPrice.Value:F2}).");
             }
         }
@@ -574,10 +624,12 @@ Be conservative.";
                 advice.Action = "wait";
                 if (lastWeekGrowth <= 0m)
                 {
+                    advice.Conditions.Add("Pullback rule applies only if last week is green (weekly Close > Open).");
                     advice.RiskNotes.Add("Add/buy blocked: pullback rule requires last week to be green (Close > Open).");
                 }
                 else
                 {
+                    advice.Conditions.Add($"Wait for price <= {pullbackMidpoint:F2} (50% retracement of last week's Open->Close move).");
                     advice.RiskNotes.Add($"Add/buy blocked: no 50% pullback from last week's growth (price {price:F2} > midpoint {pullbackMidpoint:F2}).");
                 }
             }
@@ -589,6 +641,7 @@ Be conservative.";
             if (recommendedStop < entryPrice.Value)
             {
                 advice.Action = "wait";
+                advice.Conditions.Add($"For add: weekly-low stop must be >= entry. Currently stop {recommendedStop:F2} < entry {entryPrice.Value:F2}.");
                 advice.RiskNotes.Add($"Add blocked: cannot keep stop at/above breakeven while following weekly-low stop rule (stop {recommendedStop:F2} < entry {entryPrice.Value:F2}).");
             }
         }
@@ -601,16 +654,28 @@ Be conservative.";
             var stage2Shares = SharesFromUsd(limits.RecommendedStage2);
             var singleStageMaxShares = SharesFromUsd(limits.SingleStageMax);
 
-            if (advice.Action is "buy" or "add")
+            // Provide sizing plan when safe to compute, even if action is 'wait'.
+            // Execution still gated by Conditions and Hard rules.
+            if (allowRisk)
             {
                 advice.Add ??= new AiAdd();
                 advice.Add.MaxShares = maxShares;
                 advice.Add.Stage1Shares = Math.Min(stage1Shares, singleStageMaxShares);
                 advice.Add.Stage2Shares = stage2Shares;
 
-                advice.Add.Note = string.IsNullOrWhiteSpace(advice.Add.Note)
-                    ? $"Sizing respects risk limits. Single-stage max shares: {singleStageMaxShares}."
-                    : advice.Add.Note;
+                var baseNote = $"Sizing plan respects risk limits. Single-stage max shares: {singleStageMaxShares}.";
+                if (advice.Action == "wait")
+                {
+                    advice.Add.Note = string.IsNullOrWhiteSpace(advice.Add.Note)
+                        ? baseNote + " (Plan only: execute only when conditions are met.)"
+                        : advice.Add.Note;
+                }
+                else
+                {
+                    advice.Add.Note = string.IsNullOrWhiteSpace(advice.Add.Note)
+                        ? baseNote
+                        : advice.Add.Note;
+                }
             }
             else
             {
@@ -622,18 +687,53 @@ Be conservative.";
             }
         }
 
-        var enforcedJson = SerializeAdvice(advice);
+        // Provide default planned levels if model didn't give them (helps "when to add" questions)
+        advice.BuyLevels ??= new List<decimal>();
+        advice.SellLevels ??= new List<decimal>();
+        if (lastWeekGrowth > 0m && advice.BuyLevels.Count == 0)
+        {
+            advice.BuyLevels.Add(Math.Round(pullbackMidpoint, 2));
+        }
+        if (advice.BuyLevels.Count > 0)
+            advice.BuyLevels = advice.BuyLevels.Distinct().OrderBy(x => x).ToList();
+
+        // If model didn't provide assistantText, create one from policy
+        var assistantText = (env?.AssistantText ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(assistantText))
+        {
+            var s = (advice.Summary ?? "").Trim();
+            assistantText = string.IsNullOrWhiteSpace(s)
+                ? $"Action: {advice.Action}"
+                : s;
+        }
+
+        // Ensure assistant text is consistent with enforced action
+        if (advice.Action == "wait")
+        {
+            // Add a short note if not already present
+            if (!assistantText.Contains("wait", StringComparison.OrdinalIgnoreCase) &&
+                !assistantText.Contains("ждать", StringComparison.OrdinalIgnoreCase))
+            {
+                assistantText = assistantText + "\n\n(По правилам сейчас: wait. См. Conditions.)";
+            }
+        }
+
+        var enforcedEnvelopeJson = SerializeEnvelope(new AiEnvelope
+        {
+            AssistantText = assistantText,
+            Policy = advice
+        });
 
         await _history.AppendAsync(
             userId,
             ticker,
             req.StockId,
-            new DealManager.Models.AiChatMessage { Role = "assistant", Content = enforcedJson });
+            new DealManager.Models.AiChatMessage { Role = "assistant", Content = enforcedEnvelopeJson });
 
         return Ok(new
         {
             ticker,
-            responseJson = enforcedJson
+            responseJson = enforcedEnvelopeJson
         });
     }
 }
