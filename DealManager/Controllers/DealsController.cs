@@ -221,16 +221,6 @@ namespace DealManager.Controllers
             var isActivation = existing.PlannedFuture && !deal.PlannedFuture;
             if (isActivation)
             {
-                // Block activation if trends are Down (planning is allowed; activation is not).
-                // Use incoming values if provided, otherwise fall back to existing persisted values.
-                var monthly = deal.MonthlyDir ?? existing.MonthlyDir ?? string.Empty;
-                var weekly  = deal.WeeklyDir  ?? existing.WeeklyDir  ?? string.Empty;
-                if (string.Equals(monthly, "Down", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(weekly, "Down", StringComparison.OrdinalIgnoreCase))
-                {
-                    return BadRequest("Cannot activate deal: Weekly trend or Monthly trend is Down.");
-                }
-
                 // Если раньше не было – считаем, что это первая активация
                 deal.ActivatedAt = existing.ActivatedAt ?? DateTime.UtcNow;
             }
