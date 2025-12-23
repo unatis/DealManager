@@ -2277,13 +2277,14 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         slPctNum = parseNumber(deal.stop_loss_prcnt);
                     }
 
-                    // Block activation if monthly/weekly trend is Down
+                    // Trend Down warning (allow activation if user confirms)
                     if (monthlyVal === 'Down' || weeklyVal === 'Down') {
-                        showDealLimitModal(
-                            'Cannot activate this deal: Weekly trend or Monthly trend is Down.\n' +
-                            'Change trends before creating the deal.'
+                        const proceed = await showWeeklyConfirmModal(
+                            'WARNING:\n' +
+                            'Weekly trend or Monthly trend is Down.\n\n' +
+                            'Do you still want to activate this deal?'
                         );
-                        return;
+                        if (!proceed) return;
                     }
 
                     const totalPlanned = sharePriceNum * sumStages(stages);
@@ -2295,11 +2296,12 @@ async function setupDealRowHandlers(row, deal, isNew) {
                             const cashStr = portfolioSpan.textContent.trim().replace(',', '.');
                             const cash = parseFloat(cashStr) || 0;
                             if (totalPlanned > cash) {
-                                showDealLimitModal(
-                                    `Not enough Cash to activate this deal.\n` +
-                                    `Required: ${totalPlanned.toFixed(2)}, available: ${cash.toFixed(2)}.`
+                                const proceed = await showWeeklyConfirmModal(
+                                    `WARNING:\nNot enough Cash to activate this deal.\n` +
+                                    `Required: ${totalPlanned.toFixed(2)}, available: ${cash.toFixed(2)}.\n\n` +
+                                    `Do you still want to activate this deal?`
                                 );
-                                return;
+                                if (!proceed) return;
                             }
                         }
                     } catch (cashErr) {
@@ -2317,29 +2319,32 @@ async function setupDealRowHandlers(row, deal, isNew) {
 
                             if (isSingle) {
                                 if (totalPlanned > limits.singleStageMax) {
-                                    showDealLimitModal(
-                                        `Single-stage deal is too big.\n` +
-                                        `Max allowed: ${limits.singleStageMax.toFixed(2)}.`
+                                    const proceed = await showWeeklyConfirmModal(
+                                        `WARNING:\nSingle-stage deal is too big.\n` +
+                                        `Max allowed: ${limits.singleStageMax.toFixed(2)}.\n\n` +
+                                        `Do you still want to activate this deal?`
                                     );
-                                    return;
+                                    if (!proceed) return;
                                 }
                             } else {
                                 const stage1Sum = sharePriceNum * (stages[0] || 0);
                                 if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
-                                    showDealLimitModal(
-                                        `Multi-stage deal exceeds limits.\n` +
-                                        `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
+                                    const proceed = await showWeeklyConfirmModal(
+                                        `WARNING:\nMulti-stage deal exceeds limits.\n` +
+                                        `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.\n\n` +
+                                        `Do you still want to activate this deal?`
                                     );
-                                    return;
+                                    if (!proceed) return;
                                 }
                             }
 
                             if (!limits.allowed) {
-                                showDealLimitModal(
-                                    `Deal would push portfolio risk above limit.\n` +
-                                    `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.`
+                                const proceed = await showWeeklyConfirmModal(
+                                    `WARNING:\nDeal would push portfolio risk above limit.\n` +
+                                    `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.\n\n` +
+                                    `Do you still want to activate this deal?`
                                 );
-                                return;
+                                if (!proceed) return;
                             }
                         }
                     }
