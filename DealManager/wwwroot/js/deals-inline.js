@@ -380,37 +380,73 @@ function setButtonLoading(button, isLoading) {
     }
 }
 
-// Simple reusable modal for deal limit / risk warnings
-function showDealLimitModal(message) {
-    const modal = document.getElementById('dealLimitModal');
-    const body = document.getElementById('dealLimitModalBody');
-    const closeBtn = document.getElementById('dealLimitCloseBtn');
+// Unified advisor-style modal for warnings and confirms (reuses the same design as other advisor popups)
+// Returns Promise<boolean>: true = confirmed (only in confirm mode), false = closed/cancel/backdrop
+function showDealLimitModal(message, opts = {}) {
+    const {
+        title = 'Deal limit warning',
+        mode = 'info', // 'info' | 'confirm'
+        okText = 'Continue',
+        cancelText = 'Cancel'
+    } = opts || {};
 
-    if (!modal || !body || !closeBtn) {
-        // Разметка не найдена – логируем, но не показываем alert, чтобы не путать UX
-        console.error('dealLimitModal elements not found in DOM');
-        console.error('Deal limit message:', message);
-        return;
-    }
+    return new Promise(resolve => {
+        const modal = document.getElementById('dealLimitModal');
+        const body = document.getElementById('dealLimitModalBody');
+        const closeBtn = document.getElementById('dealLimitCloseBtn');
+        const titleEl = document.getElementById('dealLimitModalTitle');
 
-    body.textContent = message;
-    // Используем flex, чтобы сработало центрирование по .modal в deals.css
-    modal.style.display = 'flex';
+        const actions = document.getElementById('dealLimitModalActions');
+        const okBtn = document.getElementById('dealLimitOkBtn');
+        const cancelBtn = document.getElementById('dealLimitCancelBtn');
 
-    function hide() {
-        modal.style.display = 'none';
-        closeBtn.removeEventListener('click', hide);
-        modal.removeEventListener('click', backdropHandler);
-    }
-
-    function backdropHandler(e) {
-        if (e.target === modal) {
-            hide();
+        if (!modal || !body || !closeBtn || !titleEl) {
+            console.error('dealLimitModal elements not found in DOM');
+            console.error('Deal limit message:', message);
+            resolve(false);
+            return;
         }
-    }
 
-    closeBtn.addEventListener('click', hide);
-    modal.addEventListener('click', backdropHandler);
+        titleEl.textContent = title;
+        body.textContent = message;
+
+        const isConfirm = String(mode).toLowerCase() === 'confirm';
+        if (actions && okBtn && cancelBtn) {
+            actions.style.display = isConfirm ? 'flex' : 'none';
+            okBtn.textContent = okText;
+            cancelBtn.textContent = cancelText;
+        }
+
+        modal.style.display = 'flex';
+
+        function cleanup() {
+            modal.style.display = 'none';
+            closeBtn.removeEventListener('click', onClose);
+            modal.removeEventListener('click', onBackdrop);
+
+            if (okBtn) okBtn.removeEventListener('click', onOk);
+            if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+        }
+
+        function onClose() { cleanup(); resolve(false); }
+        function onOk() { cleanup(); resolve(true); }
+        function onCancel() { cleanup(); resolve(false); }
+
+        function onBackdrop(e) {
+            if (e.target === modal) {
+                cleanup();
+                resolve(false);
+            }
+        }
+
+        closeBtn.addEventListener('click', onClose);
+        modal.addEventListener('click', onBackdrop);
+
+        if (isConfirm && okBtn && cancelBtn) {
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+        }
+    });
 }
 
 // Reusable confirm-style modal for weekly activations warning
@@ -2277,6 +2313,43 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         slPctNum = parseNumber(deal.stop_loss_prcnt);
                     }
 
+                    // Risk gate for activation:
+                    // - warn above 5%
+                    // - block at 10%+
+                    let riskNow = null;
+                    try {
+                        const r = await apiFetch('/api/deals/risk-percent', { headers: authHeaders() });
+                        if (r.ok) {
+                            const v = await r.json();
+                            const n = Number(v);
+                            if (isFinite(n)) riskNow = n;
+                        }
+                    } catch (e) {
+                        console.warn('Failed to fetch current portfolio risk percent before activation', e);
+                    }
+
+                    if (riskNow != null) {
+                        if (riskNow >= 10) {
+                            await showDealLimitModal(
+                                `Your portfolio risk is ${riskNow.toFixed(2)}%.\n` +
+                                `Activation is blocked when risk is 10% or higher.\n\n` +
+                                `Reduce total risk first, then try again.`,
+                                { title: 'High risk warning', mode: 'info' }
+                            );
+                            return;
+                        }
+
+                        if (riskNow > 5) {
+                            const proceed = await showDealLimitModal(
+                                `Your portfolio risk is ${riskNow.toFixed(2)}%.\n` +
+                                `It is not recommended to activate new deals above 5% total risk.\n\n` +
+                                `Do you still want to activate this deal?`,
+                                { title: 'High risk warning', mode: 'confirm', okText: 'Yes', cancelText: 'Cancel' }
+                            );
+                            if (!proceed) return;
+                        }
+                    }
+
                     // Trend Down warning (allow activation if user confirms)
                     if (monthlyVal === 'Down' || weeklyVal === 'Down') {
                         const proceed = await showWeeklyConfirmModal(
@@ -2338,15 +2411,41 @@ async function setupDealRowHandlers(row, deal, isNew) {
                                 }
                             }
 
-                            if (!limits.allowed) {
-                                const proceed = await showWeeklyConfirmModal(
-                                    `WARNING:\nDeal would push portfolio risk above limit.\n` +
-                                    `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.\n\n` +
-                                    `Do you still want to activate this deal?`
+                            // If we already warned for current risk > 5% above, don't spam another risk confirm here.
+                            if (!limits.allowed && (riskNow == null || riskNow <= 5)) {
+                                const currentRiskText = (riskNow != null) ? `${riskNow.toFixed(2)}%` : '';
+                                const proceed = await showDealLimitModal(
+                                    `High portfolio risk warning.\n` +
+                                    (currentRiskText ? `Current Risk: ${currentRiskText}\n\n` : `\n`) +
+                                    `This activation is not recommended because it would push total risk above the limit.\n` +
+                                    `Do you still want to activate this deal?\n\n` +
+                                    `Details:\n` +
+                                    `Added risk (at max allowed sizing): ${limits.addedRiskPercent.toFixed(2)}%.`,
+                                    { title: 'High risk warning', mode: 'confirm', okText: 'Yes', cancelText: 'Cancel' }
                                 );
                                 if (!proceed) return;
                             }
                         }
+                    }
+
+                    // 1.5) Warning: too many open (active) deals (recommended max = 5)
+                    try {
+                        const openDealsCount = (deals || []).filter(d => d && !d.closed && !d.planned_future).length;
+                        const afterActivation = openDealsCount + 1;
+
+                        if (openDealsCount >= 5) {
+                            const proceed = await showWeeklyConfirmModal(
+                                `WARNING:\n` +
+                                `You already have ${openDealsCount} open deals.\n` +
+                                `After activation you will have ${afterActivation} open deals.\n` +
+                                `It is not recommended to have more than 5 open deals.\n\n` +
+                                `Do you still want to activate this deal?`
+                            );
+                            if (!proceed) return;
+                        }
+                    } catch (e) {
+                        console.warn('Failed to check open deals count before activation', e);
+                        // Do not block activation if warning fails
                     }
 
             // Timing guard: recommend only Friday 14:00–16:00 ET
@@ -3150,12 +3249,24 @@ async function handleDealSubmit(form, deal, isNew) {
                     }
 
                     if (!limits.allowed) {
+                        // For PLANNED deals we do not block saving; we only warn.
+                        // Blocking is applied on activation with separate thresholds (warn >5%, block >=10%).
+                        let currentRiskText = '';
+                        try {
+                            const riskEl = document.getElementById('portfolioRiskValue');
+                            currentRiskText = riskEl ? riskEl.textContent.trim() : '';
+                        } catch { }
+
                         showDealLimitModal(
-                            `Deal would push portfolio risk above limit.\n` +
-                            `Added risk: ${limits.addedRiskPercent.toFixed(2)}%.`
+                            `Your portfolio risk is already high${currentRiskText ? ` (${currentRiskText})` : ''}.\n` +
+                            `This deal is NOT recommended right now.\n\n` +
+                            `You can still PLAN the deal (it won’t change Cash/In Shares).\n` +
+                            `But activating it is better after reducing total risk.\n\n` +
+                            `Details:\n` +
+                            `Added risk (at max allowed sizing): ${limits.addedRiskPercent.toFixed(2)}%.`,
+                            { title: 'High risk warning', mode: 'info' }
                         );
-                        setButtonLoading(submitButton, false);
-                        return;
+                        // Continue saving (no return)
                     }
                 }
             } catch (err) {

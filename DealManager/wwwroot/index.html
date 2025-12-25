@@ -263,59 +263,74 @@
 
     <!-- Modal for deal limits / risk warnings -->
     <div id="dealLimitModal" class="modal" style="display:none">
-        <div class="card" style="max-width: 420px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-                <strong>Deal limit warning</strong>
-                <div class="actions">
-                    <button id="dealLimitCloseBtn" class="secondary">Close</button>
+        <div class="card advisor-modal-card" style="max-width: 760px;">
+            <div class="advisor-top">
+                <strong id="dealLimitModalTitle">Deal limit warning</strong>
+                <button id="dealLimitCloseBtn" class="secondary">Close</button>
+            </div>
+
+            <div class="advisor-chat-right">
+                <div class="advisor-bubble">
+                    <div class="advisor-bubble-text advisor-static">
+                        Planning is allowed (it won’t change Cash/In Shares).
+                        Activation may be warned or blocked depending on portfolio risk and limits.
+                    </div>
+
+                    <!-- Dynamic body filled from JS -->
+                    <div id="dealLimitModalBody" class="advisor-bubble-text advisor-dynamic"></div>
+
+                    <!-- Optional confirm actions (shown only in confirm mode) -->
+                    <div id="dealLimitModalActions" class="advisor-actions" style="display:none">
+                        <button id="dealLimitCancelBtn" class="secondary">Cancel</button>
+                        <button id="dealLimitOkBtn">Continue</button>
+                    </div>
                 </div>
-            </div>
 
-            <!-- Static explanation about 0.5% single-stage risk limit -->
-            <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">
-                Single-stage deal limit is based on a maximum risk of <strong>0.5% of your total portfolio</strong>,
-                taking into account your current stop loss. If the deal size and stop loss would risk more than 0.5%
-                of the portfolio, the allowed amount is reduced.
+                <img class="advisor-avatar" src="/img/wb1.png" alt="Advisor" />
             </div>
-
-            <!-- Dynamic body filled from JS (limits for this specific deal) -->
-            <div id="dealLimitModalBody"
-                 style="font-size:14px;line-height:1.4;white-space:pre-line;"></div>
         </div>
     </div>
 
     <!-- Modal for weekly activations warning -->
     <div id="weeklyConfirmModal" class="modal" style="display:none">
-        <div class="card" style="max-width: 420px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="card advisor-modal-card" style="max-width: 760px;">
+            <div class="advisor-top">
                 <strong>Weekly activations warning</strong>
             </div>
 
-            <div id="weeklyConfirmModalBody"
-                 style="font-size:14px;line-height:1.4;white-space:pre-line;margin-bottom:16px;"></div>
+            <div class="advisor-chat-right">
+                <div class="advisor-bubble">
+                    <div id="weeklyConfirmModalBody" class="advisor-bubble-text advisor-dynamic"></div>
+                    <div class="advisor-actions">
+                        <button id="weeklyConfirmCancelBtn" class="secondary">Cancel</button>
+                        <button id="weeklyConfirmOkBtn">Yes</button>
+                    </div>
+                </div>
 
-            <div style="display:flex;justify-content:flex-end;gap:8px">
-                <button id="weeklyConfirmCancelBtn" class="secondary">Cancel</button>
-                <button id="weeklyConfirmOkBtn">Yes</button>
+                <img class="advisor-avatar" src="/img/wb1.png" alt="Advisor" />
             </div>
         </div>
     </div>
 
     <!-- Modal for deal timing warning (Friday 14:00-16:00 ET) -->
     <div id="dealTimingModal" class="modal" style="display:none">
-        <div class="card" style="max-width: 420px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="card advisor-modal-card" style="max-width: 760px;">
+            <div class="advisor-top">
                 <strong>Timing notice</strong>
             </div>
 
-            <div id="dealTimingModalBody"
-                 style="font-size:14px;line-height:1.4;white-space:pre-line;margin-bottom:16px;">
-                Deal is recommended only on Friday between 14:00 and 16:00 ET.
-            </div>
+            <div class="advisor-chat-right">
+                <div class="advisor-bubble">
+                    <div id="dealTimingModalBody" class="advisor-bubble-text advisor-dynamic">
+                        Deal is recommended only on Friday between 14:00 and 16:00 ET.
+                    </div>
+                    <div class="advisor-actions">
+                        <button id="dealTimingCancelBtn" class="secondary">Cancel</button>
+                        <button id="dealTimingOkBtn">Continue</button>
+                    </div>
+                </div>
 
-            <div style="display:flex;justify-content:flex-end;gap:8px">
-                <button id="dealTimingCancelBtn" class="secondary">Cancel</button>
-                <button id="dealTimingOkBtn">Continue</button>
+                <img class="advisor-avatar" src="/img/wb1.png" alt="Advisor" />
             </div>
         </div>
     </div>

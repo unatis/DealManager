@@ -1864,6 +1864,221 @@ label.inline-checkbox > input[type="checkbox"] {
     margin-top: 8px;
 }
 
+/* ===== Deal limit modal: centered speech bubble + avatar on the right ===== */
+.deal-limit-card {
+    overflow: visible;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+#dealLimitModal {
+    /* subtle fade-in for backdrop when display toggles to flex */
+    animation: dealLimitBackdropFadeIn 160ms ease-out both;
+}
+
+.deal-limit-card {
+    /* pop/slide for the card */
+    animation: dealLimitCardPop 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+.deal-limit-avatar {
+    /* tiny delayed bounce for character */
+    animation: dealLimitAvatarPop 260ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+    animation-delay: 60ms;
+}
+
+@keyframes dealLimitBackdropFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes dealLimitCardPop {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes dealLimitAvatarPop {
+    0%   { opacity: 0; transform: translateY(12px) scale(0.96); }
+    70%  { opacity: 1; transform: translateY(-2px) scale(1.01); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.deal-limit-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid rgba(148,163,184,0.35);
+    box-shadow: 0 10px 22px rgba(2,6,23,0.06);
+}
+
+.deal-limit-chat-right {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.deal-limit-bubble {
+    position: relative;
+    width: min(520px, 72vw);
+    /* Paper-like bubble + noise */
+    background: #f7f0df; /* warm paper */
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 10px 22px rgba(2, 6, 23, 0.06);
+    background-image:
+        linear-gradient(180deg, rgba(255,255,255,0.35), rgba(0,0,0,0)),
+        radial-gradient(circle at 20% 10%, rgba(0,0,0,0.03), transparent 35%),
+        radial-gradient(circle at 80% 30%, rgba(0,0,0,0.02), transparent 40%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+    background-blend-mode: multiply, multiply, multiply, multiply;
+}
+
+/* Tail points to the RIGHT (towards avatar) */
+.deal-limit-bubble:before {
+    content: "";
+    position: absolute;
+    right: -10px;
+    top: 22px;
+    border-width: 10px 0 10px 10px;
+    border-style: solid;
+    border-color: transparent transparent transparent rgba(148, 163, 184, 0.35);
+}
+
+.deal-limit-bubble:after {
+    content: "";
+    position: absolute;
+    right: -9px;
+    top: 22px;
+    border-width: 10px 0 10px 10px;
+    border-style: solid;
+    border-color: transparent transparent transparent #f7f0df;
+}
+
+.deal-limit-avatar {
+    width: 96px;
+    height: auto;
+    border-radius: 14px;
+    background: transparent !important;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 10px 22px rgba(2, 6, 23, 0.10);
+    /* Best-effort "remove white background" effect (not perfect for all backgrounds) */
+    mix-blend-mode: multiply;
+}
+
+.deal-limit-bubble-text {
+    font-size: 28px; /* x2 */
+    line-height: 1.35;
+    white-space: pre-line;
+    color: #0f172a;
+}
+
+.deal-limit-static {
+    font-size: 28px; /* match bubble text size */
+    color: var(--muted);
+}
+
+.deal-limit-dynamic {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(148, 163, 184, 0.45);
+}
+
+/* ===== Advisor-style modals (weekly confirm, timing, etc.) ===== */
+.advisor-modal-card {
+    overflow: visible;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+.advisor-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 10px 22px rgba(2,6,23,0.06);
+}
+
+.advisor-chat-right {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.advisor-bubble {
+    position: relative;
+    width: min(520px, 72vw);
+    background: #f7f0df;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 10px 22px rgba(2, 6, 23, 0.06);
+    background-image:
+        linear-gradient(180deg, rgba(255,255,255,0.35), rgba(0,0,0,0)),
+        radial-gradient(circle at 20% 10%, rgba(0,0,0,0.03), transparent 35%),
+        radial-gradient(circle at 80% 30%, rgba(0,0,0,0.02), transparent 40%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.18'/%3E%3C/svg%3E");
+    background-blend-mode: multiply, multiply, multiply, multiply;
+}
+
+.advisor-bubble:before {
+    content: "";
+    position: absolute;
+    right: -10px;
+    top: 22px;
+    border-width: 10px 0 10px 10px;
+    border-style: solid;
+    border-color: transparent transparent transparent rgba(148, 163, 184, 0.35);
+}
+
+.advisor-bubble:after {
+    content: "";
+    position: absolute;
+    right: -9px;
+    top: 22px;
+    border-width: 10px 0 10px 10px;
+    border-style: solid;
+    border-color: transparent transparent transparent #f7f0df;
+}
+
+.advisor-avatar {
+    width: 96px;
+    height: auto;
+    border-radius: 14px;
+    background: transparent !important;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 10px 22px rgba(2, 6, 23, 0.10);
+    mix-blend-mode: multiply;
+}
+
+.advisor-bubble-text {
+    font-size: 28px;
+    line-height: 1.35;
+    white-space: pre-line;
+    color: #0f172a;
+}
+
+.advisor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
 .ai-bubble summary {
     cursor: pointer;
     color: #334155;
