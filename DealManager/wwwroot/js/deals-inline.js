@@ -358,6 +358,133 @@ function escapeHtml(str) {
     }[s]));
 }
 
+// ===== Weekly setup detector: "reversal + retest + breakout above previous week high" (weekly + quote) =====
+// We interpret indices as:
+// b   = current week (in-progress) -> use quote P instead of close
+// r   = b-1 (last completed week)  -> previous week, defines breakout high
+// tau = b-2 (week before previous) -> defines support level S = L_tau
+//
+// Conditions (ATR-based buffers):
+// 1) Impulse after tau: H_r >= S + gamma
+// 2) Retest: |L_r - S| <= eps  AND  C_r >= S - eps  (optional: L_r >= L_tau)
+// 3) Breakout trigger (quote): P >= H_r + delta
+const weeklySetupDefaults = Object.freeze({
+    atrPeriod: 14,
+    epsAtrFrac: 0.25,      // ε = 0.25 * ATR
+    gammaAtrFrac: 0.50,    // γ = 0.50 * ATR
+    deltaAtrFrac: 0.10,    // δ = 0.10 * ATR
+    fallbackEpsPct: 0.005, // 0.5% of S
+    fallbackDeltaPct: 0.002, // 0.2% of H_r
+    requireNoLowerLowOnRetest: true
+});
+
+function toNum(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+}
+
+function normalizeWeekBar(b) {
+    return {
+        O: toNum(b?.Open ?? b?.open),
+        H: toNum(b?.High ?? b?.high),
+        L: toNum(b?.Low ?? b?.low),
+        C: toNum(b?.Close ?? b?.close)
+    };
+}
+
+function calcWeeklyAtr(weeklyBars, period = 14) {
+    if (!Array.isArray(weeklyBars) || weeklyBars.length < 3) return null;
+    const trs = [];
+    for (let i = 1; i < weeklyBars.length; i++) {
+        const p = normalizeWeekBar(weeklyBars[i - 1]);
+        const c = normalizeWeekBar(weeklyBars[i]);
+        if (![p.C, c.H, c.L].every(Number.isFinite)) continue;
+        const tr = Math.max(
+            c.H - c.L,
+            Math.abs(c.H - p.C),
+            Math.abs(c.L - p.C)
+        );
+        if (Number.isFinite(tr) && tr > 0) trs.push(tr);
+    }
+    if (trs.length < 3) return null;
+    const slice = trs.slice(-Math.max(3, period));
+    const avg = slice.reduce((a, x) => a + x, 0) / slice.length;
+    return Number.isFinite(avg) ? avg : null;
+}
+
+function detectWeeklyReversalRetestBreakout(weeklyBars, quotePrice, opts = {}) {
+    const cfg = { ...weeklySetupDefaults, ...(opts || {}) };
+
+    if (!Array.isArray(weeklyBars) || weeklyBars.length < 4) {
+        return { hasSetup: false, triggered: false, reason: 'Not enough weekly bars' };
+    }
+
+    // Decide whether the last candle represents the current in-progress week.
+    // In our backend `PricePoint.Date` is the candle date (usually week ending/trading day),
+    // so most of the time AlphaVantage weekly series does NOT include current week; last bar is last completed week.
+    const last = weeklyBars[weeklyBars.length - 1];
+    const lastDateRaw = last?.Date ?? last?.date;
+    const lastDate = lastDateRaw ? new Date(lastDateRaw) : null;
+
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setHours(0, 0, 0, 0);
+    // Monday start (local): convert JS Sunday=0..Saturday=6 -> Monday=0..Sunday=6
+    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+
+    const lastIsCurrentWeek = !!(lastDate && lastDate >= startOfWeek);
+
+    // r = last completed week; tau = week before r
+    const rIdx = lastIsCurrentWeek ? (weeklyBars.length - 2) : (weeklyBars.length - 1);
+    const tauIdx = rIdx - 1;
+    if (tauIdx < 0) {
+        return { hasSetup: false, triggered: false, reason: 'Not enough bars for tau/r' };
+    }
+
+    const r = normalizeWeekBar(weeklyBars[rIdx]);     // last completed week
+    const tau = normalizeWeekBar(weeklyBars[tauIdx]); // week before last completed
+
+    if (![r.O, r.H, r.L, r.C, tau.O, tau.H, tau.L, tau.C].every(Number.isFinite)) {
+        return { hasSetup: false, triggered: false, reason: 'Bad OHLC values' };
+    }
+
+    const S = tau.L;
+    // ATR: exclude current week bar only if it exists in the array
+    const atrBars = lastIsCurrentWeek ? weeklyBars.slice(0, weeklyBars.length - 1) : weeklyBars;
+    const atr = calcWeeklyAtr(atrBars, cfg.atrPeriod);
+    const eps = atr ? (atr * cfg.epsAtrFrac) : (Math.abs(S) * cfg.fallbackEpsPct);
+    const gamma = atr ? (atr * cfg.gammaAtrFrac) : (Math.abs(S) * (cfg.fallbackEpsPct * 2));
+    const delta = atr ? (atr * cfg.deltaAtrFrac) : (Math.abs(r.H) * cfg.fallbackDeltaPct);
+
+    // 1) Impulse after tau: previous week high must be meaningfully above support S
+    const impulseOk = r.H >= (S + gamma);
+
+    // 2) Retest: low near S and close not below S (beyond eps)
+    const retestOk =
+        Math.abs(r.L - S) <= eps &&
+        r.C >= (S - eps) &&
+        (!cfg.requireNoLowerLowOnRetest || r.L >= tau.L);
+
+    const hasSetup = impulseOk && retestOk;
+    const entryHigh = r.H;
+    const entryTrigger = entryHigh + delta;
+    const P = toNum(quotePrice);
+    const triggered = Number.isFinite(P) ? (P >= entryTrigger) : false;
+
+    // Suggested stop: under support with same delta buffer (simple, consistent)
+    const stop = S - delta;
+
+    return {
+        hasSetup,
+        triggered,
+        support: S,
+        entryHigh,
+        entryTrigger,
+        stop,
+        debug: { atr, eps, gamma, delta, P, impulseOk, retestOk, rIdx, tauIdx }
+    };
+}
+
 // Function to set button loading state with spinner (similar to login button)
 function setButtonLoading(button, isLoading) {
     if (!button) return;
@@ -2350,16 +2477,6 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         }
                     }
 
-                    // Trend Down warning (allow activation if user confirms)
-                    if (monthlyVal === 'Down' || weeklyVal === 'Down') {
-                        const proceed = await showWeeklyConfirmModal(
-                            'WARNING:\n' +
-                            'Weekly trend or Monthly trend is Down.\n\n' +
-                            'Do you still want to activate this deal?'
-                        );
-                        if (!proceed) return;
-                    }
-
                     const totalPlanned = sharePriceNum * sumStages(stages);
 
                     // 0) Строгая проверка: хватает ли вообще Cash под эту позицию
@@ -2485,30 +2602,128 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     // Если лимиты не смогли посчитать — не блокируем, но логируем
                 }
 
+                // ===== FINAL ENTRY CHECKS (must be the LAST check before activation) =====
+                // Checks:
+                // - weekly reversal+retest setup (weekly bars)
+                // - monthly trend must be Up (server-calculated from weekly series)
+                // - breakout trigger uses CURRENT quote price (current week)
+                //
+                // Always shows a message:
+                // - if monthly trend Down/Flat -> NOT recommended
+                // - if no weekly reversal -> NOT recommended
+                // - if setup exists but breakout not triggered -> wait for breakout (still allow)
+                // - if all ok -> OK (still show)
+                try {
+                    const ticker = deal.stock;
+                    if (ticker) {
+                        const [wRes, qRes, tRes] = await Promise.all([
+                            apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, { headers: authHeaders() }),
+                            apiFetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, { headers: authHeaders() }),
+                            apiFetch(`/api/prices/${encodeURIComponent(ticker)}/trends`, { headers: authHeaders() })
+                        ]);
+
+                        const weeklyBars = wRes.ok ? await wRes.json() : null;
+                        const quote = qRes.ok ? await qRes.json() : null;
+                        const trends = tRes.ok ? await tRes.json() : null;
+
+                        const priceNow = Number(quote?.price);
+                        const monthlyTrend = String(trends?.monthly || '').trim();
+                        const monthlyOk = monthlyTrend.toLowerCase() === 'up';
+
+                        const setup = Array.isArray(weeklyBars)
+                            ? detectWeeklyReversalRetestBreakout(weeklyBars, priceNow)
+                            : { hasSetup: false, triggered: false, reason: 'No weekly bars' };
+
+                        const hasSetup = !!setup?.hasSetup;
+                        const triggered = !!setup?.triggered;
+
+                        const lines = [];
+                        lines.push(`Ticker: ${ticker}`);
+                        lines.push(`Monthly trend: ${monthlyTrend || '(no data)'} ${monthlyOk ? '(OK)' : '(NOT OK)'}`);
+
+                        if (!Array.isArray(weeklyBars)) {
+                            lines.push(`Weekly reversal+retest: (no weekly data)`);
+                        } else if (!hasSetup) {
+                            lines.push(`Weekly reversal+retest: NOT FOUND`);
+                            if (setup?.reason) lines.push(`Reason: ${setup.reason}`);
+                        } else {
+                            lines.push(`Weekly reversal+retest: FOUND`);
+                            if (Number.isFinite(setup.support)) lines.push(`Support S (L_tau): ${setup.support.toFixed(2)}`);
+                            if (Number.isFinite(setup.entryHigh)) lines.push(`Prev week high (H_r): ${setup.entryHigh.toFixed(2)}`);
+                            if (Number.isFinite(setup.entryTrigger)) lines.push(`Entry trigger (H_r + δ): ${setup.entryTrigger.toFixed(2)}`);
+                            if (Number.isFinite(setup.stop)) lines.push(`Suggested stop: ${setup.stop.toFixed(2)}`);
+                            lines.push(`Breakout (quote): ${triggered ? 'TRIGGERED' : 'NOT triggered yet'}`);
+                        }
+
+                        if (Number.isFinite(priceNow)) lines.push(`Current price (quote): ${priceNow.toFixed(2)}`);
+
+                        const hardFail = !monthlyOk || !hasSetup;
+                        const timingWarn = !hardFail && hasSetup && !triggered;
+                        const allOk = !hardFail && hasSetup && triggered;
+
+                        let title = 'Entry checks';
+                        let resultLine = 'Result: Continue activation?';
+                        if (hardFail) {
+                            title = 'Entry checks: NOT recommended';
+                            resultLine = 'Result: NOT recommended. Continue activation anyway?';
+                        } else if (timingWarn) {
+                            title = 'Entry checks: wait for breakout';
+                            resultLine = 'Result: Setup is valid, but breakout is NOT triggered yet. Continue activation anyway?';
+                        } else if (allOk) {
+                            title = 'Entry checks: OK';
+                            resultLine = 'Result: All checks passed. Continue activation?';
+                        }
+
+                        const proceed = await showDealLimitModal(
+                            lines.join('\n') + '\n\n' + resultLine,
+                            { title, mode: 'confirm', okText: 'Continue', cancelText: 'Cancel' }
+                        );
+
+                        if (!proceed) return;
+                    }
+                } catch (e) {
+                    console.warn('Final entry checks failed (non-blocking)', e);
+                    const proceed = await showDealLimitModal(
+                        `Entry checks could not be completed.\n\n${String(e?.message || e)}`,
+                        { title: 'Entry checks error', mode: 'confirm', okText: 'Continue', cancelText: 'Cancel' }
+                    );
+                    if (!proceed) return;
+                }
+
                 setButtonLoading(activateBtn, true);
                 
                 // Change planned_future from true to false
                 const updatedDeal = { ...deal, planned_future: false };
                 
+                let saveOk = false;
+                let saveErr = null;
                 try {
+                    // IMPORTANT: saveDealToServer() already performs server save + some client-side refreshes.
+                    // Any UI refresh after this should be best-effort and must not show "activation failed"
+                    // if the server-side activation actually succeeded.
                     await saveDealToServer(updatedDeal, true);
-                    
-                    // If deal has total_sum, deduct from portfolio (since it's now active)
-                    if (updatedDeal.total_sum) {
-                        await refreshPortfolioFromServer();
-                    }
-                    
-                    await loadDeals();
-                    
-                    // Calculate and display portfolio risk after activating deal
-                    await calculateAndDisplayPortfolioRisk();
-                    await calculateAndDisplayInSharesRisk();
+                    saveOk = true;
                 } catch (e) {
-                    console.error(e);
-                    alert('Не удалось активировать сделку');
-                } finally {
-                    setButtonLoading(activateBtn, false);
+                    saveErr = e;
+                    console.error('Activation save failed (may still have succeeded on server):', e);
                 }
+
+                // Always try to refresh UI state after activation attempt (best-effort)
+                try { await refreshPortfolioFromServer(); } catch (e) { console.warn('refreshPortfolioFromServer failed after activation', e); }
+                try { await loadDeals(); } catch (e) { console.warn('loadDeals failed after activation', e); }
+                try { await calculateAndDisplayPortfolioRisk(); } catch (e) { console.warn('portfolio risk refresh failed after activation', e); }
+                try { await calculateAndDisplayInSharesRisk(); } catch (e) { console.warn('inShares risk refresh failed after activation', e); }
+
+                if (!saveOk) {
+                    // Use the styled advisor modal instead of a browser alert.
+                    const msg =
+                        `Activation request returned an error.\n` +
+                        `The deal may still have been activated (UI was refreshed).\n\n` +
+                        `Details:\n${String(saveErr?.message || saveErr || 'Unknown error')}`;
+                    await showDealLimitModal(msg, { title: 'Activation warning', mode: 'info' });
+                }
+
+                setButtonLoading(activateBtn, false);
             });
             // Setup risk/limits hints for this form
             setupRiskAndLimits(form);
