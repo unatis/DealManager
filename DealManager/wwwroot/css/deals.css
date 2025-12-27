@@ -2056,13 +2056,13 @@ label.inline-checkbox > input[type="checkbox"] {
 }
 
 .advisor-avatar {
-    width: 96px;
+    width: 196px;
     height: auto;
     border-radius: 14px;
-    background: transparent !important;
+    /*background: transparent !important;*/
     border: 1px solid rgba(148, 163, 184, 0.35);
     box-shadow: 0 10px 22px rgba(2, 6, 23, 0.10);
-    mix-blend-mode: multiply;
+    /*mix-blend-mode: multiply;*/
 }
 
 .advisor-bubble-text {

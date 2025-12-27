@@ -3406,25 +3406,9 @@ async function handleDealSubmit(form, deal, isNew) {
             obj.date = new Date().toISOString().slice(0, 10);
         }
 
-        // Validate against deal limits (risk / cash constraints)
-        // 0) Hard check: do we have enough Cash for this planned position at all?
-        try {
-            const portfolioSpan = document.getElementById('portfolioValue');
-            if (portfolioSpan) {
-                const cashStr = portfolioSpan.textContent.trim().replace(',', '.');
-                const cash = parseFloat(cashStr) || 0;
-                if (totalPlanned > cash) {
-                    showDealLimitModal(
-                        `Not enough Cash for this deal.\n` +
-                        `Required: ${totalPlanned.toFixed(2)}, available: ${cash.toFixed(2)}.`
-                    );
-                    setButtonLoading(submitButton, false);
-                    return;
-                }
-            }
-        } catch (cashErr) {
-            console.error('Failed to validate cash before saving deal', cashErr);
-        }
+        // Validate against deal limits (risk constraints).
+        // NOTE: We do NOT check Cash on Save changes / planning.
+        // Planned deals must not "reserve" Cash. Cash is checked only on Activate (Create deal).
 
         const slPctNum = parseNumber(obj.stop_loss_prcnt || '');
         if (isNaN(slPctNum)) {
@@ -3444,22 +3428,30 @@ async function handleDealSubmit(form, deal, isNew) {
 
                     if (isSingle) {
                         if (totalPlanned > limits.singleStageMax) {
-                            showDealLimitModal(
+                            const proceed = await showDealLimitModal(
                                 `Single-stage deal is too big.\n` +
-                                `Max allowed: ${limits.singleStageMax.toFixed(2)}.`
+                                `Max allowed: ${limits.singleStageMax.toFixed(2)}.\n\n` +
+                                `Do you still want to PLAN this deal?`,
+                                { title: 'Deal limit warning', mode: 'confirm', okText: 'Continue', cancelText: 'Cancel' }
                             );
-                            setButtonLoading(submitButton, false);
-                            return;
+                            if (!proceed) {
+                                setButtonLoading(submitButton, false);
+                                return;
+                            }
                         }
                     } else {
                         const stage1Sum = sharePriceNum * (stagesNums[0] || 0);
                         if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
-                            showDealLimitModal(
+                            const proceed = await showDealLimitModal(
                                 `Multi-stage deal exceeds limits.\n` +
-                                `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.`
+                                `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.\n\n` +
+                                `Do you still want to PLAN this deal?`,
+                                { title: 'Deal limit warning', mode: 'confirm', okText: 'Continue', cancelText: 'Cancel' }
                             );
-                            setButtonLoading(submitButton, false);
-                            return;
+                            if (!proceed) {
+                                setButtonLoading(submitButton, false);
+                                return;
+                            }
                         }
                     }
 
