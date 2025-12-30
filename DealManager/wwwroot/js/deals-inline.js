@@ -576,6 +576,77 @@ function showDealLimitModal(message, opts = {}) {
     });
 }
 
+// Close deal modal with required close price.
+// Returns Promise<number|null>: number = close price, null = cancelled/closed.
+function showCloseDealModal(opts = {}) {
+    const { ticker = '', defaultPrice = '' } = opts || {};
+
+    return new Promise(resolve => {
+        const modal = document.getElementById('closeDealModal');
+        const closeBtn = document.getElementById('closeDealModalCloseBtn');
+        const cancelBtn = document.getElementById('closeDealCancelBtn');
+        const okBtn = document.getElementById('closeDealOkBtn');
+        const input = document.getElementById('closeDealPriceInput');
+        const err = document.getElementById('closeDealPriceError');
+        const hint = document.getElementById('closeDealTickerHint');
+
+        if (!modal || !closeBtn || !cancelBtn || !okBtn || !input || !err || !hint) {
+            console.error('closeDealModal elements not found in DOM');
+            resolve(null);
+            return;
+        }
+
+        hint.textContent = ticker ? `Ticker: ${ticker}` : '';
+        input.value = defaultPrice != null && String(defaultPrice).trim() !== '' ? String(defaultPrice) : '';
+        err.style.display = 'none';
+        err.textContent = '';
+
+        modal.style.display = 'flex';
+        try { input.focus(); } catch { }
+
+        function cleanup() {
+            modal.style.display = 'none';
+            closeBtn.removeEventListener('click', onCancel);
+            cancelBtn.removeEventListener('click', onCancel);
+            okBtn.removeEventListener('click', onOk);
+            modal.removeEventListener('click', onBackdrop);
+            document.removeEventListener('keydown', onKeydown);
+        }
+
+        function onCancel() {
+            cleanup();
+            resolve(null);
+        }
+
+        function onOk() {
+            const v = parseFloat(String(input.value || '').replace(',', '.'));
+            if (!Number.isFinite(v) || v <= 0) {
+                err.textContent = 'Close price is required and must be > 0.';
+                err.style.display = 'block';
+                try { input.focus(); } catch { }
+                return;
+            }
+            cleanup();
+            resolve(v);
+        }
+
+        function onBackdrop(e) {
+            if (e.target === modal) onCancel();
+        }
+
+        function onKeydown(e) {
+            if (e.key === 'Escape') onCancel();
+            if (e.key === 'Enter') onOk();
+        }
+
+        closeBtn.addEventListener('click', onCancel);
+        cancelBtn.addEventListener('click', onCancel);
+        okBtn.addEventListener('click', onOk);
+        modal.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKeydown);
+    });
+}
+
 // Reusable confirm-style modal for weekly activations warning
 function showWeeklyConfirmModal(message) {
     return new Promise(resolve => {
@@ -2105,6 +2176,17 @@ function createDealRow(deal, isNew) {
         ${deal ? `
         <div class="chips" style="min-width:140px;justify-content:flex-end">
             <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
+            ${deal.closed && deal.close_price ? `<div class="badge movement-metric-tooltip" data-tooltip="Close Price">CL:${escapeHtml(deal.close_price)}</div>` : ''}
+            ${deal.closed && deal.close_price ? (() => {
+                const entry = parseNumber(deal.share_price || '');
+                const close = parseNumber(deal.close_price || '');
+                const shares = sumStages(getStagesFromDeal(deal));
+                if (!entry || !close || !shares) return '';
+                const pnl = (close - entry) * shares;
+                const cls = pnl >= 0 ? 'pnl-green' : 'pnl-red';
+                const sign = pnl >= 0 ? '+' : '';
+                return `<div class="badge movement-metric-tooltip ${cls}" data-tooltip="P/L based on Close price">P/L:${sign}${pnl.toFixed(2)}</div>`;
+            })() : ''}
             <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
             ${deal.stop_loss_prcnt ? (() => {
                 // Extract numeric value from percentage string (supports optional minus sign)
@@ -2733,9 +2815,42 @@ async function setupDealRowHandlers(row, deal, isNew) {
         const closeBtn = form.querySelector('.close-deal-btn');
         if (closeBtn) {
             closeBtn.addEventListener('click', async () => {
-                const updatedDeal = { ...deal, closed: true, closedAt: new Date().toISOString() };
                 try {
                     setButtonLoading(closeBtn, true);
+
+                    // Planned deals do not affect Cash; allow closing without close price.
+                    if (deal?.planned_future) {
+                        const proceed = await showDealLimitModal(
+                            'Close this planned deal?',
+                            { title: 'Close planned deal', mode: 'confirm', okText: 'Close deal', cancelText: 'Cancel' }
+                        );
+                        if (!proceed) return;
+
+                        const updatedDeal = { ...deal, closed: true, closedAt: new Date().toISOString() };
+                        await saveDealToServer(updatedDeal, true);
+                        await loadDeals();
+                        return;
+                    }
+
+                    // Active deal: require close price.
+                    let defaultPx = '';
+                    try {
+                        if (deal?.stock) {
+                            const q = await getDailyQuote(deal.stock);
+                            if (q && q.price != null) defaultPx = q.price;
+                        }
+                    } catch { }
+
+                    const closePx = await showCloseDealModal({ ticker: deal?.stock || '', defaultPrice: defaultPx });
+                    if (!closePx) return;
+
+                    const updatedDeal = {
+                        ...deal,
+                        close_price: String(closePx),
+                        closed: true,
+                        closedAt: new Date().toISOString()
+                    };
+
                     await saveDealToServer(updatedDeal, true);
                     await loadDeals();
                 } catch (e) {

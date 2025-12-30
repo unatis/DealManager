@@ -57,6 +57,21 @@ namespace DealManager.Controllers
             return Math.Round(price * shares, 2);
         }
 
+        private static decimal? TryCalculateTotalSharesFromStages(Deal deal)
+        {
+            if (deal.Amount_tobuy_stages == null || deal.Amount_tobuy_stages.Count == 0) return null;
+
+            decimal shares = 0m;
+            foreach (var s in deal.Amount_tobuy_stages)
+            {
+                if (!TryParsePositiveDecimal(s, out var n)) return null;
+                shares += n;
+            }
+
+            if (shares <= 0) return null;
+            return shares;
+        }
+
         private static string? ValidateStagesStrict(Deal deal)
         {
             // Block old client payload (Variant A)
@@ -236,6 +251,23 @@ namespace DealManager.Controllers
             // Определяем, закрывается ли сейчас активная (не planned) сделка
             var isClosingActive = !existing.Closed && deal.Closed && !existing.PlannedFuture;
 
+            // If closing an active deal, close_price is required and cash should be adjusted
+            // by proceeds = shares * close_price (NOT by total_sum, which is entry-based).
+            decimal? closeProceeds = null;
+            if (isClosingActive)
+            {
+                if (!TryParsePositiveDecimal(deal.ClosePrice, out var closePrice))
+                    return BadRequest("close_price is required and must be a positive number.");
+
+                // SECURITY: shares are taken from the stored deal, not from the client payload.
+                // This prevents manipulating Cash by altering amount_tobuy_stages on close.
+                var shares = TryCalculateTotalSharesFromStages(existing);
+                if (!shares.HasValue)
+                    return BadRequest("Cannot calculate total shares for closing. amount_tobuy_stages is required.");
+
+                closeProceeds = Math.Round(closePrice * shares.Value, 2);
+            }
+
             var ok = await _service.UpdateAsync(id, userId, deal);
             if (!ok) return NotFound();
 
@@ -250,9 +282,9 @@ namespace DealManager.Controllers
             }
 
             // Если это закрытие активной (не planned) сделки и есть валидная сумма — возвращаем деньги в портфель
-            if (isClosingActive && totalSumValue.HasValue && totalSumValue.Value > 0)
+            if (isClosingActive && closeProceeds.HasValue && closeProceeds.Value > 0)
             {
-                var portfolioIncreased = await _users.AddPortfolioAsync(userId, totalSumValue.Value);
+                var portfolioIncreased = await _users.AddPortfolioAsync(userId, closeProceeds.Value);
                 if (!portfolioIncreased)
                 {
                     // Аналогично: логируем, но не валим запрос

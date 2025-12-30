@@ -1,4 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Threading.Tasks;
 using DealManager.Models;
 using MongoDB.Driver;
 
@@ -7,6 +11,7 @@ namespace DealManager.Services
     public class RiskService : IRiskService
     {
         private readonly IMongoCollection<Deal> _deals;
+        private readonly IMongoCollection<CachedQuote> _quotes;
         private readonly UsersService _usersService;
 
         public RiskService(MongoSettings settings, UsersService usersService)
@@ -16,115 +21,184 @@ namespace DealManager.Services
             var client = new MongoClient(clientSettings);
             var db = client.GetDatabase(settings.Database);
             _deals = db.GetCollection<Deal>(settings.DealsCollection);
+            _quotes = db.GetCollection<CachedQuote>(settings.QuotesCollection);
             _usersService = usersService;
         }
 
-        public async Task<decimal> CalculatePortfolioRiskPercentAsync(string userId)
+        private sealed record PortfolioRiskSnapshot(
+            decimal Cash,
+            decimal InSharesMtm,
+            decimal TotalMtm,
+            decimal TotalRiskAmount,
+            int OpenDealsCount
+        );
+
+        private static decimal ParseDec(string? s)
         {
-            // Get all open deals for the user
+            if (string.IsNullOrWhiteSpace(s)) return 0m;
+            s = s.Trim();
+
+            // Tolerate both dot and comma decimal separators.
+            if (decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v)) return v;
+            if (decimal.TryParse(s, NumberStyles.Any, new CultureInfo("ru-RU"), out v)) return v;
+            return 0m;
+        }
+
+        private static decimal GetShares(Deal d)
+        {
+            decimal sum = 0m;
+
+            if (d.Amount_tobuy_stages != null && d.Amount_tobuy_stages.Count > 0)
+            {
+                foreach (var x in d.Amount_tobuy_stages)
+                    sum += ParseDec(x);
+                return sum;
+            }
+
+            sum += ParseDec(d.Amount_tobuy_stage_1);
+            sum += ParseDec(d.Amount_tobuy_stage_2);
+            return sum;
+        }
+
+        private static string NormalizeTicker(string? t) =>
+            (t ?? string.Empty).Trim().ToUpperInvariant();
+
+        private async Task<Dictionary<string, decimal>> LoadQuoteMapAsync(IEnumerable<string> tickers)
+        {
+            var keys = tickers
+                .Select(NormalizeTicker)
+                .Where(t => !string.IsNullOrEmpty(t))
+                .Distinct()
+                .ToList();
+
+            var map = new Dictionary<string, decimal>();
+            if (keys.Count == 0) return map;
+
+            var filter = Builders<CachedQuote>.Filter.In(x => x.Ticker, keys);
+            var quotes = await _quotes.Find(filter).ToListAsync();
+
+            foreach (var q in quotes)
+            {
+                var t = NormalizeTicker(q.Ticker);
+                if (string.IsNullOrEmpty(t)) continue;
+                if (q.Price <= 0) continue;
+                map[t] = q.Price;
+            }
+
+            return map;
+        }
+
+        private static decimal EstimateDealRiskAmount(Deal deal, decimal shares)
+        {
+            // Preferred: exact risk from entry to stop using absolute prices.
+            var entry = ParseDec(deal.SharePrice);
+            var stop = ParseDec(deal.StopLoss);
+            if (shares > 0 && entry > 0 && stop > 0)
+            {
+                var perShareRisk = Math.Max(0m, entry - stop);
+                return shares * perShareRisk;
+            }
+
+            // Fallback: total_sum * (stop_loss_prcnt / 100)
+            var totalSum = ParseDec(deal.TotalSum);
+            var slPct = ParseDec(deal.StopLossPercent);
+            if (totalSum > 0 && slPct > 0)
+            {
+                return totalSum * (slPct / 100m);
+            }
+
+            return 0m;
+        }
+
+        private static decimal EstimateDealMtmValue(Deal deal, decimal shares, Dictionary<string, decimal> quoteByTicker)
+        {
+            if (shares <= 0) return 0m;
+
+            var ticker = NormalizeTicker(deal.Stock);
+            if (!string.IsNullOrEmpty(ticker) &&
+                quoteByTicker.TryGetValue(ticker, out var px) &&
+                px > 0)
+            {
+                return shares * px;
+            }
+
+            // Fallbacks if quote is missing.
+            var entry = ParseDec(deal.SharePrice);
+            if (entry > 0) return shares * entry;
+
+            var totalSum = ParseDec(deal.TotalSum);
+            if (totalSum > 0) return totalSum;
+
+            return 0m;
+        }
+
+        private async Task<PortfolioRiskSnapshot> GetPortfolioRiskSnapshotAsync(string userId)
+        {
+            // Open, active deals only (planned_future does not affect portfolio).
             var openDeals = await _deals
                 .Find(d => d.UserId == userId && !d.Closed && !d.PlannedFuture)
                 .ToListAsync();
 
             if (openDeals == null || openDeals.Count == 0)
-                return 0;
+            {
+                var cashOnly = await _usersService.GetPortfolioAsync(userId);
+                var totalFallback = await _usersService.GetTotalSumAsync(userId);
+                var total = totalFallback > 0 ? totalFallback : cashOnly;
+                return new PortfolioRiskSnapshot(
+                    Cash: cashOnly,
+                    InSharesMtm: 0m,
+                    TotalMtm: total,
+                    TotalRiskAmount: 0m,
+                    OpenDealsCount: 0
+                );
+            }
 
-            // Calculate total risk amount from all open deals
-            decimal totalRisk = 0;
+            var cash = await _usersService.GetPortfolioAsync(userId);
+
+            var quoteByTicker = await LoadQuoteMapAsync(openDeals.Select(d => d.Stock));
+
+            decimal totalRiskAmount = 0m;
+            decimal inSharesMtm = 0m;
 
             foreach (var deal in openDeals)
             {
-                // Parse total_sum
-                if (string.IsNullOrWhiteSpace(deal.TotalSum))
-                    continue;
-
-                if (!decimal.TryParse(deal.TotalSum, out var dealTotalSum))
-                    continue;
-
-                // Parse stop_loss_prcnt
-                decimal stopLossPercent = 0;
-                if (!string.IsNullOrWhiteSpace(deal.StopLossPercent))
-                {
-                    if (!decimal.TryParse(deal.StopLossPercent, out stopLossPercent))
-                        continue;
-                }
-
-                // Calculate risk for this deal: total_sum * (stop_loss_percent / 100)
-                if (stopLossPercent > 0 && dealTotalSum > 0)
-                {
-                    decimal dealRisk = dealTotalSum * (stopLossPercent / 100);
-                    totalRisk += dealRisk;
-                }
+                var shares = GetShares(deal);
+                totalRiskAmount += EstimateDealRiskAmount(deal, shares);
+                inSharesMtm += EstimateDealMtmValue(deal, shares, quoteByTicker);
             }
 
-            // Get current Total Sum value (Cash + In Shares)
-            var totalSum = await _usersService.GetTotalSumAsync(userId);
+            var totalMtm = cash + inSharesMtm;
+            if (totalMtm <= 0)
+            {
+                // last resort: use stored totalSum
+                totalMtm = await _usersService.GetTotalSumAsync(userId);
+            }
 
-            if (totalSum <= 0)
-                return 0;
+            return new PortfolioRiskSnapshot(
+                Cash: cash,
+                InSharesMtm: inSharesMtm,
+                TotalMtm: totalMtm,
+                TotalRiskAmount: totalRiskAmount,
+                OpenDealsCount: openDeals.Count
+            );
+        }
 
-            // Calculate percentage: (total_risk / totalSum) * 100
-            decimal riskPercent = (totalRisk / totalSum) * 100;
+        public async Task<decimal> CalculatePortfolioRiskPercentAsync(string userId)
+        {
+            var snap = await GetPortfolioRiskSnapshotAsync(userId);
+            if (snap.TotalMtm <= 0 || snap.TotalRiskAmount <= 0) return 0;
 
+            var riskPercent = (snap.TotalRiskAmount / snap.TotalMtm) * 100m;
             return Math.Round(riskPercent, 2);
         }
 
         public async Task<decimal> CalculateInSharesRiskPercentAsync(string userId)
         {
-            // Get all open deals for the user
-            var openDeals = await _deals
-                .Find(d => d.UserId == userId && !d.Closed && !d.PlannedFuture)
-                .ToListAsync();
+            var snap = await GetPortfolioRiskSnapshotAsync(userId);
+            if (snap.InSharesMtm <= 0 || snap.TotalRiskAmount <= 0) return 0;
 
-            if (openDeals == null || openDeals.Count == 0)
-                return 0;
-
-            // Calculate total risk amount from all open deals
-            decimal totalRisk = 0;
-
-            foreach (var deal in openDeals)
-            {
-                // Parse total_sum
-                if (string.IsNullOrWhiteSpace(deal.TotalSum))
-                    continue;
-
-                if (!decimal.TryParse(deal.TotalSum, out var dealTotalSum))
-                    continue;
-
-                // Parse stop_loss_prcnt
-                decimal stopLossPercent = 0;
-                if (!string.IsNullOrWhiteSpace(deal.StopLossPercent))
-                {
-                    if (!decimal.TryParse(deal.StopLossPercent, out stopLossPercent))
-                        continue;
-                }
-
-                // Calculate risk for this deal: total_sum * (stop_loss_percent / 100)
-                if (stopLossPercent > 0 && dealTotalSum > 0)
-                {
-                    decimal dealRisk = dealTotalSum * (stopLossPercent / 100);
-                    totalRisk += dealRisk;
-                }
-            }
-
-            // Get current In Shares value instead of Total Sum
-            var inShares = await _usersService.GetInSharesAsync(userId);
-
-            System.Diagnostics.Debug.WriteLine($"[RiskService] CalculateInSharesRiskPercentAsync - userId: {userId}, openDeals: {openDeals.Count}, totalRisk: {totalRisk}, inShares: {inShares}");
-
-            if (inShares <= 0)
-            {
-                System.Diagnostics.Debug.WriteLine($"[RiskService] CalculateInSharesRiskPercentAsync - inShares is 0 or negative, returning 0");
-                return 0;
-            }
-
-            // Calculate percentage: (total_risk / inShares) * 100
-            decimal riskPercent = (totalRisk / inShares) * 100;
-            decimal rounded = Math.Round(riskPercent, 2);
-
-            System.Diagnostics.Debug.WriteLine($"[RiskService] CalculateInSharesRiskPercentAsync - riskPercent: {riskPercent}, rounded: {rounded}");
-
-            return rounded;
+            var riskPercent = (snap.TotalRiskAmount / snap.InSharesMtm) * 100m;
+            return Math.Round(riskPercent, 2);
         }
 
         public async Task<DealLimitResult> CalculateDealLimitsAsync(string userId, decimal stopLossPercent)
@@ -132,15 +206,18 @@ namespace DealManager.Services
             if (stopLossPercent <= 0)
                 return new DealLimitResult(0, 0, 0, 0, 0, 0, false);
 
-            // P = общий портфель (TotalSum), C = кэш (Portfolio)
-            var totalSum = await _usersService.GetTotalSumAsync(userId);   // P
-            var cash     = await _usersService.GetPortfolioAsync(userId);  // C
+            // P = общий портфель (MTM: Cash + Σ(shares * currentPrice)), C = кэш (Portfolio)
+            var snap = await GetPortfolioRiskSnapshotAsync(userId);
+            var totalSum = snap.TotalMtm;
+            var cash = snap.Cash;
 
             if (totalSum <= 0 || cash <= 0)
                 return new DealLimitResult(0, 0, 0, 0, 0, 0, false);
 
-            // текущий риск портфеля, %
-            var currentRiskPercent = await CalculatePortfolioRiskPercentAsync(userId);
+            // текущий риск портфеля, % (уже MTM)
+            var currentRiskPercent = snap.TotalRiskAmount > 0
+                ? Math.Round((snap.TotalRiskAmount / totalSum) * 100m, 2)
+                : 0m;
 
             const decimal maxPortfolioRiskPercent   = 5m;   // лимит суммарного риска портфеля, %
             const decimal perDealRiskPercent        = 1m;   // максимум риска на сделку, %
