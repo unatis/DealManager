@@ -2100,3 +2100,50 @@ label.inline-checkbox > input[type="checkbox"] {
 .ai-chat-input-row button {
     width: 120px;
 }
+
+/* ===== Close deal modal (required close price) ===== */
+.close-deal-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.close-deal-label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.close-deal-input {
+    width: 220px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: rgba(255, 255, 255, 0.9);
+    font-size: 18px;
+}
+
+.close-deal-hint {
+    color: var(--muted);
+    font-size: 14px;
+    padding-bottom: 4px;
+}
+
+.close-deal-error {
+    color: #dc2626;
+    font-size: 14px;
+    margin-top: 8px;
+}
+
+.pnl-green {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+.pnl-red {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}

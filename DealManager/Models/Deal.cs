@@ -87,6 +87,9 @@ namespace DealManager.Models
         [JsonPropertyName("total_sum")]
         public string? TotalSum { get; set; }
 
+        [JsonPropertyName("close_price")]
+        public string? ClosePrice { get; set; }
+
         [JsonPropertyName("sp500_up")]
         public string? Sp500Up { get; set; }
                
