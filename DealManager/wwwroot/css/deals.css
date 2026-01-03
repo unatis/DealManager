@@ -966,6 +966,15 @@ input.volume-200m-readonly {
     pointer-events: none;
 }
 
+/* Deal form: show per-deal risk amount under Stop loss % field */
+.deal-risk-amount {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.2;
+    opacity: 0.85;
+}
+
 /* Tooltip positioned relative to deal-summary (stock row border) when icon is hovered */
 .deal-summary .meta .volume-warning-icon {
     position: relative;

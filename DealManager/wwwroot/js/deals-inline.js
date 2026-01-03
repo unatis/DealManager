@@ -1775,7 +1775,11 @@ function createDealFormHTML(deal = null, isNew = false) {
                 <label>Take profit<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
                 <label>Take profit %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
                 <label>Stop loss<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
-                <label>Stop loss %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
+                <label>
+                    Stop loss %?
+                    <input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder="">
+                    <small class="deal-risk-amount" data-role="deal-risk-amount">Risk: -</small>
+                </label>
 
                 <!--<label>
                     You're afraid it will be too late?
@@ -2011,8 +2015,12 @@ function renderAll() {
         });
     }
 
+    // Display count: all currently shown open rows (includes planned deals and the temporary "new deal" row)
     const count = open.length + (newDealRow ? 1 : 0);
     elements.openCount.textContent = count;
+    
+    // Warning count: only ACTIVE open deals (exclude planned_future deals)
+    const activeOpenCount = deals.filter(d => d && !d.closed && !d.planned_future).length;
     
     // Add warning icon based on count
     // Find the container div that holds the count
@@ -2024,19 +2032,19 @@ function renderAll() {
             existingWarning.remove();
         }
         
-        // Add warning icon if count exceeds thresholds
-        if (count > 15) {
+        // Add warning icon if ACTIVE open deals count exceeds thresholds
+        if (activeOpenCount > 15) {
             // Red warning for count > 15
             const warningIcon = document.createElement('span');
             warningIcon.className = 'count-warning-icon count-warning-red';
-            warningIcon.setAttribute('data-tooltip', `High number of open deals: ${count}. Consider closing some deals.`);
+            warningIcon.setAttribute('data-tooltip', `High number of open deals: ${activeOpenCount}. Consider closing some deals.`);
             warningIcon.textContent = '!';
             countContainer.appendChild(warningIcon);
-        } else if (count > 10) {
+        } else if (activeOpenCount > 10) {
             // Yellow warning for count > 10
             const warningIcon = document.createElement('span');
             warningIcon.className = 'count-warning-icon count-warning-yellow';
-            warningIcon.setAttribute('data-tooltip', `Many open deals: ${count}. Monitor your portfolio carefully.`);
+            warningIcon.setAttribute('data-tooltip', `Many open deals: ${activeOpenCount}. Monitor your portfolio carefully.`);
             warningIcon.textContent = '!';
             countContainer.appendChild(warningIcon);
         }
@@ -2362,7 +2370,9 @@ async function setupDealRowHandlers(row, deal, isNew) {
         renderStagesUI(form, deal);
         setupTrendSelectListeners(form);
         console.log('[CALL] setupSharePriceListener called, form:', form);
-        setupSharePriceListener(form);
+        const isPlannedDeal = isNew || !!(deal && deal.planned_future);
+        form.dataset.isPlannedDeal = isPlannedDeal ? '1' : '0';
+        setupSharePriceListener(form, isPlannedDeal);
         setupStopLossListener(form);
         setupTakeProfitListener(form);
         setupTotalSumCalculator(row, form, deal);
@@ -2451,7 +2461,9 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     setupTrendSelectListeners(form);
                     await refreshPlannedAutoFieldsOnExpand(form, deal);
                     console.log('[CALL] setupSharePriceListener called, form:', form);
-                    setupSharePriceListener(form);
+                    const isPlannedDeal = isNew || !!(deal && deal.planned_future);
+                    form.dataset.isPlannedDeal = isPlannedDeal ? '1' : '0';
+                    setupSharePriceListener(form, isPlannedDeal);
                     setupStopLossListener(form);
                     setupDealChart(row, form, deal, dealId);
                 } finally {
@@ -2474,14 +2486,24 @@ async function setupDealRowHandlers(row, deal, isNew) {
             activateBtn.addEventListener('click', async () => {
                 if (!deal || !deal.id) return;
 
-                // Gather latest values from form (fallback to deal if inputs are empty)
-                let sharePriceNum = 0;
-                let stages = [];
-                let slPctNum = 0;
-                let monthlyVal = '';
-                let weeklyVal = '';
-
+                // Show spinner immediately on click (even if we end up showing warnings/confirms)
+                setButtonLoading(activateBtn, true);
                 try {
+                    // Enforce stop loss <= share price ONLY when activating (Create deal)
+                    // (do not block editing an already existing/active deal)
+                    const slOk = validateStopLossVsPrice(form, true);
+                    if (!slOk) {
+                        await showDealLimitModal('Stop loss cannot be greater than Share price.');
+                        return;
+                    }
+
+                    // Gather latest values from form (fallback to deal if inputs are empty)
+                    let sharePriceNum = 0;
+                    let stages = [];
+                    let slPctNum = 0;
+                    let monthlyVal = '';
+                    let weeklyVal = '';
+
                     if (form) {
                         const spInput  = form.querySelector('input[name="share_price"]');
                         const slInput  = form.querySelector('input[name="stop_loss_prcnt"]');
@@ -2772,8 +2794,6 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     if (!proceed) return;
                 }
 
-                setButtonLoading(activateBtn, true);
-                
                 // Change planned_future from true to false
                 const updatedDeal = { ...deal, planned_future: false };
                 
@@ -2804,8 +2824,9 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         `Details:\n${String(saveErr?.message || saveErr || 'Unknown error')}`;
                     await showDealLimitModal(msg, { title: 'Activation warning', mode: 'info' });
                 }
-
-                setButtonLoading(activateBtn, false);
+                } finally {
+                    setButtonLoading(activateBtn, false);
+                }
             });
             // Setup risk/limits hints for this form
             setupRiskAndLimits(form);
@@ -3445,14 +3466,6 @@ async function handleDealSubmit(form, deal, isNew) {
     if (!submitButton) return;
     
     try {
-        // Block deal if stop loss > share price
-        const isPlannedDeal = isNew || !!(deal && deal.planned_future);
-        const slOk = validateStopLossVsPrice(form, isPlannedDeal);
-        if (!slOk) {
-            showDealLimitModal('Stop loss cannot be greater than Share price.');
-            return;
-        }
-
         // NOTE:
         // Do NOT block planning/saving deals by trends.
         // Trends blocking is enforced only when activating planned -> real (Create deal).
@@ -4641,7 +4654,7 @@ async function loadCurrentPrice(ticker, form) {
                 await calculateStopLoss(form);
 
                 // Validate stop loss vs share price after autofill (highlight if planned)
-                validateStopLossVsPrice(form, true);
+                validateStopLossVsPrice(form, form?.dataset?.isPlannedDeal === '1');
                 
                 // Recalculate take profit percentage if take profit is already set
                 // Use multiple delays to catch cases where take profit is entered after share price loads
@@ -4959,6 +4972,9 @@ function validateStopLossVsPrice(form, isPlanned) {
     // Reset previous highlight
     stopLossInput.classList.remove('has-stop-loss-error');
 
+    // Do not enforce for active deals (editing should be allowed)
+    if (!isPlanned) return true;
+
     const share = parseNumber(sharePriceInput.value);
     const sl    = parseNumber(stopLossInput.value);
 
@@ -4967,16 +4983,14 @@ function validateStopLossVsPrice(form, isPlanned) {
 
     if (sl > share) {
         // For planned deals, highlight the field
-        if (isPlanned) {
-            stopLossInput.classList.add('has-stop-loss-error');
-        }
+        stopLossInput.classList.add('has-stop-loss-error');
         return false; // signal to block submission
     }
 
     return true;
 }
 
-function setupSharePriceListener(form) {
+function setupSharePriceListener(form, isPlannedDeal) {
     console.log('[setupSharePriceListener] START - Setting up share price listener', { form, formId: form?.id, formName: form?.name });
     const sharePriceInput = form.querySelector('input[name="share_price"]');
     console.log('[setupSharePriceListener] sharePriceInput found:', sharePriceInput, 'value:', sharePriceInput?.value);
@@ -5074,7 +5088,7 @@ function setupSharePriceListener(form) {
     console.log('[setupSharePriceListener] Event listeners added to sharePriceInput. Element:', sharePriceInput, 'has input listener:', true, 'has change listener:', true, 'has blur listener:', true);
 
     // Also validate stop loss vs share price (highlight and later block on submit)
-    const applyStopLossCheck = () => validateStopLossVsPrice(form, true);
+    const applyStopLossCheck = () => validateStopLossVsPrice(form, !!isPlannedDeal);
     sharePriceInput.addEventListener('input', applyStopLossCheck);
     sharePriceInput.addEventListener('change', applyStopLossCheck);
     const currentStopLossInput = form.querySelector('input[name="stop_loss"]');
@@ -5410,9 +5424,43 @@ function setupRiskCalculator(form) {
     const totalSumInput = form.querySelector('input[name="total_sum"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     const sharePriceInput = form.querySelector('input[name="share_price"]');
+
+    // Deal risk amount UI ("Risk: $X") for the current form:
+    // riskAmount = positionSize * (stop_loss_prcnt / 100)
+    // positionSize = share_price * sum(amount_tobuy_stages[])
+    const updateDealRiskAmountUI = () => {
+        try {
+            const riskEl = form.querySelector('[data-role="deal-risk-amount"]');
+            if (!riskEl) return;
+
+            // Always query fresh inputs because some listeners clone/replace inputs.
+            const slPctInput = form.querySelector('input[name="stop_loss_prcnt"]');
+            const spInput = form.querySelector('input[name="share_price"]');
+
+            const slPct = parseNumber(slPctInput?.value || '');
+            const sharePrice = parseNumber(spInput?.value || '');
+            const stages = getStagesFromForm(form);
+            const shares = sumStages(stages);
+
+            if (!Number.isFinite(slPct) || slPct <= 0 || !Number.isFinite(sharePrice) || sharePrice <= 0 || !shares || shares <= 0) {
+                riskEl.textContent = 'Risk: -';
+                return;
+            }
+
+            const positionSize = sharePrice * shares;
+            const riskAmount = positionSize * (slPct / 100);
+            riskEl.textContent = `Risk: ${formatTotalSum(riskAmount) || '-'}`;
+        } catch (e) {
+            // Never break the form if formatting fails
+            console.warn('updateDealRiskAmountUI failed', e);
+        }
+    };
     
     // Function to calculate and display risk
     const calculateAndDisplayRisk = async () => {
+        // Update per-deal risk amount immediately (fast UI feedback)
+        updateDealRiskAmountUI();
+
         if (isNewDeal) {
             // For new deals, calculate on client side
             const riskPercent = await calculatePortfolioRiskClientSide(form);
@@ -5441,6 +5489,8 @@ function setupRiskCalculator(form) {
     // Debounce function for risk calculation
     let riskCalculationTimeout = null;
     const calculateRisk = () => {
+        // Update deal risk amount without waiting for the 1s debounce
+        updateDealRiskAmountUI();
         clearTimeout(riskCalculationTimeout);
         riskCalculationTimeout = setTimeout(async () => {
             await calculateAndDisplayRisk();
@@ -5481,6 +5531,30 @@ function setupRiskCalculator(form) {
             }
         });
     }
+
+    // Bind delegated listeners for deal risk amount UI (survives input cloning/replacement)
+    if (!form.dataset.dealRiskAmountBound) {
+        form.dataset.dealRiskAmountBound = '1';
+        let uiTimeout = null;
+        const scheduleUI = () => {
+            clearTimeout(uiTimeout);
+            uiTimeout = setTimeout(updateDealRiskAmountUI, 150);
+        };
+        form.addEventListener('input', (e) => {
+            const t = e.target;
+            if (!t || !t.name) return;
+            if (t.name === 'share_price' || t.name === 'stop_loss_prcnt' || t.name === 'amount_tobuy_stages[]') {
+                scheduleUI();
+            }
+        });
+        form.addEventListener('change', (e) => {
+            const t = e.target;
+            if (!t || !t.name) return;
+            if (t.name === 'share_price' || t.name === 'stop_loss_prcnt' || t.name === 'amount_tobuy_stages[]') {
+                updateDealRiskAmountUI();
+            }
+        });
+    }
     
     // Initial risk calculation if form already has values (for new deals)
     if (isNewDeal) {
@@ -5496,6 +5570,9 @@ function setupRiskCalculator(form) {
             }, 300);
         }
     }
+
+    // Initial UI update for deal risk amount
+    updateDealRiskAmountUI();
 }
 
 function escapeHtml(str) {
