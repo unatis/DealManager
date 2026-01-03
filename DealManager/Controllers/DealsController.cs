@@ -90,6 +90,21 @@ namespace DealManager.Controllers
                     return "All amount_tobuy_stages values must be positive numbers.";
             }
 
+            // Optional: buy prices per stage (may be empty per stage, but if provided must be positive).
+            if (deal.BuyPriceStages != null && deal.BuyPriceStages.Count > 0)
+            {
+                // If client sends stage buy prices, keep them aligned with stages.
+                if (deal.BuyPriceStages.Count != deal.Amount_tobuy_stages.Count)
+                    return "buy_price_stages must have the same length as amount_tobuy_stages.";
+
+                foreach (var p in deal.BuyPriceStages)
+                {
+                    if (string.IsNullOrWhiteSpace(p)) continue;
+                    if (!TryParsePositiveDecimal(p, out _))
+                        return "All buy_price_stages values must be positive numbers.";
+                }
+            }
+
             return null;
         }
 
