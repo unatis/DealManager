@@ -975,6 +975,15 @@ input.volume-200m-readonly {
     opacity: 0.85;
 }
 
+/* Deal form: show Avg entry under Share price field */
+.avg-entry-display {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.2;
+    opacity: 0.85;
+}
+
 /* Tooltip positioned relative to deal-summary (stock row border) when icon is hovered */
 .deal-summary .meta .volume-warning-icon {
     position: relative;

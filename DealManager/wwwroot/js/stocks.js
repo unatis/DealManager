@@ -22,6 +22,30 @@ function authHeaders() {
     return t ? { Authorization: 'Bearer ' + t } : {};
 }
 
+// Provide apiFetch on Stocks page too (deals-inline.js defines it, but Stocks page may not load it).
+// Keeps behavior consistent: auto-handle 401/403 by redirecting to login.
+async function apiFetch(url, options = {}) {
+    const token = localStorage.getItem('token');
+
+    const headers = {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+
+    const response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401 || response.status === 403) {
+        console.warn('API returned', response.status, '– clearing token and redirecting to login');
+        localStorage.removeItem('token');
+        localStorage.removeItem('email');
+        localStorage.removeItem('userName');
+        window.location.href = '/login.html';
+        throw new Error('Unauthorized, redirect to login');
+    }
+
+    return response;
+}
+
 // ====== API ======
 
 // Function to load warnings from server

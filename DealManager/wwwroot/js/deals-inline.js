@@ -229,6 +229,27 @@ function calculateTotalSumFromStages(sharePrice, stages) {
     return total > 0 ? total.toFixed(2) : null;
 }
 
+function calculateAvgEntryFromForm(form) {
+    // Weighted average: sum(shares_i * buy_price_i) / sum(shares_i)
+    const shareInputs = Array.from(form?.querySelectorAll('input[name="amount_tobuy_stages[]"]') || []);
+    const priceInputs = Array.from(form?.querySelectorAll('input[name="buy_price_stages[]"]') || []);
+    const n = Math.max(shareInputs.length, priceInputs.length);
+
+    let totalShares = 0;
+    let totalCost = 0;
+    for (let i = 0; i < n; i++) {
+        const sh = parseNumber(shareInputs[i]?.value || '');
+        const px = parseNumber(priceInputs[i]?.value || '');
+        if (sh > 0 && px > 0) {
+            totalShares += sh;
+            totalCost += sh * px;
+        }
+    }
+    if (totalShares <= 0) return null;
+    const avg = totalCost / totalShares;
+    return Number.isFinite(avg) && avg > 0 ? avg : null;
+}
+
 function getStagesFromDeal(deal) {
     // New format
     if (deal && Array.isArray(deal.amount_tobuy_stages) && deal.amount_tobuy_stages.length) {
@@ -249,6 +270,14 @@ function getStagesFromForm(form) {
         .filter(n => n > 0);
 }
 
+function updateAvgEntryUI(form) {
+    if (!form) return;
+    const el = form.querySelector('[data-role="avg-entry-display"]');
+    if (!el) return;
+    const avg = calculateAvgEntryFromForm(form);
+    el.textContent = avg ? `Avg entry: $${avg.toFixed(2)}` : 'Avg entry: -';
+}
+
 function reindexStageRows(stagesBlock) {
     if (!stagesBlock) return;
     const inputs = Array.from(stagesBlock.querySelectorAll('input[name="amount_tobuy_stages[]"]'));
@@ -256,8 +285,13 @@ function reindexStageRows(stagesBlock) {
         input.dataset.stageIndex = String(i);
         if (i === 0) return; // stage 1 has no remove button and is rendered in base HTML
         const row = input.closest('.stages-row');
-        const title = row?.querySelector('.stage-title');
-        if (title) title.textContent = `Shares amount to buy (stage ${i + 1})`;
+        const titleShares = row?.querySelector('.stage-title-shares');
+        if (titleShares) titleShares.textContent = `Shares amount to buy (stage ${i + 1})`;
+
+        const priceInput = row?.querySelector('input[name="buy_price_stages[]"]');
+        if (priceInput) priceInput.dataset.stageIndex = String(i);
+        const titlePrice = row?.querySelector('.stage-title-price');
+        if (titlePrice) titlePrice.textContent = `Buy price (stage ${i + 1})`;
     });
 }
 
@@ -282,9 +316,14 @@ function renderStagesUI(form, deal) {
         wrapper.innerHTML = `
             <div class="stages-row">
                 <label class="stage-label">
-                    <span class="stage-title">Shares amount to buy (stage ${i + 1})</span>
+                    <span class="stage-title-shares">Shares amount to buy (stage ${i + 1})</span>
                     <input type="text" class="amount-stage-input" data-stage-index="${i}" name="amount_tobuy_stages[]"
                            value="${escapeHtml(String(stages[i] ?? ''))}" placeholder="">
+                </label>
+                <label class="stage-label">
+                    <span class="stage-title-price">Buy price (stage ${i + 1})</span>
+                    <input type="text" class="buy-price-stage-input" data-stage-index="${i}" name="buy_price_stages[]"
+                           value="${escapeHtml(String((deal?.buy_price_stages && deal.buy_price_stages[i]) ? deal.buy_price_stages[i] : ''))}" placeholder="">
                 </label>
                 <button type="button" class="remove-stage-btn secondary">Remove stage</button>
             </div>
@@ -302,8 +341,13 @@ function renderStagesUI(form, deal) {
             wrapper.innerHTML = `
                 <div class="stages-row">
                     <label class="stage-label">
-                        <span class="stage-title">Shares amount to buy (stage ${idx + 1})</span>
+                        <span class="stage-title-shares">Shares amount to buy (stage ${idx + 1})</span>
                         <input type="text" class="amount-stage-input" data-stage-index="${idx}" name="amount_tobuy_stages[]"
+                               value="" placeholder="">
+                    </label>
+                    <label class="stage-label">
+                        <span class="stage-title-price">Buy price (stage ${idx + 1})</span>
+                        <input type="text" class="buy-price-stage-input" data-stage-index="${idx}" name="buy_price_stages[]"
                                value="" placeholder="">
                     </label>
                     <button type="button" class="remove-stage-btn secondary">Remove stage</button>
@@ -338,6 +382,9 @@ function renderStagesUI(form, deal) {
 
     // Ensure indices/titles are consistent after initial render
     reindexStageRows(stagesBlock);
+
+    // Refresh Avg entry after stages render (covers first expand + async data fills)
+    updateAvgEntryUI(form);
 }
 
 // Function to format total sum for display
@@ -1758,7 +1805,11 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option value="" disabled selected>Loading stocks…</option>
                     </select>
                 </label>
-                <label>Share price<input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder=""></label>
+                <label>
+                    Share price
+                    <input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder="">
+                    <small class="avg-entry-display" data-role="avg-entry-display">Avg entry: -</small>
+                </label>
                
                 <div class="stages-block full">
                     <div class="stages-row">
@@ -1766,6 +1817,12 @@ function createDealFormHTML(deal = null, isNew = false) {
                             Shares amount to buy (stage 1)
                             <input type="text" class="amount-stage-input" data-stage-index="0" name="amount_tobuy_stages[]"
                                    value="${escapeHtml((deal?.amount_tobuy_stages && deal.amount_tobuy_stages[0]) ? deal.amount_tobuy_stages[0] : (deal?.amount_tobuy_stage_1 || ''))}"
+                                   placeholder="">
+                        </label>
+                        <label class="stage-label">
+                            Buy price (stage 1)
+                            <input type="text" class="buy-price-stage-input" data-stage-index="0" name="buy_price_stages[]"
+                                   value="${escapeHtml((deal?.buy_price_stages && deal.buy_price_stages[0]) ? deal.buy_price_stages[0] : '')}"
                                    placeholder="">
                         </label>
                         <button type="button" class="add-stage-btn secondary">Add stage</button>
@@ -2376,6 +2433,25 @@ async function setupDealRowHandlers(row, deal, isNew) {
         setupStopLossListener(form);
         setupTakeProfitListener(form);
         setupTotalSumCalculator(row, form, deal);
+        // Avg entry depends on stages shares + buy prices
+        if (!form.dataset.avgEntryBound) {
+            form.dataset.avgEntryBound = '1';
+            let avgTimeout = null;
+            form.addEventListener('input', (e) => {
+                const t = e.target;
+                if (t?.name === 'amount_tobuy_stages[]' || t?.name === 'buy_price_stages[]') {
+                    clearTimeout(avgTimeout);
+                    avgTimeout = setTimeout(() => updateAvgEntryUI(form), 150);
+                }
+            });
+            form.addEventListener('change', (e) => {
+                const t = e.target;
+                if (t?.name === 'amount_tobuy_stages[]' || t?.name === 'buy_price_stages[]') {
+                    updateAvgEntryUI(form);
+                }
+            });
+        }
+        updateAvgEntryUI(form);
         if (isNew) {
             setupNewDealRewardToRiskBadge(row, form);
         }
@@ -2602,52 +2678,55 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         console.error('Failed to validate cash before activation', cashErr);
                     }
 
-                    // 1) Жёсткая проверка лимитов по размеру позиции и риску
-                    if (slPctNum > 0 && totalPlanned > 0) {
-                        const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
-                            headers: authHeaders()
-                        });
-                        if (res.ok) {
-                            const limits = await res.json();
-                            const isSingle = stages.length === 1;
+                    // Limits/trading-time/weekly-activation validations should be best-effort:
+                    // if they fail, we log but do not block activation.
+                    try {
+                        // 1) Жёсткая проверка лимитов по размеру позиции и риску
+                        if (slPctNum > 0 && totalPlanned > 0) {
+                            const res = await apiFetch(`/api/deals/limits?stopLossPercent=${encodeURIComponent(slPctNum)}`, {
+                                headers: authHeaders()
+                            });
+                            if (res.ok) {
+                                const limits = await res.json();
+                                const isSingle = stages.length === 1;
 
-                            if (isSingle) {
-                                if (totalPlanned > limits.singleStageMax) {
-                                    const proceed = await showWeeklyConfirmModal(
-                                        `WARNING:\nSingle-stage deal is too big.\n` +
-                                        `Max allowed: ${limits.singleStageMax.toFixed(2)}.\n\n` +
-                                        `Do you still want to activate this deal?`
+                                if (isSingle) {
+                                    if (totalPlanned > limits.singleStageMax) {
+                                        const proceed = await showWeeklyConfirmModal(
+                                            `WARNING:\nSingle-stage deal is too big.\n` +
+                                            `Max allowed: ${limits.singleStageMax.toFixed(2)}.\n\n` +
+                                            `Do you still want to activate this deal?`
+                                        );
+                                        if (!proceed) return;
+                                    }
+                                } else {
+                                    const stage1Sum = sharePriceNum * (stages[0] || 0);
+                                    if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
+                                        const proceed = await showWeeklyConfirmModal(
+                                            `WARNING:\nMulti-stage deal exceeds limits.\n` +
+                                            `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.\n\n` +
+                                            `Do you still want to activate this deal?`
+                                        );
+                                        if (!proceed) return;
+                                    }
+                                }
+
+                                // If we already warned for current risk > 5% above, don't spam another risk confirm here.
+                                if (!limits.allowed && (riskNow == null || riskNow <= 5)) {
+                                    const currentRiskText = (riskNow != null) ? `${riskNow.toFixed(2)}%` : '';
+                                    const proceed = await showDealLimitModal(
+                                        `High portfolio risk warning.\n` +
+                                        (currentRiskText ? `Current Risk: ${currentRiskText}\n\n` : `\n`) +
+                                        `This activation is not recommended because it would push total risk above the limit.\n` +
+                                        `Do you still want to activate this deal?\n\n` +
+                                        `Details:\n` +
+                                        `Added risk (at max allowed sizing): ${limits.addedRiskPercent.toFixed(2)}%.`,
+                                        { title: 'High risk warning', mode: 'confirm', okText: 'Yes', cancelText: 'Cancel' }
                                     );
                                     if (!proceed) return;
                                 }
-                            } else {
-                                const stage1Sum = sharePriceNum * (stages[0] || 0);
-                                if (stage1Sum > limits.maxStage1 || totalPlanned > limits.maxPosition) {
-                                    const proceed = await showWeeklyConfirmModal(
-                                        `WARNING:\nMulti-stage deal exceeds limits.\n` +
-                                        `Stage 1 max: ${limits.maxStage1.toFixed(2)}, total max: ${limits.maxPosition.toFixed(2)}.\n\n` +
-                                        `Do you still want to activate this deal?`
-                                    );
-                                    if (!proceed) return;
-                                }
-                            }
-
-                            // If we already warned for current risk > 5% above, don't spam another risk confirm here.
-                            if (!limits.allowed && (riskNow == null || riskNow <= 5)) {
-                                const currentRiskText = (riskNow != null) ? `${riskNow.toFixed(2)}%` : '';
-                                const proceed = await showDealLimitModal(
-                                    `High portfolio risk warning.\n` +
-                                    (currentRiskText ? `Current Risk: ${currentRiskText}\n\n` : `\n`) +
-                                    `This activation is not recommended because it would push total risk above the limit.\n` +
-                                    `Do you still want to activate this deal?\n\n` +
-                                    `Details:\n` +
-                                    `Added risk (at max allowed sizing): ${limits.addedRiskPercent.toFixed(2)}%.`,
-                                    { title: 'High risk warning', mode: 'confirm', okText: 'Yes', cancelText: 'Cancel' }
-                                );
-                                if (!proceed) return;
                             }
                         }
-                    }
 
                     // 1.5) Warning: too many open (active) deals (recommended max = 5)
                     try {
@@ -2669,15 +2748,15 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         // Do not block activation if warning fails
                     }
 
-            // Timing guard: recommend only Friday 14:00–16:00 ET
-            if (!isEtFridayLast2Hours()) {
-                const proceed = await showDealTimingModal(
-                    'Deal is recommended only on Friday between 14:00 and 16:00 ET.\nDo you want to continue?'
-                );
-                if (!proceed) {
-                    return;
-                }
-            }
+                    // Timing guard: recommend only Friday 14:00–16:00 ET
+                    if (!isEtFridayLast2Hours()) {
+                        const proceed = await showDealTimingModal(
+                            'Deal is recommended only on Friday between 14:00 and 16:00 ET.\nDo you want to continue?'
+                        );
+                        if (!proceed) {
+                            return;
+                        }
+                    }
 
                     // 2) Мягкое предупреждение, если уже было 2 и более активаций за неделю
                     try {
@@ -3480,15 +3559,15 @@ async function handleDealSubmit(form, deal, isNew) {
         };
 
         const stagesPayload = [];
+        const stagePricesPayload = [];
         for (const [k, v] of formData.entries()) {
             if (k === 'amount_tobuy_stages[]') {
                 stagesPayload.push(v);
+            } else if (k === 'buy_price_stages[]') {
+                stagePricesPayload.push(v);
             } else {
                 obj[k] = v;
             }
-        }
-        if (stagesPayload.length > 0) {
-            obj.amount_tobuy_stages = stagesPayload;
         }
 
         // planned_future: new deals are always created as planned; existing keep their flag
@@ -3523,7 +3602,42 @@ async function handleDealSubmit(form, deal, isNew) {
             }
         }
 
-        const stagesNums = orderedStageNums.filter(n => n > 0);
+        // Build payload for amount_tobuy_stages and buy_price_stages aligned by index.
+        // Server requires all amount_tobuy_stages to be positive numbers (no blanks).
+        const stagePriceInputs = Array.from(form.querySelectorAll('input[name="buy_price_stages[]"]'));
+        const stagesNums = [];
+        const stagesRaw = [];
+        const pricesRaw = [];
+        for (let i = 0; i < stageInputs.length; i++) {
+            const rawShares = String(stageInputs[i]?.value || '').trim();
+            const sharesNum = parseNumber(rawShares);
+            if (sharesNum && sharesNum > 0) {
+                stagesNums.push(sharesNum);
+                stagesRaw.push(String(sharesNum));
+
+                const rawPrice = String(stagePriceInputs[i]?.value || '').trim();
+                if (rawPrice) {
+                    const priceNum = parseNumber(rawPrice);
+                    if (!priceNum || priceNum <= 0) {
+                        showDealLimitModal('All Buy price values must be positive numbers.');
+                        setButtonLoading(submitButton, false);
+                        return;
+                    }
+                    pricesRaw.push(String(priceNum));
+                } else {
+                    // Keep alignment with stages
+                    pricesRaw.push('');
+                }
+            }
+        }
+
+        if (stagesRaw.length > 0) {
+            obj.amount_tobuy_stages = stagesRaw;
+        }
+        // Only include buy_price_stages if user provided at least one price
+        if (pricesRaw.some(p => String(p || '').trim() !== '')) {
+            obj.buy_price_stages = pricesRaw;
+        }
 
         const totalSum = calculateTotalSumFromStages(sharePriceStr, stagesNums);
         if (totalSum) obj.total_sum = totalSum;
