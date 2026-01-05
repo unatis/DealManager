@@ -235,11 +235,15 @@ function calculateAvgEntryFromForm(form) {
     const priceInputs = Array.from(form?.querySelectorAll('input[name="buy_price_stages[]"]') || []);
     const n = Math.max(shareInputs.length, priceInputs.length);
 
+    const quoteFallback = parseNumber(form?.dataset?.lastQuotePrice || '');
+
     let totalShares = 0;
     let totalCost = 0;
     for (let i = 0; i < n; i++) {
         const sh = parseNumber(shareInputs[i]?.value || '');
-        const px = parseNumber(priceInputs[i]?.value || '');
+        // If stage buy price is not set, fall back to the last quote price (market buy).
+        const pxRaw = parseNumber(priceInputs[i]?.value || '');
+        const px = (pxRaw > 0) ? pxRaw : (quoteFallback > 0 ? quoteFallback : 0);
         if (sh > 0 && px > 0) {
             totalShares += sh;
             totalCost += sh * px;
@@ -273,9 +277,23 @@ function getStagesFromForm(form) {
 function updateAvgEntryUI(form) {
     if (!form) return;
     const el = form.querySelector('[data-role="avg-entry-display"]');
-    if (!el) return;
     const avg = calculateAvgEntryFromForm(form);
-    el.textContent = avg ? `Avg entry: $${avg.toFixed(2)}` : 'Avg entry: -';
+    if (el) {
+        el.textContent = avg ? `Avg entry: $${avg.toFixed(2)}` : 'Avg entry: -';
+    }
+
+    // Share price is the "current average entry" computed from stages.
+    const sharePriceInput = form.querySelector('input[name="share_price"]');
+    if (sharePriceInput && avg) {
+        const next = avg.toFixed(2);
+        const prev = String(sharePriceInput.value || '');
+        if (prev !== next) {
+            sharePriceInput.value = next;
+            // Notify listeners that rely on share_price (SL/TP %, limits, etc.)
+            sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+            sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
 }
 
 function reindexStageRows(stagesBlock) {
@@ -2433,6 +2451,21 @@ async function setupDealRowHandlers(row, deal, isNew) {
         setupStopLossListener(form);
         setupTakeProfitListener(form);
         setupTotalSumCalculator(row, form, deal);
+        // Track manual overrides for Buy price (stage 1) so quote autofill won't overwrite.
+        if (!form.dataset.buyPriceManualBound) {
+            form.dataset.buyPriceManualBound = '1';
+            form.addEventListener('input', (e) => {
+                const t = e.target;
+                if (!t || !e.isTrusted) return;
+                if (t.name === 'buy_price_stages[]') {
+                    // Mark per-input manual override to prevent later autofill.
+                    t.dataset.userSet = '1';
+                    if (String(t.dataset.stageIndex) === '0') {
+                        form.dataset.buyPriceStage1Manual = '1';
+                    }
+                }
+            });
+        }
         // Avg entry depends on stages shares + buy prices
         if (!form.dataset.avgEntryBound) {
             form.dataset.avgEntryBound = '1';
@@ -2451,6 +2484,38 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 }
             });
         }
+
+        // Auto-fill Buy price for a stage with the latest quote when user enters shares for that stage.
+        // (Do not overwrite manually entered prices.)
+        if (!form.dataset.buyPriceAutoFillBound) {
+            form.dataset.buyPriceAutoFillBound = '1';
+            form.addEventListener('change', (e) => {
+                const t = e.target;
+                if (!t || t.name !== 'amount_tobuy_stages[]') return;
+
+                const sharesNum = parseNumber(t.value);
+                if (!sharesNum || sharesNum <= 0) return;
+
+                const quote = parseNumber(form.dataset.lastQuotePrice || '');
+                if (!quote || quote <= 0) return;
+
+                const idx = Number(t.dataset.stageIndex || 0);
+                const priceInputs = Array.from(form.querySelectorAll('input[name="buy_price_stages[]"]'));
+                const pxInput = priceInputs[idx];
+                if (!pxInput) return;
+
+                // Respect manual override per-input (and stage1 manual lock)
+                if (pxInput.dataset.userSet === '1') return;
+                if (idx === 0 && form.dataset.buyPriceStage1Manual === '1') return;
+
+                if (!String(pxInput.value || '').trim()) {
+                    pxInput.value = quote.toFixed(2);
+                }
+
+                updateAvgEntryUI(form);
+            });
+        }
+
         updateAvgEntryUI(form);
         if (isNew) {
             setupNewDealRewardToRiskBadge(row, form);
@@ -3964,27 +4029,35 @@ async function loadCurrentPrice(ticker, form) {
         const data = await res.json();
         
         if (data && data.price !== undefined && data.price !== null) {
-            const sharePriceInput = form.querySelector('input[name="share_price"]');
-            
-            if (sharePriceInput) {
-                sharePriceInput.value = data.price.toString();
-                
-                // Trigger input event to ensure all listeners are notified
-                // This will trigger setupSharePriceListener's calculatePercentages
-                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
-                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
-                
-                // Also trigger a small delay to ensure all event handlers have processed
-                setTimeout(() => {
-                    recalculateTakeProfitPercent(form);
-                }, 50);
-                
-                // Calculate stop loss after autofilling share price
-                await calculateStopLoss(form);
-                
-                // Recalculate take profit percentage if take profit is already set
-                recalculateTakeProfitPercent(form);
+            const quotePx = data.price.toString();
+            form.dataset.lastQuotePrice = quotePx;
+
+            // "Current price" is Buy price (stage 1). Auto-fill unless user manually edited it.
+            const bp1 = form.querySelector('input[name="buy_price_stages[]"][data-stage-index="0"]')
+                || form.querySelector('input[name="buy_price_stages[]"]');
+            if (bp1) {
+                const locked = form.dataset.buyPriceStage1Manual === '1';
+                if (!locked && bp1.dataset.userSet !== '1') {
+                    bp1.value = quotePx;
+                    // Ensure avg gets recomputed when quote arrives
+                    bp1.dispatchEvent(new Event('input', { bubbles: true }));
+                    bp1.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }
+
+            // Share price is ALWAYS Avg entry (computed), not the quote.
+            updateAvgEntryUI(form);
+
+            // Also trigger a small delay to ensure all event handlers have processed
+            setTimeout(() => {
+                recalculateTakeProfitPercent(form);
+            }, 50);
+
+            // Calculate stop loss after prices are available (avg entry may have updated share_price)
+            await calculateStopLoss(form);
+
+            // Recalculate take profit percentage if take profit is already set
+            recalculateTakeProfitPercent(form);
             setPriceError(formContainer, '');
         }
     } catch (err) {
@@ -4739,60 +4812,50 @@ async function loadCurrentPrice(ticker, form) {
         console.log('loadCurrentPrice: API response data:', data);
         
         if (data && data.price !== undefined && data.price !== null) {
-            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const quotePx = data.price.toString();
+            form.dataset.lastQuotePrice = quotePx;
+
             const stopLossInput = form.querySelector('input[name="stop_loss"]');
             const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
-            console.log('loadCurrentPrice: sharePriceInput found:', !!sharePriceInput);
-            
-            if (sharePriceInput) {
-                const oldValue = sharePriceInput.value;
-                sharePriceInput.value = data.price.toString();
-                console.log('✓ Share price set to:', data.price.toString(), '(was:', oldValue, ')');
-                
-                // Check if take profit is already set
-                const takeProfitInput = form.querySelector('input[name="take_profit"]');
-                const takeProfitValue = takeProfitInput?.value?.trim();
-                console.log('loadCurrentPrice: takeProfitValue after setting share price:', takeProfitValue);
-                
-                // Trigger input event to ensure all listeners are notified
-                // This will trigger setupSharePriceListener's calculatePercentages
-                console.log('loadCurrentPrice: Dispatching input and change events');
-                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
-                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
-                
-                // Reset stop loss fields so that calculateStopLoss can refill for this ticker
-                if (stopLossInput) stopLossInput.value = '';
-                if (stopLossPrcntInput) stopLossPrcntInput.value = '';
 
-                // Calculate stop loss after autofilling share price
-                await calculateStopLoss(form);
-
-                // Validate stop loss vs share price after autofill (highlight if planned)
-                validateStopLossVsPrice(form, form?.dataset?.isPlannedDeal === '1');
-                
-                // Recalculate take profit percentage if take profit is already set
-                // Use multiple delays to catch cases where take profit is entered after share price loads
-                console.log('loadCurrentPrice: Calling recalculateTakeProfitPercent after share price load');
-                recalculateTakeProfitPercent(form);
-                
-                // Also trigger recalculations with delays to catch late input
-                setTimeout(() => {
-                    console.log('loadCurrentPrice: Recalculating after 100ms delay');
-                    recalculateTakeProfitPercent(form);
-                }, 100);
-                
-                setTimeout(() => {
-                    console.log('loadCurrentPrice: Recalculating after 500ms delay');
-                    recalculateTakeProfitPercent(form);
-                }, 500);
-                
-                setTimeout(() => {
-                    console.log('loadCurrentPrice: Recalculating after 1000ms delay');
-                    recalculateTakeProfitPercent(form);
-                }, 1000);
+            // "Current price" is Buy price (stage 1). Auto-fill unless user manually edited it.
+            const bp1 = form.querySelector('input[name="buy_price_stages[]"][data-stage-index="0"]')
+                || form.querySelector('input[name="buy_price_stages[]"]');
+            if (bp1) {
+                const locked = form.dataset.buyPriceStage1Manual === '1';
+                if (!locked && bp1.dataset.userSet !== '1') {
+                    const old = bp1.value;
+                    bp1.value = quotePx;
+                    console.log('✓ Buy price (stage 1) set to:', quotePx, '(was:', old, ')');
+                    bp1.dispatchEvent(new Event('input', { bubbles: true }));
+                    bp1.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             } else {
-                console.warn('loadCurrentPrice: sharePriceInput not found in form');
+                console.warn('loadCurrentPrice: buy_price_stages[0] input not found in form');
             }
+
+            // Share price is Avg entry (computed), never directly overwritten by quote.
+            updateAvgEntryUI(form);
+
+            // Reset stop loss fields so that calculateStopLoss can refill for this ticker
+            if (stopLossInput) stopLossInput.value = '';
+            if (stopLossPrcntInput) stopLossPrcntInput.value = '';
+
+            // Calculate stop loss after prices are available (avg entry may have updated share_price)
+            await calculateStopLoss(form);
+
+            // Validate stop loss vs share price after autofill (highlight if planned)
+            validateStopLossVsPrice(form, form?.dataset?.isPlannedDeal === '1');
+
+            // Recalculate take profit percentage if take profit is already set
+            // Use multiple delays to catch cases where take profit is entered after price loads
+            console.log('loadCurrentPrice: Calling recalculateTakeProfitPercent after price load');
+            recalculateTakeProfitPercent(form);
+
+            setTimeout(() => recalculateTakeProfitPercent(form), 100);
+            setTimeout(() => recalculateTakeProfitPercent(form), 500);
+            setTimeout(() => recalculateTakeProfitPercent(form), 1000);
+
             setPriceError(formContainer, '');
         } else {
             console.warn('loadCurrentPrice: Invalid data received', data);
