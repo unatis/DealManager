@@ -450,14 +450,14 @@ elements.dealForm.addEventListener('submit', async e => {
         closeModal();
     } catch (e2) {
         console.error(e2);
-        alert('Не удалось сохранить сделку');
+        alert('Failed to save deal.');
     }
 });
 
 elements.deleteBtn.addEventListener('click', async () => {
     const id = elements.dealForm.dataset.editId;
     if (!id) return;
-    if (!confirm('Удалить сделку?')) return;
+    if (!confirm('Delete deal?')) return;
 
     try {
         await deleteDealOnServer(id);
@@ -465,7 +465,7 @@ elements.deleteBtn.addEventListener('click', async () => {
         closeModal();
     } catch (e) {
         console.error(e);
-        alert('Не удалось удалить сделку');
+        alert('Failed to delete deal.');
     }
 });
 
@@ -485,7 +485,7 @@ elements.closeDealBtn.addEventListener('click', async () => {
         closeModal();
     } catch (e) {
         console.error(e);
-        alert('Не удалось закрыть сделку');
+        alert('Failed to close deal.');
     }
 });
 
@@ -504,7 +504,7 @@ function renderAll() {
     elements.openList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyOpen.textContent = 'Загружаем сделки...';
+        elements.emptyOpen.textContent = 'Loading deals...';
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0) {
         elements.emptyOpen.textContent =

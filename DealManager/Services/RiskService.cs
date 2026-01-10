@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using DealManager.Models;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
 namespace DealManager.Services
@@ -13,8 +14,12 @@ namespace DealManager.Services
         private readonly IMongoCollection<Deal> _deals;
         private readonly IMongoCollection<CachedQuote> _quotes;
         private readonly UsersService _usersService;
+        private readonly ILogger<RiskService> _logger;
 
-        public RiskService(MongoSettings settings, UsersService usersService)
+        private static bool IsRiskLogEnabled =>
+            string.Equals(Environment.GetEnvironmentVariable("RISK_LOG"), "1", StringComparison.OrdinalIgnoreCase);
+
+        public RiskService(MongoSettings settings, UsersService usersService, ILogger<RiskService> logger)
         {
             var clientSettings = MongoClientSettings.FromConnectionString(settings.ConnectionString);
             clientSettings.AllowInsecureTls = true;
@@ -23,6 +28,7 @@ namespace DealManager.Services
             _deals = db.GetCollection<Deal>(settings.DealsCollection);
             _quotes = db.GetCollection<CachedQuote>(settings.QuotesCollection);
             _usersService = usersService;
+            _logger = logger;
         }
 
         private sealed record PortfolioRiskSnapshot(
@@ -60,6 +66,38 @@ namespace DealManager.Services
             return sum;
         }
 
+        private static decimal? TryGetAvgEntryFromStages(Deal deal)
+        {
+            // Weighted average entry:
+            // avg = sum(shares_i * buyPrice_i) / sum(shares_i)
+            //
+            // NOTE: We require buy_price_stages to be aligned with amount_tobuy_stages.
+            // If not present/invalid, return null (caller will fall back to SharePrice).
+
+            if (deal.Amount_tobuy_stages == null || deal.Amount_tobuy_stages.Count == 0) return null;
+            if (deal.BuyPriceStages == null || deal.BuyPriceStages.Count == 0) return null;
+            if (deal.BuyPriceStages.Count != deal.Amount_tobuy_stages.Count) return null;
+
+            decimal totalShares = 0m;
+            decimal totalCost = 0m;
+
+            for (var i = 0; i < deal.Amount_tobuy_stages.Count; i++)
+            {
+                var sh = ParseDec(deal.Amount_tobuy_stages[i]);
+                if (sh <= 0) continue;
+
+                var px = ParseDec(deal.BuyPriceStages[i]);
+                if (px <= 0) return null; // missing or invalid stage price -> cannot compute avg reliably
+
+                totalShares += sh;
+                totalCost += sh * px;
+            }
+
+            if (totalShares <= 0) return null;
+            var avg = totalCost / totalShares;
+            return avg > 0 ? avg : null;
+        }
+
         private static string NormalizeTicker(string? t) =>
             (t ?? string.Empty).Trim().ToUpperInvariant();
 
@@ -91,7 +129,8 @@ namespace DealManager.Services
         private static decimal EstimateDealRiskAmount(Deal deal, decimal shares)
         {
             // Preferred: exact risk from entry to stop using absolute prices.
-            var entry = ParseDec(deal.SharePrice);
+            var avgEntry = TryGetAvgEntryFromStages(deal);
+            var entry = avgEntry ?? ParseDec(deal.SharePrice);
             var stop = ParseDec(deal.StopLoss);
             if (shares > 0 && entry > 0 && stop > 0)
             {
@@ -160,11 +199,79 @@ namespace DealManager.Services
             decimal totalRiskAmount = 0m;
             decimal inSharesMtm = 0m;
 
+            if (IsRiskLogEnabled && _logger.IsEnabled(LogLevel.Information))
+            {
+                _logger.LogInformation(
+                    "[RISK_LOG] userId={UserId} openDeals={OpenDealsCount} cash={Cash} quotesLoaded={QuotesCount}",
+                    userId,
+                    openDeals.Count,
+                    cash,
+                    quoteByTicker.Count
+                );
+            }
+
             foreach (var deal in openDeals)
             {
                 var shares = GetShares(deal);
-                totalRiskAmount += EstimateDealRiskAmount(deal, shares);
-                inSharesMtm += EstimateDealMtmValue(deal, shares, quoteByTicker);
+                var riskAmount = EstimateDealRiskAmount(deal, shares);
+                var mtmValue = EstimateDealMtmValue(deal, shares, quoteByTicker);
+
+                totalRiskAmount += riskAmount;
+                inSharesMtm += mtmValue;
+
+                if (IsRiskLogEnabled && _logger.IsEnabled(LogLevel.Information))
+                {
+                    var ticker = NormalizeTicker(deal.Stock);
+                    var avgEntry = TryGetAvgEntryFromStages(deal);
+                    var entry = avgEntry ?? ParseDec(deal.SharePrice);
+                    var stop = ParseDec(deal.StopLoss);
+                    var totalSum = ParseDec(deal.TotalSum);
+                    quoteByTicker.TryGetValue(ticker, out var quotePx);
+
+                    // Best-effort: explain which price source was used for MTM.
+                    string mtmPxSource;
+                    decimal mtmPxUsed = 0m;
+                    if (shares <= 0)
+                    {
+                        mtmPxSource = "none";
+                    }
+                    else if (quotePx > 0)
+                    {
+                        mtmPxSource = "quote";
+                        mtmPxUsed = quotePx;
+                    }
+                    else if (entry > 0)
+                    {
+                        mtmPxSource = "entry";
+                        mtmPxUsed = entry;
+                    }
+                    else if (totalSum > 0)
+                    {
+                        mtmPxSource = "total_sum";
+                        mtmPxUsed = shares > 0 ? (totalSum / shares) : 0m;
+                    }
+                    else
+                    {
+                        mtmPxSource = "none";
+                    }
+
+                    _logger.LogInformation(
+                        "[RISK_LOG] {Ticker} shares={Shares} avgEntry={AvgEntry} entryUsed={EntryUsed} stop={Stop} perShareRisk={PerShareRisk} riskAmount={RiskAmount} totalSum={TotalSum} slPct={StopLossPct} quote={Quote} mtmPxUsed={MtmPxUsed} mtmSource={MtmSource} mtmValue={MtmValue}",
+                        ticker,
+                        shares,
+                        avgEntry,
+                        entry,
+                        stop,
+                        (shares > 0 && entry > 0 && stop > 0) ? Math.Max(0m, entry - stop) : 0m,
+                        riskAmount,
+                        totalSum,
+                        ParseDec(deal.StopLossPercent),
+                        quotePx,
+                        mtmPxUsed,
+                        mtmPxSource,
+                        mtmValue
+                    );
+                }
             }
 
             var totalMtm = cash + inSharesMtm;
@@ -172,6 +279,20 @@ namespace DealManager.Services
             {
                 // last resort: use stored totalSum
                 totalMtm = await _usersService.GetTotalSumAsync(userId);
+            }
+
+            if (IsRiskLogEnabled && _logger.IsEnabled(LogLevel.Information))
+            {
+                var riskPct = totalMtm > 0 ? Math.Round((totalRiskAmount / totalMtm) * 100m, 4) : 0m;
+                _logger.LogInformation(
+                    "[RISK_LOG] TOTAL userId={UserId} cash={Cash} inSharesMtm={InSharesMtm} totalMtm={TotalMtm} totalRiskAmount={TotalRiskAmount} riskPct={RiskPct}",
+                    userId,
+                    cash,
+                    inSharesMtm,
+                    totalMtm,
+                    totalRiskAmount,
+                    riskPct
+                );
             }
 
             return new PortfolioRiskSnapshot(

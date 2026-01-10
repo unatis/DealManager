@@ -123,7 +123,7 @@ async function saveStockToServer(stockDto) {
     });
 
     if (res.status === 401 || res.status === 403) {
-        alert('Сессия истекла, войдите заново');
+        alert('Session expired. Please sign in again.');
         localStorage.removeItem('token');
         localStorage.removeItem('email');
         localStorage.removeItem('userName');
@@ -156,7 +156,7 @@ async function updateStockOnServer(id, stockDto) {
     });
 
     if (res.status === 401 || res.status === 403) {
-        alert('Сессия истекла, войдите заново');
+        alert('Session expired. Please sign in again.');
         localStorage.removeItem('token');
         localStorage.removeItem('email');
         localStorage.removeItem('userName');
@@ -431,7 +431,7 @@ stockForm.addEventListener('submit', async e => {
             }
     } catch (e) {
         console.error(e);
-        alert('Не удалось сохранить акцию');
+        alert('Failed to save stock.');
             setButtonLoading(submitButton, false);
     }
 });
@@ -931,7 +931,7 @@ function setupStockRowHandlers(row, stock) {
             await loadStocks();
             } catch (e) {
                 console.error(e);
-                alert('Не удалось удалить акцию');
+                alert('Failed to delete stock.');
             }
         });
 
