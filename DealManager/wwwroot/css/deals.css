@@ -2158,6 +2158,20 @@ label.inline-checkbox > input[type="checkbox"] {
     padding-bottom: 4px;
 }
 
+.close-deal-hint.close-deal-hint-warn {
+    color: #b45309; /* amber-700 */
+    font-weight: 600;
+}
+
+.close-deal-hint.close-deal-hint-good {
+    color: #166534; /* green-800 */
+    font-weight: 600;
+}
+
+#closeDealTrendHint {
+    white-space: pre-line;
+}
+
 .close-deal-error {
     color: #dc2626;
     font-size: 14px;
