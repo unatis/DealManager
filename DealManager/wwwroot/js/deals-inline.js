@@ -137,6 +137,116 @@ function parseNumber(val) {
     return parseFloat(String(val || '').trim().replace(',', '.')) || 0;
 }
 
+function parseMoney(val) {
+    // Accept values like "$50.20", "50,20", " 50.20 " etc.
+    const cleaned = String(val || '').trim().replace(/[^0-9,.\-]/g, '');
+    return parseNumber(cleaned);
+}
+
+function getStopLossBasePrice(form) {
+    // Stop loss % should be based on Average entry (Avrg price) when available,
+    // otherwise fall back to Share price (current quote).
+    const avgEl = form?.querySelector?.('[data-role="avg-entry-input"]');
+    const avg = parseMoney(avgEl?.value);
+    if (Number.isFinite(avg) && avg > 0) return avg;
+
+    const shareEl = form?.querySelector?.('input[name="share_price"]');
+    const share = parseMoney(shareEl?.value);
+    return (Number.isFinite(share) && share > 0) ? share : 0;
+}
+
+function updateStopLossPercentBadge(form, percentage) {
+    if (!form) return;
+    if (!Number.isFinite(percentage)) return;
+
+    const row = form.closest?.('.deal-row');
+    const chips = row?.querySelector?.('.deal-summary .chips');
+    if (!chips) return;
+
+    let badge = chips.querySelector?.('[data-tooltip="Stop Loss Percentage"]');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'badge movement-metric-tooltip';
+        badge.setAttribute('data-tooltip', 'Stop Loss Percentage');
+        chips.appendChild(badge);
+    }
+
+    badge.textContent = `SL:${percentage.toFixed(2)}%`;
+
+    badge.classList.remove('sl-percent-green', 'sl-percent-yellow', 'sl-percent-red');
+    if (percentage <= 0) badge.classList.add('sl-percent-green');
+    else if (percentage > 10) badge.classList.add('sl-percent-red');
+    else if (percentage > 5) badge.classList.add('sl-percent-yellow');
+}
+
+function computeAthFromWeeklyBars(weeklyBars) {
+    if (!Array.isArray(weeklyBars) || weeklyBars.length === 0) return 0;
+    let ath = 0;
+    for (const b of weeklyBars) {
+        const h = Number(b?.High ?? b?.high ?? 0);
+        if (Number.isFinite(h) && h > ath) ath = h;
+    }
+    return ath;
+}
+
+async function warnIfNearAthForNewDeal(form, ticker, priceNow) {
+    // Warning popup only: do not block on API errors.
+    // Trigger when price is within 10% of ATH (or above it).
+    if (!form) return true;
+    const t = String(ticker || '').trim().toUpperCase();
+    if (!t) return true;
+
+    const p = Number(priceNow);
+    if (!Number.isFinite(p) || p <= 0) return true;
+
+    // Avoid repeated warnings on the same form submission attempts.
+    if (form.dataset.athWarnAck === '1') return true;
+
+    try {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(t)}`, { headers: authHeaders() });
+        if (!res.ok) return true;
+        const weeklyBars = await res.json();
+
+        const ath = computeAthFromWeeklyBars(weeklyBars);
+        if (!(ath > 0)) return true;
+
+        const deltaPct = ((p - ath) / ath) * 100; // + above ATH, - below
+        const absDelta = Math.abs(deltaPct);
+
+        // Show warning if within 10% of ATH or above it.
+        if (absDelta > 10) return true;
+
+        const relation =
+            Math.abs(deltaPct) < 0.01 ? 'at' : (deltaPct > 0 ? 'above' : 'below');
+        const deltaText =
+            Math.abs(deltaPct) < 0.01 ? '0.00%' : `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(2)}%`;
+
+        const lines = [];
+        lines.push('Price is near the all-time high (ATH).');
+        lines.push('');
+        lines.push(`Ticker: ${t}`);
+        lines.push(`Current price: ${p.toFixed(2)}`);
+        lines.push(`ATH (weekly high): ${ath.toFixed(2)}`);
+        lines.push(`Distance to ATH: ${deltaText} (${relation})`);
+        lines.push('');
+        lines.push('Continue creating this deal?');
+
+        const proceed = await showDealLimitModal(lines.join('\\n'), {
+            title: 'Warning: near ATH',
+            mode: 'confirm',
+            okText: 'Continue',
+            cancelText: 'Cancel'
+        });
+
+        if (proceed) {
+            form.dataset.athWarnAck = '1';
+        }
+        return proceed;
+    } catch {
+        return true;
+    }
+}
+
 function calculateRewardToRisk(entry, stopLoss, takeProfit) {
     const e = parseNumber(entry);
     const sl = parseNumber(stopLoss);
@@ -254,6 +364,32 @@ function calculateAvgEntryFromForm(form) {
     return Number.isFinite(avg) && avg > 0 ? avg : null;
 }
 
+function calculateAvgEntryFromDeal(deal) {
+    // Weighted average: sum(shares_i * buy_price_i) / sum(shares_i)
+    // If a stage buy price is missing, fall back to deal.share_price (current quote / entry).
+    const sharesArr = Array.isArray(deal?.amount_tobuy_stages) ? deal.amount_tobuy_stages : [];
+    const pricesArr = Array.isArray(deal?.buy_price_stages) ? deal.buy_price_stages : [];
+    const n = Math.max(sharesArr.length, pricesArr.length);
+
+    const quoteFallback = parseNumber(deal?.share_price || '');
+
+    let totalShares = 0;
+    let totalCost = 0;
+    for (let i = 0; i < n; i++) {
+        const sh = parseNumber(sharesArr[i] || '');
+        let px = parseNumber(pricesArr[i] || '');
+        if (!(px > 0) && quoteFallback > 0) px = quoteFallback;
+
+        if (sh > 0 && px > 0) {
+            totalShares += sh;
+            totalCost += sh * px;
+        }
+    }
+    if (totalShares <= 0) return null;
+    const avg = totalCost / totalShares;
+    return Number.isFinite(avg) && avg > 0 ? avg : null;
+}
+
 function getStagesFromDeal(deal) {
     // New format
     if (deal && Array.isArray(deal.amount_tobuy_stages) && deal.amount_tobuy_stages.length) {
@@ -276,23 +412,18 @@ function getStagesFromForm(form) {
 
 function updateAvgEntryUI(form) {
     if (!form) return;
-    const el = form.querySelector('[data-role="avg-entry-display"]');
+    const el = form.querySelector('[data-role="avg-entry-input"]');
     const avg = calculateAvgEntryFromForm(form);
     if (el) {
-        el.textContent = avg ? `Avg entry: $${avg.toFixed(2)}` : 'Avg entry: -';
+        el.value = avg ? `$${avg.toFixed(2)}` : '';
     }
 
-    // Share price is the "current average entry" computed from stages.
-    const sharePriceInput = form.querySelector('input[name="share_price"]');
-    if (sharePriceInput && avg) {
-        const next = avg.toFixed(2);
-        const prev = String(sharePriceInput.value || '');
-        if (prev !== next) {
-            sharePriceInput.value = next;
-            // Notify listeners that rely on share_price (SL/TP %, limits, etc.)
-            sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
-            sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+    // Keep SL% in sync when avg entry changes.
+    // (SL% is now computed from Average entry when present.)
+    try {
+        calculateStopLossPercentage(form);
+    } catch {
+        // ignore
     }
 }
 
@@ -1706,7 +1837,7 @@ async function handleDealSubmit(form, deal, isNew) {
         }
     } catch (e) {
         console.error('Error saving deal', e);
-        alert('Не удалось сохранить сделку');
+        alert('Failed to save deal.');
     }
 }
 
@@ -1826,8 +1957,10 @@ function createDealFormHTML(deal = null, isNew = false) {
                 <label>
                     Share price
                     <input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder="">
-                    <small class="avg-entry-display" data-role="avg-entry-display">Avg entry: -</small>
+                    <span class="avg-entry-label">Avrg price</span>
+                    <input type="text" class="avg-entry-input" data-role="avg-entry-input" value="" readonly placeholder="">
                 </label>
+                <input type="hidden" name="share_price_manual" value="${escapeHtml(String(!!deal?.share_price_manual))}">
                
                 <div class="stages-block full">
                     <div class="stages-row">
@@ -2239,6 +2372,9 @@ function createDealRow(deal, isNew) {
         }
     }
     
+    const avgEntryForBadge = deal ? calculateAvgEntryFromDeal(deal) : null;
+    const spBadgeValue = avgEntryForBadge ? avgEntryForBadge.toFixed(2) : (deal?.share_price || '-');
+
     summary.innerHTML = `
         <div class="meta">
             ${deal?.stock 
@@ -2258,7 +2394,7 @@ function createDealRow(deal, isNew) {
         </div>
         ${deal ? `
         <div class="chips" style="min-width:140px;justify-content:flex-end">
-            <div class="badge movement-metric-tooltip" data-tooltip="Share Price">SP:${escapeHtml(deal.share_price || '-')}</div>
+            <div class="badge movement-metric-tooltip" data-tooltip="Avrg price (avg entry)">SP:${escapeHtml(spBadgeValue)}</div>
             ${deal.closed && deal.close_price ? `<div class="badge movement-metric-tooltip" data-tooltip="Close Price">CL:${escapeHtml(deal.close_price)}</div>` : ''}
             ${deal.closed && deal.close_price ? (() => {
                 const entry = parseNumber(deal.share_price || '');
@@ -2464,6 +2600,20 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         form.dataset.buyPriceStage1Manual = '1';
                     }
                 }
+            });
+        }
+        // Track manual override for Share price (current price) and persist it via hidden field.
+        if (!form.dataset.sharePriceManualBound) {
+            form.dataset.sharePriceManualBound = '1';
+            form.addEventListener('input', (e) => {
+                const t = e.target;
+                if (!t || !e.isTrusted) return;
+                if (t.name !== 'share_price') return;
+
+                const manualInput = form.querySelector('input[name="share_price_manual"]');
+                const hasValue = !!String(t.value || '').trim();
+                if (manualInput) manualInput.value = String(hasValue);
+                form.dataset.sharePriceManual = hasValue ? '1' : '0';
             });
         }
         // Avg entry depends on stages shares + buy prices
@@ -3020,7 +3170,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     await loadDeals();
                 } catch (e) {
                     console.error(e);
-                    alert('Не удалось закрыть сделку');
+                    alert('Failed to close deal.');
                 } finally {
                     setButtonLoading(closeBtn, false);
                 }
@@ -3173,7 +3323,7 @@ function setupStopLossListener(form) {
     if (!stopLossInput || !sharePriceInput) return;
     
     const calculateStopLossPercent = () => {
-        const sharePrice = parseFloat(String(sharePriceInput.value || '').replace(',', '.'));
+        const sharePrice = getStopLossBasePrice(form);
         const stopLoss = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
         
         if (isNaN(sharePrice) || sharePrice <= 0) {
@@ -3713,6 +3863,36 @@ async function handleDealSubmit(form, deal, isNew) {
             obj.date = new Date().toISOString().slice(0, 10);
         }
 
+        // ATH proximity warning (new deals only)
+        if (isNew) {
+            const ticker = String(obj.stock || '').trim();
+            const priceNow = parseNumber(form?.dataset?.lastQuotePrice || obj.share_price || '');
+            const proceed = await warnIfNearAthForNewDeal(form, ticker, priceNow);
+            if (!proceed) {
+                setButtonLoading(submitButton, false);
+                return;
+            }
+        }
+
+        // Persist stop_loss_prcnt based on Avrg price (avg entry) when available.
+        // This keeps the badge (server data) consistent with the live form calculation.
+        try {
+            const slInput = form.querySelector('input[name="stop_loss"]');
+            const slPctInput = form.querySelector('input[name="stop_loss_prcnt"]');
+            const base = getStopLossBasePrice(form);
+            const sl = parseMoney(slInput?.value);
+            if (base > 0 && sl > 0) {
+                const pct = ((base - sl) / base) * 100;
+                if (Number.isFinite(pct)) {
+                    const pctText = pct.toFixed(2);
+                    obj.stop_loss_prcnt = pctText;
+                    if (slPctInput) slPctInput.value = pctText;
+                }
+            }
+        } catch {
+            // ignore; server will validate stop_loss_prcnt anyway
+        }
+
         // Validate against deal limits (risk constraints).
         // NOTE: We do NOT check Cash on Save changes / planning.
         // Planned deals must not "reserve" Cash. Cash is checked only on Activate (Create deal).
@@ -3791,9 +3971,17 @@ async function handleDealSubmit(form, deal, isNew) {
         const isEdit = !isNew;
         const hasValidId = typeof obj.id === 'string' && obj.id.trim().length === 24;
         if (isEdit && !hasValidId) {
-            alert('Не найден корректный id сделки, обновите список и попробуйте снова.');
+            alert('Deal id is invalid. Please refresh the list and try again.');
             return;
         }
+
+        // FormData produces strings; API expects boolean for share_price_manual.
+        // If user edited Share price, we store "true"/"false" in the hidden input.
+        // Convert it to a real boolean before sending JSON.
+        obj.share_price_manual =
+            obj.share_price_manual === true ||
+            obj.share_price_manual === 'true' ||
+            obj.share_price_manual === '1';
 
         await saveDealToServer(obj, isEdit);
 
@@ -3819,7 +4007,7 @@ async function handleDealSubmit(form, deal, isNew) {
         }
     } catch (e) {
         console.error(e);
-        alert('Не удалось сохранить сделку');
+        alert('Failed to save deal.');
     } finally {
         setButtonLoading(submitButton, false);
     }
@@ -4032,6 +4220,16 @@ async function loadCurrentPrice(ticker, form) {
             const quotePx = data.price.toString();
             form.dataset.lastQuotePrice = quotePx;
 
+            // Share price is the CURRENT price (quote) unless user manually locked it.
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const sharePriceManualInput = form.querySelector('input[name="share_price_manual"]');
+            const shareLocked = (sharePriceManualInput?.value === 'true') || (form.dataset.sharePriceManual === '1');
+            if (sharePriceInput && !shareLocked) {
+                sharePriceInput.value = quotePx;
+                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
             // "Current price" is Buy price (stage 1). Auto-fill unless user manually edited it.
             const bp1 = form.querySelector('input[name="buy_price_stages[]"][data-stage-index="0"]')
                 || form.querySelector('input[name="buy_price_stages[]"]');
@@ -4045,7 +4243,7 @@ async function loadCurrentPrice(ticker, form) {
                 }
             }
 
-            // Share price is ALWAYS Avg entry (computed), not the quote.
+            // Avg entry is computed and displayed separately (read-only).
             updateAvgEntryUI(form);
 
             // Also trigger a small delay to ensure all event handlers have processed
@@ -4818,6 +5016,18 @@ async function loadCurrentPrice(ticker, form) {
             const stopLossInput = form.querySelector('input[name="stop_loss"]');
             const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
 
+            // Share price is the CURRENT price (quote) unless user manually locked it.
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const sharePriceManualInput = form.querySelector('input[name="share_price_manual"]');
+            const shareLocked = (sharePriceManualInput?.value === 'true') || (form.dataset.sharePriceManual === '1');
+            if (sharePriceInput && !shareLocked) {
+                const oldSp = sharePriceInput.value;
+                sharePriceInput.value = quotePx;
+                console.log('✓ Share price (current) set to:', quotePx, '(was:', oldSp, ')');
+                sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+
             // "Current price" is Buy price (stage 1). Auto-fill unless user manually edited it.
             const bp1 = form.querySelector('input[name="buy_price_stages[]"][data-stage-index="0"]')
                 || form.querySelector('input[name="buy_price_stages[]"]');
@@ -4834,7 +5044,7 @@ async function loadCurrentPrice(ticker, form) {
                 console.warn('loadCurrentPrice: buy_price_stages[0] input not found in form');
             }
 
-            // Share price is Avg entry (computed), never directly overwritten by quote.
+            // Avg entry is computed and displayed separately (read-only).
             updateAvgEntryUI(form);
 
             // Reset stop loss fields so that calculateStopLoss can refill for this ticker
@@ -4868,14 +5078,13 @@ async function loadCurrentPrice(ticker, form) {
 }
 
 async function calculateStopLoss(form) {
-    const sharePriceInput = form.querySelector('input[name="share_price"]');
     const stopLossInput = form.querySelector('input[name="stop_loss"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     
-    if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) return;
+    if (!stopLossInput || !stopLossPrcntInput) return;
     
-    const sharePrice = parseFloat(sharePriceInput.value);
-    if (!sharePrice || isNaN(sharePrice) || sharePrice <= 0) {
+    const basePrice = getStopLossBasePrice(form);
+    if (!basePrice || isNaN(basePrice) || basePrice <= 0) {
         return; // Invalid share price
     }
     
@@ -4916,12 +5125,13 @@ async function calculateStopLoss(form) {
                 // Set stop loss price to latest week Low
                 stopLossInput.value = lowPrice.toString();
                 
-                // Calculate percentage: ((share_price - stop_loss) / share_price) * 100
-                const percentage = ((sharePrice - lowPrice) / sharePrice) * 100;
+                // Calculate percentage: ((avg_entry_or_share_price - stop_loss) / avg_entry_or_share_price) * 100
+                const percentage = ((basePrice - lowPrice) / basePrice) * 100;
                 stopLossPrcntInput.value = percentage.toFixed(2);
                 
                 // Check and apply error styling if needed
                 updateStopLossErrorClass(stopLossPrcntInput, percentage);
+                updateStopLossPercentBadge(form, percentage);
                 
                 console.log(`Stop loss calculated: Price=${lowPrice}, Percentage=${percentage.toFixed(2)}%`);
             }
@@ -4934,24 +5144,22 @@ async function calculateStopLoss(form) {
 // Calculate stop loss percentage from share price and stop loss value
 function calculateStopLossPercentage(form) {
     console.log('[calculateStopLossPercentage] START');
-    const sharePriceInput = form.querySelector('input[name="share_price"]');
     const stopLossInput = form.querySelector('input[name="stop_loss"]');
     const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
     
     console.log('[calculateStopLossPercentage] Inputs found:', {
-        sharePriceInput: !!sharePriceInput,
         stopLossInput: !!stopLossInput,
         stopLossPrcntInput: !!stopLossPrcntInput,
-        sharePriceValue: sharePriceInput?.value,
+        basePrice: getStopLossBasePrice(form),
         stopLossValue: stopLossInput?.value
     });
     
-    if (!sharePriceInput || !stopLossInput || !stopLossPrcntInput) {
+    if (!stopLossInput || !stopLossPrcntInput) {
         console.log('[calculateStopLossPercentage] EXIT: Missing inputs');
         return;
     }
     
-    const sharePrice = parseFloat(String(sharePriceInput.value || '').replace(',', '.'));
+    const sharePrice = getStopLossBasePrice(form);
     const stopLoss = parseFloat(String(stopLossInput.value || '').replace(',', '.'));
     
     console.log('[calculateStopLossPercentage] Parsed values:', {
@@ -4980,6 +5188,7 @@ function calculateStopLossPercentage(form) {
     
     // Check and apply error styling if needed
     updateStopLossErrorClass(stopLossPrcntInput, percentage);
+    updateStopLossPercentBadge(form, percentage);
 
     // Notify listeners (e.g., risk calculator) that the value changed
     stopLossPrcntInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -5152,7 +5361,7 @@ function validateStopLossVsPrice(form, isPlanned) {
     // Do not enforce for active deals (editing should be allowed)
     if (!isPlanned) return true;
 
-    const share = parseNumber(sharePriceInput.value);
+    const share = getStopLossBasePrice(form);
     const sl    = parseNumber(stopLossInput.value);
 
     // If cannot parse numbers, do not block
@@ -5308,6 +5517,7 @@ function setupSharePriceListener(form, isPlannedDeal) {
             const value = parseFloat(newStopLossPrcnt.value);
             if (!isNaN(value)) {
                 updateStopLossErrorClass(newStopLossPrcnt, value);
+                updateStopLossPercentBadge(form, value);
             } else {
                 newStopLossPrcnt.classList.remove('has-stop-loss-error');
             }
@@ -5317,6 +5527,7 @@ function setupSharePriceListener(form, isPlannedDeal) {
             const value = parseFloat(newStopLossPrcnt.value);
             if (!isNaN(value)) {
                 updateStopLossErrorClass(newStopLossPrcnt, value);
+                updateStopLossPercentBadge(form, value);
             } else {
                 newStopLossPrcnt.classList.remove('has-stop-loss-error');
             }

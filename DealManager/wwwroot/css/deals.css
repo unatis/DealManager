@@ -976,7 +976,17 @@ input.volume-200m-readonly {
 }
 
 /* Deal form: show Avg entry under Share price field */
-.avg-entry-display {
+.avg-entry-label {
+    display: block;
+    /* Match regular field label text (like "Share price") */
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    opacity: 1;
+}
+
+.avg-entry-input {
     display: block;
     margin-top: 4px;
     font-size: 12px;

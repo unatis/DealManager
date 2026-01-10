@@ -41,6 +41,14 @@ namespace DealManager.Controllers
             return decimal.TryParse(normalized, NumberStyles.Any, CultureInfo.InvariantCulture, out value) && value > 0;
         }
 
+        private static bool TryParseNonNegativeDecimal(string? s, out decimal value)
+        {
+            value = 0m;
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            var normalized = s.Trim().Replace(',', '.');
+            return decimal.TryParse(normalized, NumberStyles.Any, CultureInfo.InvariantCulture, out value) && value >= 0;
+        }
+
         private static decimal? TryCalculateTotalSumFromStages(Deal deal)
         {
             if (!TryParsePositiveDecimal(deal.SharePrice, out var price)) return null;
@@ -162,7 +170,7 @@ namespace DealManager.Controllers
             decimal? totalSumValue = null;
             if (!string.IsNullOrWhiteSpace(deal.TotalSum))
             {
-                if (!decimal.TryParse(deal.TotalSum, out var parsedTotalSum) || parsedTotalSum < 0)
+                if (!TryParseNonNegativeDecimal(deal.TotalSum, out var parsedTotalSum))
                 {
                     return BadRequest("Invalid total_sum value. Must be a non-negative number.");
                 }
@@ -228,7 +236,7 @@ namespace DealManager.Controllers
             decimal? totalSumValue = null;
             if (!string.IsNullOrWhiteSpace(deal.TotalSum))
             {
-                if (!decimal.TryParse(deal.TotalSum, out var parsedTotalSum) || parsedTotalSum < 0)
+                if (!TryParseNonNegativeDecimal(deal.TotalSum, out var parsedTotalSum))
                 {
                     return BadRequest("Invalid total_sum value. Must be a non-negative number.");
                 }
