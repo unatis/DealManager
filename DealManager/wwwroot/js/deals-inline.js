@@ -179,6 +179,74 @@ function updateStopLossPercentBadge(form, percentage) {
     else if (percentage > 5) badge.classList.add('sl-percent-yellow');
 }
 
+function computeAthFromWeeklyBars(weeklyBars) {
+    if (!Array.isArray(weeklyBars) || weeklyBars.length === 0) return 0;
+    let ath = 0;
+    for (const b of weeklyBars) {
+        const h = Number(b?.High ?? b?.high ?? 0);
+        if (Number.isFinite(h) && h > ath) ath = h;
+    }
+    return ath;
+}
+
+async function warnIfNearAthForNewDeal(form, ticker, priceNow) {
+    // Warning popup only: do not block on API errors.
+    // Trigger when price is within 10% of ATH (or above it).
+    if (!form) return true;
+    const t = String(ticker || '').trim().toUpperCase();
+    if (!t) return true;
+
+    const p = Number(priceNow);
+    if (!Number.isFinite(p) || p <= 0) return true;
+
+    // Avoid repeated warnings on the same form submission attempts.
+    if (form.dataset.athWarnAck === '1') return true;
+
+    try {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(t)}`, { headers: authHeaders() });
+        if (!res.ok) return true;
+        const weeklyBars = await res.json();
+
+        const ath = computeAthFromWeeklyBars(weeklyBars);
+        if (!(ath > 0)) return true;
+
+        const deltaPct = ((p - ath) / ath) * 100; // + above ATH, - below
+        const absDelta = Math.abs(deltaPct);
+
+        // Show warning if within 10% of ATH or above it.
+        if (absDelta > 10) return true;
+
+        const relation =
+            Math.abs(deltaPct) < 0.01 ? 'at' : (deltaPct > 0 ? 'above' : 'below');
+        const deltaText =
+            Math.abs(deltaPct) < 0.01 ? '0.00%' : `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(2)}%`;
+
+        const lines = [];
+        lines.push('Price is near the all-time high (ATH).');
+        lines.push('');
+        lines.push(`Ticker: ${t}`);
+        lines.push(`Current price: ${p.toFixed(2)}`);
+        lines.push(`ATH (weekly high): ${ath.toFixed(2)}`);
+        lines.push(`Distance to ATH: ${deltaText} (${relation})`);
+        lines.push('');
+        lines.push('Continue creating this deal?');
+
+        const proceed = await showDealLimitModal(lines.join('\\n'), {
+            title: 'Warning: near ATH',
+            mode: 'confirm',
+            okText: 'Continue',
+            cancelText: 'Cancel'
+        });
+
+        if (proceed) {
+            form.dataset.athWarnAck = '1';
+        }
+        return proceed;
+    } catch {
+        return true;
+    }
+}
+
 function calculateRewardToRisk(entry, stopLoss, takeProfit) {
     const e = parseNumber(entry);
     const sl = parseNumber(stopLoss);
@@ -3793,6 +3861,17 @@ async function handleDealSubmit(form, deal, isNew) {
 
         if (!obj.date) {
             obj.date = new Date().toISOString().slice(0, 10);
+        }
+
+        // ATH proximity warning (new deals only)
+        if (isNew) {
+            const ticker = String(obj.stock || '').trim();
+            const priceNow = parseNumber(form?.dataset?.lastQuotePrice || obj.share_price || '');
+            const proceed = await warnIfNearAthForNewDeal(form, ticker, priceNow);
+            if (!proceed) {
+                setButtonLoading(submitButton, false);
+                return;
+            }
         }
 
         // Persist stop_loss_prcnt based on Avrg price (avg entry) when available.
