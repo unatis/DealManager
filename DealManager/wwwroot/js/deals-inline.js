@@ -247,6 +247,66 @@ async function warnIfNearAthForNewDeal(form, ticker, priceNow) {
     }
 }
 
+function getWeeklyLow(bar) {
+    const v = Number(bar?.Low ?? bar?.low ?? null);
+    return Number.isFinite(v) ? v : null;
+}
+
+async function getCloseDealWeeklyLowHint(ticker) {
+    const t = String(ticker || '').trim().toUpperCase();
+    if (!t) return null;
+
+    try {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(t)}`, { headers: authHeaders() });
+        if (!res.ok) return null;
+        const bars = await res.json();
+        if (!Array.isArray(bars) || bars.length < 2) return null;
+
+        // Best-effort: treat the last two weekly bars as "current/latest" and "previous".
+        const prev = bars[bars.length - 2];
+        const curr = bars[bars.length - 1];
+        const lowPrev = getWeeklyLow(prev);
+        const lowCurr = getWeeklyLow(curr);
+        if (!(lowPrev > 0) || !(lowCurr > 0)) return null;
+
+        if (lowCurr > lowPrev) {
+            return {
+                type: 'warn',
+                okText: 'Close anyway',
+                text:
+                    `Warning: weekly low is higher than the previous week.\n` +
+                    `Previous week low: ${lowPrev.toFixed(2)}\n` +
+                    `Current week low: ${lowCurr.toFixed(2)}\n\n` +
+                    `The uptrend may still be intact.`
+            };
+        }
+
+        if (lowCurr < lowPrev) {
+            return {
+                type: 'good',
+                okText: '',
+                text:
+                    `Looks good to close: weekly low is lower than the previous week.\n` +
+                    `Previous week low: ${lowPrev.toFixed(2)}\n` +
+                    `Current week low: ${lowCurr.toFixed(2)}`
+            };
+        }
+
+        return {
+            type: '',
+            okText: '',
+            text:
+                `Weekly low is unchanged vs the previous week.\n` +
+                `Previous week low: ${lowPrev.toFixed(2)}\n` +
+                `Current week low: ${lowCurr.toFixed(2)}`
+        };
+    } catch {
+        // Non-blocking
+    }
+
+    return null;
+}
+
 function calculateRewardToRisk(entry, stopLoss, takeProfit) {
     const e = parseNumber(entry);
     const sl = parseNumber(stopLoss);
@@ -775,7 +835,7 @@ function showDealLimitModal(message, opts = {}) {
 // Close deal modal with required close price.
 // Returns Promise<number|null>: number = close price, null = cancelled/closed.
 function showCloseDealModal(opts = {}) {
-    const { ticker = '', defaultPrice = '' } = opts || {};
+    const { ticker = '', defaultPrice = '', trendHintText = '', trendHintType = '', okText = '' } = opts || {};
 
     return new Promise(resolve => {
         const modal = document.getElementById('closeDealModal');
@@ -785,14 +845,34 @@ function showCloseDealModal(opts = {}) {
         const input = document.getElementById('closeDealPriceInput');
         const err = document.getElementById('closeDealPriceError');
         const hint = document.getElementById('closeDealTickerHint');
+        const trendHint = document.getElementById('closeDealTrendHint');
 
-        if (!modal || !closeBtn || !cancelBtn || !okBtn || !input || !err || !hint) {
+        if (!modal || !closeBtn || !cancelBtn || !okBtn || !input || !err || !hint || !trendHint) {
             console.error('closeDealModal elements not found in DOM');
             resolve(null);
             return;
         }
 
         hint.textContent = ticker ? `Ticker: ${ticker}` : '';
+        // Optional trend hint
+        trendHint.classList.remove('close-deal-hint-warn', 'close-deal-hint-good');
+        if (trendHintText && String(trendHintText).trim() !== '') {
+            trendHint.textContent = String(trendHintText);
+            trendHint.style.display = 'block';
+            const t = String(trendHintType || '').toLowerCase();
+            if (t === 'warn')_toggleClass(trendHint, 'close-deal-hint-warn', true);
+            if (t === 'good') _toggleClass(trendHint, 'close-deal-hint-good', true);
+        } else {
+            trendHint.textContent = '';
+            trendHint.style.display = 'none';
+        }
+
+        if (okText && String(okText).trim() !== '') {
+            okBtn.textContent = String(okText);
+        } else {
+            okBtn.textContent = 'Close deal';
+        }
+
         input.value = defaultPrice != null && String(defaultPrice).trim() !== '' ? String(defaultPrice) : '';
         err.style.display = 'none';
         err.textContent = '';
@@ -841,6 +921,12 @@ function showCloseDealModal(opts = {}) {
         modal.addEventListener('click', onBackdrop);
         document.addEventListener('keydown', onKeydown);
     });
+}
+
+function _toggleClass(el, cls, on) {
+    if (!el) return;
+    if (on) el.classList.add(cls);
+    else el.classList.remove(cls);
 }
 
 // Reusable confirm-style modal for weekly activations warning
@@ -3156,7 +3242,17 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         }
                     } catch { }
 
-                    const closePx = await showCloseDealModal({ ticker: deal?.stock || '', defaultPrice: defaultPx });
+                    // Trend hint inside the close price popup (weekly low comparison).
+                    let trendHint = null;
+                    try { trendHint = await getCloseDealWeeklyLowHint(deal?.stock); } catch { }
+
+                    const closePx = await showCloseDealModal({
+                        ticker: deal?.stock || '',
+                        defaultPrice: defaultPx,
+                        trendHintText: trendHint?.text || '',
+                        trendHintType: trendHint?.type || '',
+                        okText: trendHint?.okText || ''
+                    });
                     if (!closePx) return;
 
                     const updatedDeal = {
