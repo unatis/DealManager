@@ -508,7 +508,7 @@ function renderAll() {
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0) {
         elements.emptyOpen.textContent =
-            'Нет открытых сделок — нажмите «New Deal», чтобы добавить.';
+            'No deals — press «New Deal» for creating';
         elements.emptyOpen.style.display = 'block';
     } else {
         elements.emptyOpen.style.display = 'none';

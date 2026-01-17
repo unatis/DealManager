@@ -152,7 +152,12 @@ function getStopLossBasePrice(form) {
 
     const shareEl = form?.querySelector?.('input[name="share_price"]');
     const share = parseMoney(shareEl?.value);
-    return (Number.isFinite(share) && share > 0) ? share : 0;
+    if (Number.isFinite(share) && share > 0) return share;
+
+    // Fallback: stage 1 buy price (planned deals may not have share_price yet)
+    const stagePriceEl = form?.querySelector?.('input[name="buy_price_stages[]"]');
+    const stagePrice = parseMoney(stagePriceEl?.value);
+    return (Number.isFinite(stagePrice) && stagePrice > 0) ? stagePrice : 0;
 }
 
 function updateStopLossPercentBadge(form, percentage) {
@@ -770,7 +775,8 @@ function showDealLimitModal(message, opts = {}) {
         title = 'Deal limit warning',
         mode = 'info', // 'info' | 'confirm'
         okText = 'Continue',
-        cancelText = 'Cancel'
+        cancelText = 'Cancel',
+        showPlanningAllowed = false
     } = opts || {};
 
     return new Promise(resolve => {
@@ -792,6 +798,11 @@ function showDealLimitModal(message, opts = {}) {
 
         titleEl.textContent = title;
         body.textContent = message;
+
+        const staticLine = modal.querySelector('.advisor-static');
+        if (staticLine) {
+            staticLine.style.display = showPlanningAllowed ? '' : 'none';
+        }
 
         const isConfirm = String(mode).toLowerCase() === 'confirm';
         if (actions && okBtn && cancelBtn) {
@@ -2046,7 +2057,6 @@ function createDealFormHTML(deal = null, isNew = false) {
                     <span class="avg-entry-label">Avrg price</span>
                     <input type="text" class="avg-entry-input" data-role="avg-entry-input" value="" readonly placeholder="">
                 </label>
-                <input type="hidden" name="share_price_manual" value="${escapeHtml(String(!!deal?.share_price_manual))}">
                
                 <div class="stages-block full">
                     <div class="stages-row">
@@ -2291,7 +2301,7 @@ function renderAll() {
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0 && !newDealRow) {
         elements.emptyOpen.textContent =
-            'Нет открытых сделок — нажмите «New Deal», чтобы добавить.';
+            'No deals — press «New Deal» for creating';
         elements.emptyOpen.style.display = 'block';
     } else {
         elements.emptyOpen.style.display = 'none';
@@ -2686,20 +2696,6 @@ async function setupDealRowHandlers(row, deal, isNew) {
                         form.dataset.buyPriceStage1Manual = '1';
                     }
                 }
-            });
-        }
-        // Track manual override for Share price (current price) and persist it via hidden field.
-        if (!form.dataset.sharePriceManualBound) {
-            form.dataset.sharePriceManualBound = '1';
-            form.addEventListener('input', (e) => {
-                const t = e.target;
-                if (!t || !e.isTrusted) return;
-                if (t.name !== 'share_price') return;
-
-                const manualInput = form.querySelector('input[name="share_price_manual"]');
-                const hasValue = !!String(t.value || '').trim();
-                if (manualInput) manualInput.value = String(hasValue);
-                form.dataset.sharePriceManual = hasValue ? '1' : '0';
             });
         }
         // Avg entry depends on stages shares + buy prices
@@ -3993,8 +3989,45 @@ async function handleDealSubmit(form, deal, isNew) {
         // NOTE: We do NOT check Cash on Save changes / planning.
         // Planned deals must not "reserve" Cash. Cash is checked only on Activate (Create deal).
 
-        const slPctNum = parseNumber(obj.stop_loss_prcnt || '');
-        if (isNaN(slPctNum)) {
+        const slInput = form.querySelector('input[name="stop_loss"]');
+        const base = getStopLossBasePrice(form);
+        const sl = parseMoney(slInput?.value);
+
+        // Enforce only for new/planned deals: existing active deals may have SL above base.
+        if (isNew || obj.planned_future) {
+            // If stop loss is above (or equal to) base price, SL% becomes <= 0 and server will reject it.
+            if (base > 0 && sl > 0 && sl >= base) {
+                showDealLimitModal('Stop loss must be below Avrg/Share price so SL% is positive.');
+                setButtonLoading(submitButton, false);
+                return;
+            }
+        }
+
+        let slPctNum = parseNumber(obj.stop_loss_prcnt || '');
+
+        // If missing/zero, try to recompute from stop_loss and base price
+        if (!(slPctNum > 0)) {
+            const slPctInput = form.querySelector('input[name="stop_loss_prcnt"]');
+            if (base > 0 && sl > 0) {
+                const pct = ((base - sl) / base) * 100;
+                if (Number.isFinite(pct) && pct > 0) {
+                    const pctText = pct.toFixed(2);
+                    obj.stop_loss_prcnt = pctText;
+                    slPctNum = parseNumber(pctText);
+                    if (slPctInput) slPctInput.value = pctText;
+                }
+            }
+        }
+
+        if (!(slPctNum > 0)) {
+            // For existing active deals, keep previously stored SL% if present
+            if (!isNew && !obj.planned_future && deal?.stop_loss_prcnt) {
+                obj.stop_loss_prcnt = deal.stop_loss_prcnt;
+                slPctNum = parseNumber(obj.stop_loss_prcnt || '');
+            }
+        }
+
+        if (!(slPctNum > 0)) {
             showDealLimitModal('Stop loss % is required.');
             setButtonLoading(submitButton, false);
             return;
@@ -4054,7 +4087,7 @@ async function handleDealSubmit(form, deal, isNew) {
                             `But activating it is better after reducing total risk.\n\n` +
                             `Details:\n` +
                             `Added risk (at max allowed sizing): ${limits.addedRiskPercent.toFixed(2)}%.`,
-                            { title: 'High risk warning', mode: 'info' }
+                            { title: 'High risk warning', mode: 'info', showPlanningAllowed: true }
                         );
                         // Continue saving (no return)
                     }
@@ -4070,14 +4103,6 @@ async function handleDealSubmit(form, deal, isNew) {
             alert('Deal id is invalid. Please refresh the list and try again.');
             return;
         }
-
-        // FormData produces strings; API expects boolean for share_price_manual.
-        // If user edited Share price, we store "true"/"false" in the hidden input.
-        // Convert it to a real boolean before sending JSON.
-        obj.share_price_manual =
-            obj.share_price_manual === true ||
-            obj.share_price_manual === 'true' ||
-            obj.share_price_manual === '1';
 
         await saveDealToServer(obj, isEdit);
 
@@ -4214,6 +4239,12 @@ async function loadPreviousWeekLowPrice(ticker, form) {
             if (oPriceInput) oPriceInput.value = '';
             if (hPriceInput) hPriceInput.value = '';
             setPriceError(formContainer, 'Price history is temporarily unavailable (API quota reached).');
+            const errorText = await res.text().catch(() => '');
+            const isLimit = /frequency|rate limit|quota|alpha vantage/i.test(errorText);
+            if (isLimit && !form.dataset.historyLimitAlerted) {
+                form.dataset.historyLimitAlerted = '1';
+                alert('The API limit for current quotes has been reached. Please try again later.');
+            }
             return;
         }
 
@@ -4307,6 +4338,12 @@ async function loadCurrentPrice(ticker, form) {
             const sharePriceInput = form.querySelector('input[name="share_price"]');
             if (sharePriceInput) sharePriceInput.value = '';
             setPriceError(formContainer, 'Current price is temporarily unavailable (API quota reached).');
+            const errorText = await res.text().catch(() => '');
+            const isLimit = /frequency|rate limit|quota|alpha vantage/i.test(errorText);
+            if (isLimit && !form.dataset.quoteLimitAlerted) {
+                form.dataset.quoteLimitAlerted = '1';
+                alert('The API limit for current quotes has been reached. Please try again later.');
+            }
             return;
         }
 
@@ -5098,6 +5135,12 @@ async function loadCurrentPrice(ticker, form) {
             const sharePriceInput = form.querySelector('input[name="share_price"]');
             if (sharePriceInput) sharePriceInput.value = '';
             setPriceError(formContainer, 'Current price is temporarily unavailable (API quota reached).');
+            const errorText = await res.text().catch(() => '');
+            const isLimit = /frequency|rate limit|quota|alpha vantage/i.test(errorText);
+            if (isLimit && !form.dataset.quoteLimitAlerted) {
+                form.dataset.quoteLimitAlerted = '1';
+                alert('The API limit for current quotes has been reached. Please try again later.');
+            }
             console.log('loadCurrentPrice: API request failed, clearing share price');
             return;
         }
@@ -5112,11 +5155,9 @@ async function loadCurrentPrice(ticker, form) {
             const stopLossInput = form.querySelector('input[name="stop_loss"]');
             const stopLossPrcntInput = form.querySelector('input[name="stop_loss_prcnt"]');
 
-            // Share price is the CURRENT price (quote) unless user manually locked it.
+            // Share price is the CURRENT price (quote).
             const sharePriceInput = form.querySelector('input[name="share_price"]');
-            const sharePriceManualInput = form.querySelector('input[name="share_price_manual"]');
-            const shareLocked = (sharePriceManualInput?.value === 'true') || (form.dataset.sharePriceManual === '1');
-            if (sharePriceInput && !shareLocked) {
+            if (sharePriceInput) {
                 const oldSp = sharePriceInput.value;
                 sharePriceInput.value = quotePx;
                 console.log('✓ Share price (current) set to:', quotePx, '(was:', oldSp, ')');

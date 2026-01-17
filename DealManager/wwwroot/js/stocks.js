@@ -553,7 +553,7 @@ function renderStocks() {
 
     if (!stocks.length) {
         if (emptyStockEl) {
-            emptyStockEl.textContent = 'Нет акций';
+            emptyStockEl.textContent = 'No shares';
             emptyStockEl.style.display = 'block';
         }
         // Update count to 0
@@ -575,7 +575,7 @@ function renderStocks() {
 
     if (!visible.length) {
         if (emptyStockEl) {
-            emptyStockEl.textContent = 'Нет акций';
+            emptyStockEl.textContent = 'No shares';
             emptyStockEl.style.display = 'block';
         }
         updateStockCount(0);
@@ -924,7 +924,7 @@ function setupStockRowHandlers(row, stock) {
     // Delete stock handler
     deleteIcon.addEventListener('click', async (e) => {
         e.stopPropagation();
-            if (!confirm('Удалить акцию?')) return;
+            if (!confirm('Remove share?')) return;
 
             try {
             await deleteStockOnServer(stock.id);

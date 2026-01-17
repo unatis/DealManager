@@ -143,8 +143,7 @@ namespace DealManager.Services
                 .OrderBy(p => p.Date)
                 .ToList();
 
-            // Проверка последних трёх недель с допуском по high/low/open/close
-            var tol = tolerance ?? _defaultTolerance;
+            // Flat: latest Open/Close range inside previous, and previous inside oldest.
             var last3 = ordered.Skip(Math.Max(0, ordered.Count - 3)).ToList();
             if (last3.Count == 3)
             {
@@ -152,23 +151,19 @@ namespace DealManager.Services
                 var mid = last3[1];
                 var latest = last3[2];
 
-                bool highsNonIncreasing =
-                    latest.High <= mid.High + tol &&
-                    mid.High <= oldest.High + tol;
+                decimal oldMin = Math.Min(oldest.Open, oldest.Close);
+                decimal oldMax = Math.Max(oldest.Open, oldest.Close);
 
-                bool lowsCondition =
-                    latest.Low >= mid.Low - tol &&
-                    oldest.Low >= mid.Low - tol;
+                decimal midMin = Math.Min(mid.Open, mid.Close);
+                decimal midMax = Math.Max(mid.Open, mid.Close);
 
-                bool opensNonIncreasing =
-                    latest.Open <= mid.Open + tol &&
-                    mid.Open <= oldest.Open + tol;
+                decimal lastMin = Math.Min(latest.Open, latest.Close);
+                decimal lastMax = Math.Max(latest.Open, latest.Close);
 
-                bool closesNonIncreasing =
-                    latest.Close <= mid.Close + tol &&
-                    mid.Close <= oldest.Close + tol;
+                bool midInsideOld = midMin >= oldMin && midMax <= oldMax;
+                bool lastInsideMid = lastMin >= midMin && lastMax <= midMax;
 
-                if (highsNonIncreasing && lowsCondition && opensNonIncreasing && closesNonIncreasing)
+                if (midInsideOld && lastInsideMid)
                     return TrendWeeks.Flat;
             }
 
@@ -275,9 +270,7 @@ namespace DealManager.Services
                 .OrderBy(p => p.Date)
                 .ToList();
 
-            var tol = tolerance ?? _defaultTolerance;
-
-            // Flat-check on last 3 weekly bars (same structure as DetectTrendByLowsForWeeks)
+            // Flat: latest Open/Close range inside previous, and previous inside oldest.
             var last3 = ordered.Skip(Math.Max(0, ordered.Count - 3)).ToList();
             if (last3.Count == 3)
             {
@@ -285,23 +278,19 @@ namespace DealManager.Services
                 var mid = last3[1];
                 var latest = last3[2];
 
-                bool highsNonIncreasing =
-                    latest.High <= mid.High + tol &&
-                    mid.High <= oldest.High + tol;
+                decimal oldMin = Math.Min(oldest.Open, oldest.Close);
+                decimal oldMax = Math.Max(oldest.Open, oldest.Close);
 
-                bool lowsCondition =
-                    latest.Low >= mid.Low - tol &&
-                    oldest.Low >= mid.Low - tol;
+                decimal midMin = Math.Min(mid.Open, mid.Close);
+                decimal midMax = Math.Max(mid.Open, mid.Close);
 
-                bool opensNonIncreasing =
-                    latest.Open <= mid.Open + tol &&
-                    mid.Open <= oldest.Open + tol;
+                decimal lastMin = Math.Min(latest.Open, latest.Close);
+                decimal lastMax = Math.Max(latest.Open, latest.Close);
 
-                bool closesNonIncreasing =
-                    latest.Close <= mid.Close + tol &&
-                    mid.Close <= oldest.Close + tol;
+                bool midInsideOld = midMin >= oldMin && midMax <= oldMax;
+                bool lastInsideMid = lastMin >= midMin && lastMax <= midMax;
 
-                if (highsNonIncreasing && lowsCondition && opensNonIncreasing && closesNonIncreasing)
+                if (midInsideOld && lastInsideMid)
                     return TrendMonthes.Flat;
             }
 
