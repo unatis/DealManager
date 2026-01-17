@@ -157,39 +157,29 @@ namespace DealManager.Services
             // Допуск для сравнения high/low/open/close (как в карточке)
             decimal tol = 0.1m;
 
-            // Структурный флэт по последним 2 барам (коридор mid ± tol)
+            // Флет: диапазон Open/Close последней недели внутри диапазона предыдущей,
+            // а диапазон предыдущей внутри диапазона третьей (oldest).
             bool structuralFlat = false;
-            var last2 = slice.Skip(Math.Max(0, slice.Count - 2)).ToList();
-            if (last2.Count == 2)
+            var last3 = slice.Skip(Math.Max(0, slice.Count - 3)).ToList();
+            if (last3.Count == 3)
             {
-                var older = last2[0];
-                var latest = last2[1];
+                var oldest = last3[0];
+                var mid = last3[1];
+                var latest = last3[2];
 
-                var midHigh = (older.High + latest.High) / 2m;
-                var midLow = (older.Low + latest.Low) / 2m;
-                var midOpen = (older.Open + latest.Open) / 2m;
-                var midClose = (older.Close + latest.Close) / 2m;
+                decimal oldMin = Math.Min(oldest.Open, oldest.Close);
+                decimal oldMax = Math.Max(oldest.Open, oldest.Close);
 
-                bool highsTight =
-                    Math.Abs(older.High - midHigh) <= tol &&
-                    Math.Abs(latest.High - midHigh) <= tol;
+                decimal midMin = Math.Min(mid.Open, mid.Close);
+                decimal midMax = Math.Max(mid.Open, mid.Close);
 
-                bool lowsTight =
-                    Math.Abs(older.Low - midLow) <= tol &&
-                    Math.Abs(latest.Low - midLow) <= tol;
+                decimal lastMin = Math.Min(latest.Open, latest.Close);
+                decimal lastMax = Math.Max(latest.Open, latest.Close);
 
-                bool opensTight =
-                    Math.Abs(older.Open - midOpen) <= tol &&
-                    Math.Abs(latest.Open - midOpen) <= tol;
+                bool midInsideOld = midMin >= oldMin && midMax <= oldMax;
+                bool lastInsideMid = lastMin >= midMin && lastMax <= midMax;
 
-                bool closesTight =
-                    Math.Abs(older.Close - midClose) <= tol &&
-                    Math.Abs(latest.Close - midClose) <= tol;
-
-                structuralFlat = highsTight &&
-                                 lowsTight &&
-                                 opensTight &&
-                                 closesTight;
+                structuralFlat = midInsideOld && lastInsideMid;
             }
 
             // Кластер по диапазону закрытий, но теперь на 3 бара
@@ -201,7 +191,13 @@ namespace DealManager.Services
                 flatWindowRetThreshold: 0.01  // общий ход < 1%
             );
 
-            // 5. Определяем направление последнего бара
+            var last3Lows = slice.Skip(Math.Max(0, slice.Count - 3)).ToList();
+            bool has3 = last3Lows.Count == 3;
+            decimal lowOld = has3 ? last3Lows[0].Low : 0m;
+            decimal lowMid = has3 ? last3Lows[1].Low : 0m;
+            decimal lowLast = has3 ? last3Lows[2].Low : 0m;
+
+            // 5. Определяем направление
             int direction;
 
             if (structuralFlat && isFlatCluster && Math.Abs(lastReturn) < flatBarThreshold)
@@ -209,17 +205,20 @@ namespace DealManager.Services
                 // Флэт: структура по high/low/open/close + узкий диапазон по close + маленький бар
                 direction = 0;
             }
-            else if (lastReturn > flatBarThreshold)
+            else if (has3 && lowLast > lowMid && lowMid > lowOld)
             {
                 direction = 1;
             }
-            else if (lastReturn < -flatBarThreshold)
+            else if (has3 && lowLast < lowMid && lowMid < lowOld)
             {
                 direction = -1;
             }
             else
             {
-                direction = 0;
+                // Fallback: use last bar return if not enough bars or no clear 3-low trend
+                if (lastReturn > flatBarThreshold) direction = 1;
+                else if (lastReturn < -flatBarThreshold) direction = -1;
+                else direction = 0;
             }
 
             // 6. Нормализация в % относительно максимумов (значения могут быть >100%)
