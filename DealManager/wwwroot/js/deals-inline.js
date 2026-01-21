@@ -843,10 +843,10 @@ function showDealLimitModal(message, opts = {}) {
     });
 }
 
-// Close deal modal with required close price.
-// Returns Promise<number|null>: number = close price, null = cancelled/closed.
+// Close deal modal with required close price and date.
+// Returns Promise<{ price, closeDate, closeDateIso }|null>
 function showCloseDealModal(opts = {}) {
-    const { ticker = '', defaultPrice = '', trendHintText = '', trendHintType = '', okText = '' } = opts || {};
+    const { ticker = '', defaultPrice = '', defaultDate = '', trendHintText = '', trendHintType = '', okText = '' } = opts || {};
 
     return new Promise(resolve => {
         const modal = document.getElementById('closeDealModal');
@@ -854,11 +854,12 @@ function showCloseDealModal(opts = {}) {
         const cancelBtn = document.getElementById('closeDealCancelBtn');
         const okBtn = document.getElementById('closeDealOkBtn');
         const input = document.getElementById('closeDealPriceInput');
+        const dateInput = document.getElementById('closeDealDateInput');
         const err = document.getElementById('closeDealPriceError');
         const hint = document.getElementById('closeDealTickerHint');
         const trendHint = document.getElementById('closeDealTrendHint');
 
-        if (!modal || !closeBtn || !cancelBtn || !okBtn || !input || !err || !hint || !trendHint) {
+        if (!modal || !closeBtn || !cancelBtn || !okBtn || !input || !dateInput || !err || !hint || !trendHint) {
             console.error('closeDealModal elements not found in DOM');
             resolve(null);
             return;
@@ -885,6 +886,9 @@ function showCloseDealModal(opts = {}) {
         }
 
         input.value = defaultPrice != null && String(defaultPrice).trim() !== '' ? String(defaultPrice) : '';
+        const today = new Date().toISOString().slice(0, 10);
+        const dateValue = defaultDate != null && String(defaultDate).trim() !== '' ? String(defaultDate).slice(0, 10) : today;
+        dateInput.value = dateValue;
         err.style.display = 'none';
         err.textContent = '';
 
@@ -913,8 +917,22 @@ function showCloseDealModal(opts = {}) {
                 try { input.focus(); } catch { }
                 return;
             }
+            const rawDate = String(dateInput.value || '').trim();
+            if (!rawDate) {
+                err.textContent = 'Close date is required.';
+                err.style.display = 'block';
+                try { dateInput.focus(); } catch { }
+                return;
+            }
+            const dateMs = Date.parse(`${rawDate}T00:00:00Z`);
+            if (!Number.isFinite(dateMs)) {
+                err.textContent = 'Close date is invalid.';
+                err.style.display = 'block';
+                try { dateInput.focus(); } catch { }
+                return;
+            }
             cleanup();
-            resolve(v);
+            resolve({ price: v, closeDate: rawDate, closeDateIso: new Date(dateMs).toISOString() });
         }
 
         function onBackdrop(e) {
@@ -2055,7 +2073,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                     Share price
                     <input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder="">
                     <span class="avg-entry-label">Avrg price</span>
-                    <input type="text" class="avg-entry-input" data-role="avg-entry-input" value="" readonly placeholder="">
+                    <input type="text" class="avg-entry-input" data-role="avg-entry-input" value="${escapeHtml(String(deal?.avg_entry || ''))}" readonly placeholder="">
                 </label>
                
                 <div class="stages-block full">
@@ -2468,7 +2486,8 @@ function createDealRow(deal, isNew) {
         }
     }
     
-    const avgEntryForBadge = deal ? calculateAvgEntryFromDeal(deal) : null;
+    const avgEntryRaw = deal ? parseNumber(deal?.avg_entry || '') : 0;
+    const avgEntryForBadge = deal ? (avgEntryRaw > 0 ? avgEntryRaw : calculateAvgEntryFromDeal(deal)) : null;
     const spBadgeValue = avgEntryForBadge ? avgEntryForBadge.toFixed(2) : (deal?.share_price || '-');
 
     summary.innerHTML = `
@@ -2492,15 +2511,17 @@ function createDealRow(deal, isNew) {
         <div class="chips" style="min-width:140px;justify-content:flex-end">
             <div class="badge movement-metric-tooltip" data-tooltip="Avrg price (avg entry)">SP:${escapeHtml(spBadgeValue)}</div>
             ${deal.closed && deal.close_price ? `<div class="badge movement-metric-tooltip" data-tooltip="Close Price">CL:${escapeHtml(deal.close_price)}</div>` : ''}
+            ${deal.closed && deal.closedAt ? `<div class="badge movement-metric-tooltip" data-tooltip="Close Date">CD:${escapeHtml(formatDate(deal.closedAt))}</div>` : ''}
             ${deal.closed && deal.close_price ? (() => {
-                const entry = parseNumber(deal.share_price || '');
+                const avgEntry = parseNumber(deal.avg_entry || '');
+                const entry = avgEntry > 0 ? avgEntry : (calculateAvgEntryFromDeal(deal) || parseNumber(deal.share_price || ''));
                 const close = parseNumber(deal.close_price || '');
                 const shares = sumStages(getStagesFromDeal(deal));
                 if (!entry || !close || !shares) return '';
                 const pnl = (close - entry) * shares;
                 const cls = pnl >= 0 ? 'pnl-green' : 'pnl-red';
                 const sign = pnl >= 0 ? '+' : '';
-                return `<div class="badge movement-metric-tooltip ${cls}" data-tooltip="P/L based on Close price">P/L:${sign}${pnl.toFixed(2)}</div>`;
+                return `<div class="badge movement-metric-tooltip ${cls}" data-tooltip="P/L (profit/loss) based on Close price">P/L:${sign}${pnl.toFixed(2)}</div>`;
             })() : ''}
             <div class="badge movement-metric-tooltip" data-tooltip="Stop Loss">SL:${escapeHtml(deal.stop_loss || '-')}</div>
             ${deal.stop_loss_prcnt ? (() => {
@@ -3215,21 +3236,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                 try {
                     setButtonLoading(closeBtn, true);
 
-                    // Planned deals do not affect Cash; allow closing without close price.
-                    if (deal?.planned_future) {
-                        const proceed = await showDealLimitModal(
-                            'Close this planned deal?',
-                            { title: 'Close planned deal', mode: 'confirm', okText: 'Close deal', cancelText: 'Cancel' }
-                        );
-                        if (!proceed) return;
-
-                        const updatedDeal = { ...deal, closed: true, closedAt: new Date().toISOString() };
-                        await saveDealToServer(updatedDeal, true);
-                        await loadDeals();
-                        return;
-                    }
-
-                    // Active deal: require close price.
+                    // Close deal (planned or active): require close price and date.
                     let defaultPx = '';
                     try {
                         if (deal?.stock) {
@@ -3242,20 +3249,21 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     let trendHint = null;
                     try { trendHint = await getCloseDealWeeklyLowHint(deal?.stock); } catch { }
 
-                    const closePx = await showCloseDealModal({
+                    const closeResult = await showCloseDealModal({
                         ticker: deal?.stock || '',
                         defaultPrice: defaultPx,
+                        defaultDate: new Date().toISOString().slice(0, 10),
                         trendHintText: trendHint?.text || '',
                         trendHintType: trendHint?.type || '',
                         okText: trendHint?.okText || ''
                     });
-                    if (!closePx) return;
+                    if (!closeResult) return;
 
                     const updatedDeal = {
                         ...deal,
-                        close_price: String(closePx),
+                        close_price: String(closeResult.price),
                         closed: true,
-                        closedAt: new Date().toISOString()
+                        closedAt: closeResult.closeDateIso
                     };
 
                     await saveDealToServer(updatedDeal, true);
@@ -3944,6 +3952,12 @@ async function handleDealSubmit(form, deal, isNew) {
         // Only include buy_price_stages if user provided at least one price
         if (pricesRaw.some(p => String(p || '').trim() !== '')) {
             obj.buy_price_stages = pricesRaw;
+        }
+
+        // Persist avg entry computed from stages (fallbacks to quote/share price).
+        const avgEntry = calculateAvgEntryFromForm(form);
+        if (avgEntry && avgEntry > 0) {
+            obj.avg_entry = avgEntry.toFixed(4);
         }
 
         const totalSum = calculateTotalSumFromStages(sharePriceStr, stagesNums);
