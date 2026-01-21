@@ -298,13 +298,17 @@
 
             <div class="advisor-chat-right">
                 <div class="advisor-bubble">
-                    <div class="advisor-bubble-text advisor-static">Enter Close price (required).</div>
+                    <div class="advisor-bubble-text advisor-static">Enter Close price and date.</div>
 
                     <div class="advisor-bubble-text advisor-dynamic">
                         <div class="close-deal-row">
                             <label class="close-deal-label">
                                 Close price
                                 <input id="closeDealPriceInput" class="close-deal-input" type="number" step="0.0001" min="0" />
+                            </label>
+                            <label class="close-deal-label">
+                                Close date
+                                <input id="closeDealDateInput" class="close-deal-input" type="date" />
                             </label>
                             <div id="closeDealTickerHint" class="close-deal-hint"></div>
                             <div id="closeDealTrendHint" class="close-deal-hint" style="display:none"></div>

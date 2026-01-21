@@ -60,6 +60,9 @@ namespace DealManager.Models
         [JsonPropertyName("share_price")]
         public string? SharePrice { get; set; }
 
+        [JsonPropertyName("avg_entry")]
+        public string? AvgEntry { get; set; }
+
         // If true, SharePrice was manually set by user and should not be auto-overwritten by quote.
         [JsonPropertyName("share_price_manual")]
         public bool SharePriceManual { get; set; } = false;

@@ -80,6 +80,44 @@ namespace DealManager.Controllers
             return shares;
         }
 
+        private static decimal? TryCalculateAvgEntryFromStages(Deal deal)
+        {
+            if (deal.Amount_tobuy_stages == null || deal.Amount_tobuy_stages.Count == 0) return null;
+
+            decimal sharePrice = 0m;
+            if (TryParsePositiveDecimal(deal.SharePrice, out var sharePx))
+                sharePrice = sharePx;
+
+            decimal totalShares = 0m;
+            decimal totalCost = 0m;
+
+            for (var i = 0; i < deal.Amount_tobuy_stages.Count; i++)
+            {
+                if (!TryParsePositiveDecimal(deal.Amount_tobuy_stages[i], out var sh) || sh <= 0)
+                    return null;
+
+                decimal price = 0m;
+                if (deal.BuyPriceStages != null &&
+                    i < deal.BuyPriceStages.Count &&
+                    TryParsePositiveDecimal(deal.BuyPriceStages[i], out var p))
+                {
+                    price = p;
+                }
+
+                if (price <= 0 && sharePrice > 0)
+                    price = sharePrice;
+
+                if (price <= 0) return null;
+
+                totalShares += sh;
+                totalCost += sh * price;
+            }
+
+            if (totalShares <= 0) return null;
+            var avg = totalCost / totalShares;
+            return avg > 0 ? Math.Round(avg, 4) : null;
+        }
+
         private static string? ValidateStagesStrict(Deal deal)
         {
             // Block old client payload (Variant A)
@@ -160,6 +198,12 @@ namespace DealManager.Controllers
             if (stagesError != null)
                 return BadRequest(stagesError);
 
+            // Persist avg_entry based on stages (fallbacks to share_price when needed)
+            var avgEntry = TryCalculateAvgEntryFromStages(deal);
+            deal.AvgEntry = avgEntry.HasValue
+                ? avgEntry.Value.ToString(CultureInfo.InvariantCulture)
+                : null;
+
             // Если сделка создаётся сразу как реальная (не planned) – проставим время активации
             if (!deal.PlannedFuture && deal.ActivatedAt == null)
             {
@@ -231,6 +275,12 @@ namespace DealManager.Controllers
             var stagesError = ValidateStagesStrict(deal);
             if (stagesError != null)
                 return BadRequest(stagesError);
+
+            // Persist avg_entry based on stages (fallbacks to share_price when needed)
+            var avgEntry = TryCalculateAvgEntryFromStages(deal);
+            deal.AvgEntry = avgEntry.HasValue
+                ? avgEntry.Value.ToString(CultureInfo.InvariantCulture)
+                : null;
 
             // Validate and parse total_sum if provided; otherwise compute from stages
             decimal? totalSumValue = null;
