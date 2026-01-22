@@ -118,6 +118,36 @@ namespace DealManager.Controllers
             return avg > 0 ? Math.Round(avg, 4) : null;
         }
 
+        private static decimal? TryCalculateTakeProfitUsd(Deal deal)
+        {
+            var shares = TryCalculateTotalSharesFromStages(deal);
+            if (!shares.HasValue || shares.Value <= 0) return null;
+
+            decimal entryPrice = 0m;
+            if (!TryParsePositiveDecimal(deal.AvgEntry, out entryPrice))
+            {
+                if (!TryParsePositiveDecimal(deal.SharePrice, out entryPrice)) return null;
+            }
+
+            if (entryPrice <= 0) return null;
+
+            if (TryParsePositiveDecimal(deal.TakeProfit, out var takeProfit))
+            {
+                var diff = takeProfit - entryPrice;
+                if (diff <= 0) return null;
+                return Math.Round(diff * shares.Value, 2);
+            }
+
+            if (TryParsePositiveDecimal(deal.TakeProfitPercent, out var takeProfitPct))
+            {
+                var positionSize = entryPrice * shares.Value;
+                if (positionSize <= 0) return null;
+                return Math.Round(positionSize * (takeProfitPct / 100m), 2);
+            }
+
+            return null;
+        }
+
         private static string? ValidateStagesStrict(Deal deal)
         {
             // Block old client payload (Variant A)
@@ -204,6 +234,12 @@ namespace DealManager.Controllers
                 ? avgEntry.Value.ToString(CultureInfo.InvariantCulture)
                 : null;
 
+            // Persist take_profit_usd based on entry and stages
+            var tpUsd = TryCalculateTakeProfitUsd(deal);
+            deal.TakeProfitUsd = tpUsd.HasValue
+                ? tpUsd.Value.ToString(CultureInfo.InvariantCulture)
+                : null;
+
             // Если сделка создаётся сразу как реальная (не planned) – проставим время активации
             if (!deal.PlannedFuture && deal.ActivatedAt == null)
             {
@@ -280,6 +316,12 @@ namespace DealManager.Controllers
             var avgEntry = TryCalculateAvgEntryFromStages(deal);
             deal.AvgEntry = avgEntry.HasValue
                 ? avgEntry.Value.ToString(CultureInfo.InvariantCulture)
+                : null;
+
+            // Persist take_profit_usd based on entry and stages
+            var tpUsd = TryCalculateTakeProfitUsd(deal);
+            deal.TakeProfitUsd = tpUsd.HasValue
+                ? tpUsd.Value.ToString(CultureInfo.InvariantCulture)
                 : null;
 
             // Validate and parse total_sum if provided; otherwise compute from stages

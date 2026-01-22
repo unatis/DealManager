@@ -1,4 +1,4 @@
-﻿// deals.js
+// deals.js
 
 let deals = [];
 let dealsLoaded = false;
@@ -573,6 +573,7 @@ function renderAll() {
                 </div>
                 <div class="chips">
                     <div class="badge">TP:${escapeHtml(d.take_profit || '-')}</div>
+                    ${d.take_profit_usd ? `<div class="badge">TP$:${escapeHtml(d.take_profit_usd)}</div>` : ''}
                 </div>
             `;
 

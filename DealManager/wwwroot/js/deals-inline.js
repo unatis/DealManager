@@ -2069,12 +2069,10 @@ function createDealFormHTML(deal = null, isNew = false) {
                         <option value="" disabled selected>Loading stocks…</option>
                     </select>
                 </label>
-                <label>
-                    Share price
-                    <input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder="">
-                    <span class="avg-entry-label">Avrg price</span>
-                    <input type="text" class="avg-entry-input" data-role="avg-entry-input" value="${escapeHtml(String(deal?.avg_entry || ''))}" readonly placeholder="">
-                </label>
+                <div class="sp-row">
+                    <label>Current Share price<input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder=""></label>
+                    <label>Avrg price<input type="text" class="avg-entry-input" data-role="avg-entry-input" value="${escapeHtml(String(deal?.avg_entry || ''))}" readonly placeholder=""></label>
+                </div>
                
                 <div class="stages-block full">
                     <div class="stages-row">
@@ -2094,14 +2092,16 @@ function createDealFormHTML(deal = null, isNew = false) {
                     </div>
                     <div class="stages-extra"></div>
                 </div>
-                <label>Take profit<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
+                <div class="tp-row">
+                    <label>Take profit<input type="text" name="take_profit" value="${escapeHtml(deal?.take_profit || '')}" placeholder=""></label>
+                    <label>Take profit Sum<input type="text" name="take_profit_usd" data-role="take-profit-usd" value="${escapeHtml(deal?.take_profit_usd || '')}" placeholder="" readonly></label>
+                </div>
                 <label>Take profit %?<input type="text" name="take_profit_prcnt" value="${escapeHtml(deal?.take_profit_prcnt || '')}" placeholder=""></label>
                 <label>Stop loss<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
-                <label>
-                    Stop loss %?
-                    <input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder="">
-                    <small class="deal-risk-amount" data-role="deal-risk-amount">Risk: -</small>
-                </label>
+                <div class="sl-row">
+                    <label>Stop loss %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
+                    <label>Risk<input type="text" data-role="deal-risk-amount" value="-" placeholder="" readonly></label>
+                </div>
 
                 <!--<label>
                     You're afraid it will be too late?
@@ -5982,23 +5982,73 @@ function setupRiskCalculator(form) {
             const shares = sumStages(stages);
 
             if (!Number.isFinite(slPct) || slPct <= 0 || !Number.isFinite(sharePrice) || sharePrice <= 0 || !shares || shares <= 0) {
-                riskEl.textContent = 'Risk: -';
+                if ('value' in riskEl) riskEl.value = '-';
+                else riskEl.textContent = '-';
                 return;
             }
 
             const positionSize = sharePrice * shares;
             const riskAmount = positionSize * (slPct / 100);
-            riskEl.textContent = `Risk: ${formatTotalSum(riskAmount) || '-'}`;
+            const riskText = `${formatTotalSum(riskAmount) || '-'}`;
+            if ('value' in riskEl) riskEl.value = riskText;
+            else riskEl.textContent = riskText;
         } catch (e) {
             // Never break the form if formatting fails
             console.warn('updateDealRiskAmountUI failed', e);
         }
     };
+
+    // Take profit amount UI ("Take profit Sum") for the current form:
+    // profitAmount = (take_profit - entry_price) * shares
+    // OR profitAmount = positionSize * (take_profit_prcnt / 100)
+    const updateTakeProfitAmountUI = () => {
+        try {
+            const tpUsdInput = form.querySelector('[data-role="take-profit-usd"]');
+            if (!tpUsdInput) return;
+
+            const tpInput = form.querySelector('input[name="take_profit"]');
+            const tpPctInput = form.querySelector('input[name="take_profit_prcnt"]');
+            const sharePriceInput = form.querySelector('input[name="share_price"]');
+            const avgEntryInput = form.querySelector('.avg-entry-input');
+
+            const entryPrice = parseNumber(avgEntryInput?.value || sharePriceInput?.value || '');
+            const stages = getStagesFromForm(form);
+            const shares = sumStages(stages);
+
+            if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !shares || shares <= 0) {
+                tpUsdInput.value = '';
+                return;
+            }
+
+            let profitAmount = null;
+            const tp = parseNumber(tpInput?.value || '');
+            if (Number.isFinite(tp) && tp > 0) {
+                profitAmount = (tp - entryPrice) * shares;
+            } else {
+                const tpPct = parseNumber(tpPctInput?.value || '');
+                if (Number.isFinite(tpPct) && tpPct > 0) {
+                    const positionSize = entryPrice * shares;
+                    profitAmount = positionSize * (tpPct / 100);
+                }
+            }
+
+            if (!Number.isFinite(profitAmount) || profitAmount <= 0) {
+                tpUsdInput.value = '';
+                return;
+            }
+
+            tpUsdInput.value = formatTotalSum(profitAmount) || '';
+        } catch (e) {
+            // Never break the form if formatting fails
+            console.warn('updateTakeProfitAmountUI failed', e);
+        }
+    };
     
     // Function to calculate and display risk
     const calculateAndDisplayRisk = async () => {
-        // Update per-deal risk amount immediately (fast UI feedback)
+        // Update per-deal amounts immediately (fast UI feedback)
         updateDealRiskAmountUI();
+        updateTakeProfitAmountUI();
 
         if (isNewDeal) {
             // For new deals, calculate on client side
@@ -6028,8 +6078,9 @@ function setupRiskCalculator(form) {
     // Debounce function for risk calculation
     let riskCalculationTimeout = null;
     const calculateRisk = () => {
-        // Update deal risk amount without waiting for the 1s debounce
+        // Update deal amounts without waiting for the 1s debounce
         updateDealRiskAmountUI();
+        updateTakeProfitAmountUI();
         clearTimeout(riskCalculationTimeout);
         riskCalculationTimeout = setTimeout(async () => {
             await calculateAndDisplayRisk();
@@ -6058,6 +6109,16 @@ function setupRiskCalculator(form) {
         });
     }
 
+    const avgEntryInput = form.querySelector('.avg-entry-input');
+    if (avgEntryInput) {
+        avgEntryInput.addEventListener('input', () => {
+            updateTakeProfitAmountUI();
+        });
+        avgEntryInput.addEventListener('change', () => {
+            updateTakeProfitAmountUI();
+        });
+    }
+
     // Listen to stages (delegated, supports dynamic inputs)
     if (!form.dataset.stagesRiskBound) {
         form.dataset.stagesRiskBound = '1';
@@ -6082,15 +6143,16 @@ function setupRiskCalculator(form) {
         form.addEventListener('input', (e) => {
             const t = e.target;
             if (!t || !t.name) return;
-            if (t.name === 'share_price' || t.name === 'stop_loss_prcnt' || t.name === 'amount_tobuy_stages[]') {
+            if (t.name === 'share_price' || t.name === 'stop_loss_prcnt' || t.name === 'amount_tobuy_stages[]' || t.name === 'take_profit' || t.name === 'take_profit_prcnt') {
                 scheduleUI();
             }
         });
         form.addEventListener('change', (e) => {
             const t = e.target;
             if (!t || !t.name) return;
-            if (t.name === 'share_price' || t.name === 'stop_loss_prcnt' || t.name === 'amount_tobuy_stages[]') {
+            if (t.name === 'share_price' || t.name === 'stop_loss_prcnt' || t.name === 'amount_tobuy_stages[]' || t.name === 'take_profit' || t.name === 'take_profit_prcnt') {
                 updateDealRiskAmountUI();
+                updateTakeProfitAmountUI();
             }
         });
     }
@@ -6110,8 +6172,9 @@ function setupRiskCalculator(form) {
         }
     }
 
-    // Initial UI update for deal risk amount
+    // Initial UI update for deal amounts
     updateDealRiskAmountUI();
+    updateTakeProfitAmountUI();
 }
 
 function escapeHtml(str) {
