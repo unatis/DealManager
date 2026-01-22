@@ -88,6 +88,9 @@ namespace DealManager.Models
         [JsonPropertyName("take_profit_prcnt")]
         public string? TakeProfitPercent { get; set; }
 
+        [JsonPropertyName("take_profit_usd")]
+        public string? TakeProfitUsd { get; set; }
+
         [JsonPropertyName("stop_loss_prcnt")]
         public string? StopLossPercent { get; set; }
 
