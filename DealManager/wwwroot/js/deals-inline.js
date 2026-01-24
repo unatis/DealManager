@@ -2100,7 +2100,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                 <label>Stop loss<input type="text" name="stop_loss" value="${escapeHtml(deal?.stop_loss || '')}" placeholder=""></label>
                 <div class="sl-row">
                     <label>Stop loss %?<input type="text" name="stop_loss_prcnt" value="${escapeHtml(deal?.stop_loss_prcnt || '')}" placeholder=""></label>
-                    <label>Risk<input type="text" data-role="deal-risk-amount" value="-" placeholder="" readonly></label>
+                    <label>Risk<input type="text" data-role="deal-risk-amount" value="0.00" placeholder="" readonly></label>
                 </div>
 
                 <!--<label>
@@ -2499,7 +2499,7 @@ function createDealRow(deal, isNew) {
                     </div>
                     ${totalSumDisplay ? `<div class="total-sum-display">${totalSumDisplay}</div>` : ''}
                     ${deal && !deal.closed ? `<div class="badge movement-metric-tooltip current-price-badge" data-tooltip="Current price (daily)" data-entry-price="${escapeHtml(deal.share_price || '')}">CP:-</div>` : ''}
-                    ${deal && !deal.closed && deal.planned_future && deal.id ? `<div class="badge portfolio-display movement-metric-tooltip planned-risk-badge" data-deal-id="${deal.id}" data-tooltip="Planned deal: added risk if activated">+Risk:-</div>` : ''}
+                    ${deal && !deal.closed && deal.id ? `<div class="badge portfolio-display movement-metric-tooltip planned-risk-badge" data-deal-id="${deal.id}" data-tooltip="Planned deal: added risk if activated">+Risk:-</div>` : ''}
                     <div class="movement-metrics-container"></div>
                 </div>`
                 : `<div class="new-deal-title"><strong>New Deal</strong><div class="total-sum-display" style="display:none"></div><div class="reward-to-risk-badge"></div></div>`
@@ -4538,6 +4538,16 @@ function getCurrentPortfolioRiskFromHeader() {
 function getPlannedDealTotalSumValue(deal) {
     if (!deal) return 0;
 
+    // Prefer live form values if the deal is currently open for editing.
+    const form = document.querySelector(`.deal-form-inline[data-deal-id="${deal.id}"]`);
+    if (form) {
+        const sharePrice = parseNumber(form.querySelector('input[name="share_price"]')?.value || '');
+        const stages = getStagesFromForm(form);
+        const shares = sumStages(stages);
+        const total = sharePrice * shares;
+        if (total > 0) return total;
+    }
+
     // Prefer persisted total_sum
     const totalSumRaw = deal.total_sum;
     if (totalSumRaw != null && String(totalSumRaw).trim() !== '') {
@@ -4558,7 +4568,13 @@ function calcAddedRiskPercentForPlannedDeal(deal) {
     if (totalSum <= 0) return 0;
 
     const plannedTotal = getPlannedDealTotalSumValue(deal);
-    const slPct = parseNumber(deal?.stop_loss_prcnt);
+    let slPct = 0;
+    const form = document.querySelector(`.deal-form-inline[data-deal-id="${deal?.id}"]`);
+    if (form) {
+        slPct = parseNumber(form.querySelector('input[name="stop_loss_prcnt"]')?.value || '');
+    } else {
+        slPct = parseNumber(deal?.stop_loss_prcnt);
+    }
     if (plannedTotal <= 0 || slPct <= 0) return 0;
 
     const addedRiskAmount = plannedTotal * (slPct / 100);
@@ -4577,17 +4593,19 @@ function updatePlannedRiskBadges() {
     badges.forEach(badge => {
         const dealId = badge.getAttribute('data-deal-id') || '';
         const deal = deals?.find?.(d => d && String(d.id) === dealId);
-        if (!deal || deal.closed || !deal.planned_future) {
-            badge.textContent = '+Risk:-';
-            badge.setAttribute('data-tooltip', 'Planned deal: added risk if activated');
+        if (!deal || deal.closed) {
+            badge.textContent = '+Risk:0.00%';
+            badge.setAttribute('data-tooltip', 'Deal risk contribution');
             badge.classList.remove('risk-low', 'risk-medium', 'risk-high');
             return;
         }
 
         const added = calcAddedRiskPercentForPlannedDeal(deal);
         if (!added) {
-            badge.textContent = '+Risk:-';
-            badge.setAttribute('data-tooltip', 'Planned deal: added risk if activated');
+            badge.textContent = '+Risk:0.00%';
+            badge.setAttribute('data-tooltip', deal.planned_future
+                ? 'Planned deal: added risk if activated'
+                : 'Deal risk contribution');
             badge.classList.remove('risk-low', 'risk-medium', 'risk-high');
             return;
         }
@@ -4599,11 +4617,18 @@ function updatePlannedRiskBadges() {
         // Color by predicted portfolio risk if activated
         applyPortfolioRiskClasses(badge, predicted);
 
-        badge.setAttribute(
-            'data-tooltip',
-            `Planned deal: added risk if activated: ${sign}${added.toFixed(2)}%.\n` +
-            `If active: ${predicted.toFixed(2)}% (current: ${(Number(currentRisk) || 0).toFixed(2)}%).`
-        );
+        if (deal.planned_future) {
+            badge.setAttribute(
+                'data-tooltip',
+                `Added risk if activated: ${sign}${added.toFixed(2)}%.\n` +
+                `If active: ${predicted.toFixed(2)}% (current: ${(Number(currentRisk) || 0).toFixed(2)}%).`
+            );
+        } else {
+            badge.setAttribute(
+                'data-tooltip',
+                `Deal risk contribution: ${sign}${added.toFixed(2)}%.`
+            );
+        }
     });
 }
 
@@ -5982,14 +6007,14 @@ function setupRiskCalculator(form) {
             const shares = sumStages(stages);
 
             if (!Number.isFinite(slPct) || slPct <= 0 || !Number.isFinite(sharePrice) || sharePrice <= 0 || !shares || shares <= 0) {
-                if ('value' in riskEl) riskEl.value = '-';
-                else riskEl.textContent = '-';
+                if ('value' in riskEl) riskEl.value = '0.00';
+                else riskEl.textContent = '0.00';
                 return;
             }
 
             const positionSize = sharePrice * shares;
             const riskAmount = positionSize * (slPct / 100);
-            const riskText = `${formatTotalSum(riskAmount) || '-'}`;
+            const riskText = `${formatTotalSum(riskAmount) || '0.00'}`;
             if ('value' in riskEl) riskEl.value = riskText;
             else riskEl.textContent = riskText;
         } catch (e) {
