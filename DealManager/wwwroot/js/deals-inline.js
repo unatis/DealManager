@@ -2071,7 +2071,7 @@ function createDealFormHTML(deal = null, isNew = false) {
                 </label>
                 <div class="sp-row">
                     <label>Current Share price<input type="text" name="share_price" value="${escapeHtml(String(deal?.share_price || ''))}" placeholder=""></label>
-                    <label>Avrg price<input type="text" class="avg-entry-input" data-role="avg-entry-input" value="${escapeHtml(String(deal?.avg_entry || ''))}" readonly placeholder=""></label>
+                    <label>Avrg price<input type="text" data-role="avg-entry-input" value="${escapeHtml(String(deal?.avg_entry || ''))}" readonly placeholder=""></label>
                 </div>
                
                 <div class="stages-block full">
@@ -6034,7 +6034,7 @@ function setupRiskCalculator(form) {
             const tpInput = form.querySelector('input[name="take_profit"]');
             const tpPctInput = form.querySelector('input[name="take_profit_prcnt"]');
             const sharePriceInput = form.querySelector('input[name="share_price"]');
-            const avgEntryInput = form.querySelector('.avg-entry-input');
+            const avgEntryInput = form.querySelector('[data-role="avg-entry-input"]');
 
             const entryPrice = parseNumber(avgEntryInput?.value || sharePriceInput?.value || '');
             const stages = getStagesFromForm(form);
@@ -6134,7 +6134,7 @@ function setupRiskCalculator(form) {
         });
     }
 
-    const avgEntryInput = form.querySelector('.avg-entry-input');
+    const avgEntryInput = form.querySelector('[data-role="avg-entry-input"]');
     if (avgEntryInput) {
         avgEntryInput.addEventListener('input', () => {
             updateTakeProfitAmountUI();
