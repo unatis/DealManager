@@ -541,6 +541,38 @@ if (stockForm) {
     setupStockMetricsHeader();
 }
 
+function getUtcDayKey() {
+    return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+async function loadMovementMetricsCached(ticker) {
+    const raw = (ticker || '').trim().toUpperCase();
+    if (!raw) return null;
+
+    const cacheKey = `dm_movement_${raw}_${getUtcDayKey()}`;
+    try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed) return parsed;
+        }
+    } catch {
+        // ignore cache errors
+    }
+
+    if (typeof loadMovementMetrics !== 'function') return null;
+
+    const data = await loadMovementMetrics(raw);
+    if (data) {
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify(data));
+        } catch {
+            // ignore storage quota issues
+        }
+    }
+    return data;
+}
+
 // ====== Рендер списка акций ======
 
 function renderStocks() {
@@ -702,9 +734,9 @@ function createStockRow(stock) {
 
     // Add movement metrics (↑ | Mv:% | Ret:%) to stock header, reusing deals logic
     const metricsContainer = summary.querySelector('.movement-metrics-container');
-    if (metricsContainer && stock.ticker && typeof loadMovementMetrics === 'function' && typeof formatMovementMetrics === 'function') {
+    if (metricsContainer && stock.ticker && typeof formatMovementMetrics === 'function') {
         metricsContainer.innerHTML = '';
-        loadMovementMetrics(stock.ticker).then(metrics => {
+        loadMovementMetricsCached(stock.ticker).then(metrics => {
             if (!metrics) return;
             const formatted = formatMovementMetrics(metrics);
             metricsContainer.innerHTML = formatted;
@@ -1394,22 +1426,8 @@ if (betaVolatilitySelect) {
     updateBetaVolatilityStyling(betaVolatilitySelect, betaVolatilitySelect.value);
 }
 
-// ====== Lazy load stocks on user interaction ======
-async function ensureStocksLoaded() {
-    if (!stocksLoaded && !stocksLoading) {
-        await loadStocks();
-    }
-}
-
-if (stockList) {
-    stockList.addEventListener('click', ensureStocksLoaded);
-}
-if (emptyStockEl) {
-    emptyStockEl.addEventListener('click', ensureStocksLoaded);
-}
-if (stockFilterInput) {
-    stockFilterInput.addEventListener('focus', ensureStocksLoaded);
-}
+// ====== Start ======
+loadStocks();
 
 if (stockFilterInput) {
     stockFilterInput.addEventListener('input', () => {
