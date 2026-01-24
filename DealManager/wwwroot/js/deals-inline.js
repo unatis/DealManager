@@ -480,7 +480,7 @@ function updateAvgEntryUI(form) {
     const el = form.querySelector('[data-role="avg-entry-input"]');
     const avg = calculateAvgEntryFromForm(form);
     if (el) {
-        el.value = avg ? `$${avg.toFixed(2)}` : '';
+        el.value = avg ? avg.toFixed(2) : '';
     }
 
     // Keep SL% in sync when avg entry changes.
@@ -606,7 +606,7 @@ function formatTotalSum(totalSum) {
     if (!totalSum) return null;
     const num = parseFloat(String(totalSum).replace(',', '.'));
     if (isNaN(num) || num <= 0) return null;
-    return `$${num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+    return `${num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
 
 // Function to escape HTML special characters
@@ -1110,7 +1110,7 @@ function renderTradingViewChart(containerId, symbol, interval) {
 function formatTotalSum(totalSum) {
     if (!totalSum) return '';
     const num = parseFloat(String(totalSum).replace(',', '.')) || 0;
-    return num > 0 ? `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+    return num > 0 ? `${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
 }
 
 // Helper function to check if ATR is high risk (> 10%) from ATR string

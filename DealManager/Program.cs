@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using DealManager;
 using DealManager.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -92,8 +92,12 @@ internal class Program
         builder.Services.Configure<AlphaVantageSettings>(
         builder.Configuration.GetSection("AlphaVantage"));
 
+        builder.Services.Configure<MarketstackSettings>(
+        builder.Configuration.GetSection("Marketstack"));
+
         builder.Services.AddMemoryCache();
         builder.Services.AddHttpClient<AlphaVantageService>();
+        builder.Services.AddHttpClient<MarketstackService>();
 
         // Register background service for SPY data fetch on startup
         builder.Services.AddHostedService<SpyDataBackgroundService>();
