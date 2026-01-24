@@ -29,8 +29,17 @@ namespace DealManager.Services
                 
                 using var scope = _serviceProvider.CreateScope();
                 var alphaVantageService = scope.ServiceProvider.GetRequiredService<AlphaVantageService>();
+                var marketstackService = scope.ServiceProvider.GetRequiredService<MarketstackService>();
                 
-                await alphaVantageService.FetchSpyWeeklyDataAsync();
+                try
+                {
+                    await alphaVantageService.FetchSpyWeeklyDataAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Alpha Vantage failed for SPY. Falling back to Marketstack.");
+                    await marketstackService.GetWeeklyAsync("SPY", yearsBack: 2);
+                }
                 
                 _logger.LogInformation("SPY data fetch completed successfully");
             }
@@ -39,6 +48,7 @@ namespace DealManager.Services
                 _logger.LogError(ex, "Failed to fetch SPY data in background service: {Message}", ex.Message);
             }
         }
+
     }
 }
 

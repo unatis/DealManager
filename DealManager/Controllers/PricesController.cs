@@ -3,6 +3,7 @@ using DealManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
@@ -15,15 +16,19 @@ namespace DealManager.Controllers;
 public class PricesController : ControllerBase
 {
     private readonly AlphaVantageService _alpha;
+    private readonly MarketstackService _marketstack;
     private readonly ILogger<PricesController> _logger;
     private readonly TrendAnalyzer _trendAnalyzer;
+    private const string PriceSourceHeader = "X-Price-Source";
 
     public PricesController(
         AlphaVantageService alpha, 
+        MarketstackService marketstack,
         ILogger<PricesController> logger,
         TrendAnalyzer trendAnalyzer)
     {
         _alpha = alpha;
+        _marketstack = marketstack;
         _logger = logger;
         _trendAnalyzer = trendAnalyzer;
     }
@@ -37,7 +42,8 @@ public class PricesController : ControllerBase
         try
         {
             _logger.LogInformation("Fetching weekly prices for {Ticker} - this will ensure data is saved to MongoDB", ticker);
-            var data = await _alpha.GetWeeklyAsync(ticker);
+            var (data, source) = await GetWeeklyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             _logger.LogInformation("Retrieved {Count} price points for {Ticker} - data should now be persisted in MongoDB", data.Count, ticker);
             
             if (data.Count == 0)
@@ -47,8 +53,8 @@ public class PricesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            // читабельные ошибки от Alpha Vantage
-            _logger.LogWarning(ex, "Alpha Vantage error for {Ticker}: {Message}", ticker, ex.Message);
+            // читабельные ошибки от источника данных
+            _logger.LogWarning(ex, "Price data error for {Ticker}: {Message}", ticker, ex.Message);
             return BadRequest(ex.Message);
         }
         catch (Exception ex)
@@ -68,7 +74,8 @@ public class PricesController : ControllerBase
         try
         {
             _logger.LogInformation("Fetching monthly prices for {Ticker}", ticker);
-            var data = await _alpha.GetMonthlyAsync(ticker);
+            var (data, source) = await GetMonthlyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             _logger.LogInformation("Retrieved {Count} monthly price points for {Ticker}", data.Count, ticker);
 
             if (data.Count == 0)
@@ -78,7 +85,7 @@ public class PricesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Alpha Vantage monthly error for {Ticker}: {Message}", ticker, ex.Message);
+            _logger.LogWarning(ex, "Price data monthly error for {Ticker}: {Message}", ticker, ex.Message);
             return BadRequest(ex.Message);
         }
         catch (Exception ex)
@@ -97,7 +104,8 @@ public class PricesController : ControllerBase
 
         try
         {
-            var quote = await _alpha.GetCurrentQuoteAsync(ticker);
+            var (quote, source) = await GetQuoteWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             if (quote == null)
                 return NotFound("No current price available for this ticker");
 
@@ -105,7 +113,7 @@ public class PricesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Alpha Vantage error for {Ticker}: {Message}", ticker, ex.Message);
+            _logger.LogWarning(ex, "Price data error for {Ticker}: {Message}", ticker, ex.Message);
             return BadRequest(ex.Message);
         }
         catch (ArgumentException ex)
@@ -136,7 +144,8 @@ public class PricesController : ControllerBase
             }
 
             _logger.LogInformation("Fetching trends for {Ticker}", ticker);
-            var weeklyPriceData = await _alpha.GetWeeklyAsync(ticker);
+            var (weeklyPriceData, source) = await GetWeeklyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             _logger.LogInformation("Retrieved {WeeklyCount} weekly points for trends calculation for {Ticker}",
                 weeklyPriceData.Count, ticker);
             
@@ -177,7 +186,7 @@ public class PricesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Alpha Vantage error for trends {Ticker}: {Message}", ticker, ex.Message);
+            _logger.LogWarning(ex, "Price data error for trends {Ticker}: {Message}", ticker, ex.Message);
             return BadRequest(ex.Message);
         }
         catch (Exception ex)
@@ -203,7 +212,8 @@ public class PricesController : ControllerBase
             }
 
             _logger.LogInformation("Calculating support/resistance levels for {Ticker}", ticker);
-            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            var (priceData, source) = await GetWeeklyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             _logger.LogInformation("Retrieved {Count} price points for support/resistance calculation for {Ticker}", priceData.Count, ticker);
             
             if (priceData.Count == 0)
@@ -264,7 +274,7 @@ public class PricesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Alpha Vantage error for support/resistance {Ticker}: {Message}", ticker, ex.Message);
+            _logger.LogWarning(ex, "Price data error for support/resistance {Ticker}: {Message}", ticker, ex.Message);
             return BadRequest(ex.Message);
         }
         catch (Exception ex)
@@ -284,7 +294,8 @@ public class PricesController : ControllerBase
         try
         {
             _logger.LogInformation("Calculating average weekly volume for {Ticker}", ticker);
-            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            var (priceData, source) = await GetWeeklyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             
             if (priceData.Count == 0)
                 return NotFound("No data for this ticker");
@@ -429,7 +440,7 @@ public class PricesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            _logger.LogWarning(ex, "Alpha Vantage error for average volume {Ticker}: {Message}", ticker, ex.Message);
+            _logger.LogWarning(ex, "Price data error for average volume {Ticker}: {Message}", ticker, ex.Message);
             return BadRequest(ex.Message);
         }
         catch (Exception ex)
@@ -474,7 +485,8 @@ public class PricesController : ControllerBase
         try
         {
             _logger.LogInformation("Calculating ATR for {Ticker} with period {Period}", ticker, period);
-            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            var (priceData, source) = await GetWeeklyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             
             if (priceData.Count == 0)
                 return NotFound("No data for this ticker");
@@ -520,7 +532,21 @@ public class PricesController : ControllerBase
         try
         {
             _logger.LogInformation("Manual SPY data fetch requested");
-            var spyData = await _alpha.FetchSpyWeeklyDataAsync();
+            IReadOnlyList<PricePoint> spyData;
+            string source;
+            try
+            {
+                spyData = await _alpha.FetchSpyWeeklyDataAsync();
+                source = "alpha";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Alpha Vantage failed for SPY manual fetch. Falling back to Marketstack.");
+                spyData = await _marketstack.GetWeeklyAsync("SPY", yearsBack: 2);
+                source = "marketstack";
+            }
+
+            SetPriceSourceHeader(source);
             
             _logger.LogInformation("SPY data fetch completed: {Count} data points", spyData.Count);
             
@@ -559,12 +585,13 @@ public class PricesController : ControllerBase
             _logger.LogInformation("Calculating Beta for {Ticker} against SPY", ticker);
 
             // Получаем недельные данные актива
-            var assetData = await _alpha.GetWeeklyAsync(ticker);
+            var (assetData, assetSource) = await GetWeeklyWithSourceAsync(ticker);
             if (assetData.Count == 0)
                 return NotFound($"No weekly data found for {ticker}");
 
             // Получаем недельные данные SPY (бенчмарк)
-            var spyData = await _alpha.GetWeeklyAsync("SPY");
+            var (spyData, spySource) = await GetWeeklyWithSourceAsync("SPY");
+            SetPriceSourceHeader(CombineSources(assetSource, spySource));
             if (spyData.Count == 0)
                 return StatusCode(503, "SPY benchmark data is not available. Please ensure SPY data has been fetched.");
 
@@ -640,7 +667,8 @@ public class PricesController : ControllerBase
         try
         {
             _logger.LogInformation("Calculating movement metrics for {Ticker}", ticker);
-            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            var (priceData, source) = await GetWeeklyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             
             if (priceData.Count == 0)
                 return NotFound("No data for this ticker");
@@ -750,7 +778,8 @@ public class PricesController : ControllerBase
         try
         {
             _logger.LogInformation("Calculating movement score for {Ticker} with lookback={Lookback}, timeframe={Timeframe}", ticker, lookback, timeframe);
-            var priceData = await _alpha.GetWeeklyAsync(ticker);
+            var (priceData, source) = await GetWeeklyWithSourceAsync(ticker);
+            SetPriceSourceHeader(source);
             
             if (priceData.Count == 0)
                 return NotFound("No data for this ticker");
@@ -836,14 +865,17 @@ public class PricesController : ControllerBase
         try
         {
             var seriesList = new List<IReadOnlyList<PricePoint>>();
+            var sources = new List<string>();
             foreach (var symbol in symbols)
             {
-                var data = await _alpha.GetWeeklyAsync(symbol);
+                var (data, source) = await GetWeeklyWithSourceAsync(symbol);
                 if (data.Count == 0)
                     return BadRequest($"No weekly data for ticker {symbol}");
 
                 seriesList.Add(data);
+                sources.Add(source);
             }
+            SetPriceSourceHeader(CombineSources(sources));
 
             // IMPORTANT:
             // Different data sources (API vs MongoDB) can store weekly bars with different timestamps/timezones,
@@ -974,5 +1006,77 @@ public class PricesController : ControllerBase
                 tickers, ex.GetType().Name, ex.Message);
             return StatusCode(500, $"Internal error: {ex.Message}");
         }
+    }
+
+    private async Task<(IReadOnlyList<PricePoint> Data, string Source)> GetWeeklyWithSourceAsync(string ticker)
+    {
+        try
+        {
+            var data = await _alpha.GetWeeklyAsync(ticker);
+            return (data, "alpha");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage failed for {Ticker}. Falling back to Marketstack.", ticker);
+            var data = await _marketstack.GetWeeklyAsync(ticker, yearsBack: 2);
+            return (data, "marketstack");
+        }
+    }
+
+    private async Task<(IReadOnlyList<PricePoint> Data, string Source)> GetMonthlyWithSourceAsync(string ticker)
+    {
+        try
+        {
+            var data = await _alpha.GetMonthlyAsync(ticker);
+            return (data, "alpha");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage failed for {Ticker} (monthly). Falling back to Marketstack.", ticker);
+            var data = await _marketstack.GetMonthlyAsync(ticker, yearsBack: 2);
+            return (data, "marketstack");
+        }
+    }
+
+    private async Task<(AlphaVantageService.QuoteSnapshot? Quote, string Source)> GetQuoteWithSourceAsync(string ticker)
+    {
+        try
+        {
+            var quote = await _alpha.GetCurrentQuoteAsync(ticker);
+            return (quote, "alpha");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage failed for {Ticker} (quote). Falling back to Marketstack.", ticker);
+            var quote = await _marketstack.GetCurrentQuoteAsync(ticker);
+            var snapshot = quote == null ? null : new AlphaVantageService.QuoteSnapshot(quote.Price, quote.LastUpdatedUtc);
+            return (snapshot, "marketstack");
+        }
+    }
+
+    private void SetPriceSourceHeader(string source)
+    {
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            Response.Headers[PriceSourceHeader] = source;
+        }
+    }
+
+    private static string CombineSources(params string[] sources)
+    {
+        if (sources == null || sources.Length == 0)
+            return "unknown";
+
+        var distinct = new HashSet<string>(sources.Where(s => !string.IsNullOrWhiteSpace(s)));
+        return distinct.Count == 1 ? distinct.First() : "mixed";
+    }
+
+    private static string CombineSources(IEnumerable<string> sources)
+    {
+        if (sources == null)
+            return "unknown";
+
+        var distinct = new HashSet<string>(sources.Where(s => !string.IsNullOrWhiteSpace(s)));
+        return distinct.Count == 1 ? distinct.First() : "mixed";
     }
 }

@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DealManager.Models;
 using DealManager.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +15,8 @@ namespace DealManager.Controllers;
 public class AiController : ControllerBase
 {
     private readonly AlphaVantageService _alpha;
+    private readonly MarketstackService _marketstack;
+    private readonly ILogger<AiController> _logger;
     private readonly TrendAnalyzer _trendAnalyzer;
     private readonly IRiskService _riskService;
     private readonly UsersService _usersService;
@@ -21,9 +24,12 @@ public class AiController : ControllerBase
     private readonly DealsService _dealsService;
     private readonly StocksService _stocksService;
     private readonly GroqChatClient _groq;
+    private const string PriceSourceHeader = "X-Price-Source";
 
     public AiController(
         AlphaVantageService alpha,
+        MarketstackService marketstack,
+        ILogger<AiController> logger,
         TrendAnalyzer trendAnalyzer,
         IRiskService riskService,
         UsersService usersService,
@@ -33,6 +39,8 @@ public class AiController : ControllerBase
         GroqChatClient groq)
     {
         _alpha = alpha;
+        _marketstack = marketstack;
+        _logger = logger;
         _trendAnalyzer = trendAnalyzer;
         _riskService = riskService;
         _usersService = usersService;
@@ -310,11 +318,12 @@ public class AiController : ControllerBase
             new DealManager.Models.AiChatMessage { Role = "user", Content = req.Message });
 
         // --- Market data ---
-        var weekly = await _alpha.GetWeeklyAsync(ticker);
+        var (weekly, weeklySource) = await GetWeeklyWithSourceAsync(ticker);
         if (weekly.Count == 0)
             return NotFound("No data for this ticker");
 
-        var quote = await _alpha.GetCurrentQuoteAsync(ticker);
+        var (quote, quoteSource) = await GetQuoteWithSourceAsync(ticker);
+        SetPriceSourceHeader(CombineSources(weeklySource, quoteSource));
         var price = quote?.Price ?? weekly[^1].Close;
 
         // --- Indicators ---
@@ -356,7 +365,8 @@ public class AiController : ControllerBase
         {
             // Optional: beta/correlation vs SPY (may fail if SPY not present / API limits)
             var assetCandles = BetaService.ToWeeklyCandles(weekly);
-            var spyWeekly = await _alpha.GetWeeklyAsync("SPY");
+            var (spyWeekly, spySource) = await GetWeeklyWithSourceAsync("SPY");
+            SetPriceSourceHeader(CombineSources(weeklySource, spySource, quoteSource));
             if (spyWeekly.Count > 0)
             {
                 var spyCandles = BetaService.ToWeeklyCandles(spyWeekly);
@@ -735,6 +745,54 @@ Be conservative.";
             ticker,
             responseJson = enforcedEnvelopeJson
         });
+    }
+
+    private async Task<(IReadOnlyList<PricePoint> Data, string Source)> GetWeeklyWithSourceAsync(string ticker)
+    {
+        try
+        {
+            var data = await _alpha.GetWeeklyAsync(ticker);
+            return (data, "alpha");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage failed for {Ticker}. Falling back to Marketstack.", ticker);
+            var data = await _marketstack.GetWeeklyAsync(ticker, yearsBack: 2);
+            return (data, "marketstack");
+        }
+    }
+
+    private async Task<(AlphaVantageService.QuoteSnapshot? Quote, string Source)> GetQuoteWithSourceAsync(string ticker)
+    {
+        try
+        {
+            var quote = await _alpha.GetCurrentQuoteAsync(ticker);
+            return (quote, "alpha");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage failed for {Ticker} (quote). Falling back to Marketstack.", ticker);
+            var quote = await _marketstack.GetCurrentQuoteAsync(ticker);
+            var snapshot = quote == null ? null : new AlphaVantageService.QuoteSnapshot(quote.Price, quote.LastUpdatedUtc);
+            return (snapshot, "marketstack");
+        }
+    }
+
+    private void SetPriceSourceHeader(string source)
+    {
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            Response.Headers[PriceSourceHeader] = source;
+        }
+    }
+
+    private static string CombineSources(params string[] sources)
+    {
+        if (sources == null || sources.Length == 0)
+            return "unknown";
+
+        var distinct = new HashSet<string>(sources.Where(s => !string.IsNullOrWhiteSpace(s)));
+        return distinct.Count == 1 ? distinct.First() : "mixed";
     }
 }
 
