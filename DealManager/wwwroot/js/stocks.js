@@ -1,4 +1,4 @@
-﻿// stocks.js
+// stocks.js
 
 const addStockBtn = document.getElementById('addStockBtn');
 const stockModal = document.getElementById('stockModal');
@@ -10,6 +10,7 @@ const stockFilterInput = document.getElementById('stockFilterInput');
 
 let stocks = [];
 let stocksLoaded = false;
+let stocksLoading = false;
 let expandedStockId = null; // Track which stock is currently expanded
 // warningsCache is declared in deals-inline.js - use that shared cache
 
@@ -86,6 +87,8 @@ function getWarningByStockId(stockId) {
 }
 
 async function loadStocks() {
+    if (stocksLoading) return;
+    stocksLoading = true;
     stocksLoaded = false;
     renderStocks(); // Show loading state
     
@@ -109,6 +112,8 @@ async function loadStocks() {
             emptyStockEl.textContent = 'Не удалось загрузить акции';
             emptyStockEl.style.display = 'block';
         }
+    } finally {
+        stocksLoading = false;
     }
 }
 
@@ -1389,8 +1394,22 @@ if (betaVolatilitySelect) {
     updateBetaVolatilityStyling(betaVolatilitySelect, betaVolatilitySelect.value);
 }
 
-// ====== Старт ======
-loadStocks();
+// ====== Lazy load stocks on user interaction ======
+async function ensureStocksLoaded() {
+    if (!stocksLoaded && !stocksLoading) {
+        await loadStocks();
+    }
+}
+
+if (stockList) {
+    stockList.addEventListener('click', ensureStocksLoaded);
+}
+if (emptyStockEl) {
+    emptyStockEl.addEventListener('click', ensureStocksLoaded);
+}
+if (stockFilterInput) {
+    stockFilterInput.addEventListener('focus', ensureStocksLoaded);
+}
 
 if (stockFilterInput) {
     stockFilterInput.addEventListener('input', () => {

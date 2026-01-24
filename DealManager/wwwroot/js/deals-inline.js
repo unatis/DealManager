@@ -2566,7 +2566,7 @@ function createDealRow(deal, isNew) {
     `;
 
     // Add current price badge (CP) in the title for open + planned deals (not closed)
-    if (deal?.stock && deal?.id && !deal?.closed && !isNew) {
+    if (deal?.stock && deal?.id && !deal?.closed && !isNew && isExpanded) {
         const cpBadge = summary.querySelector('.current-price-badge');
         // Fire-and-forget; result is cached per UTC day
         attachCurrentPriceBadge(cpBadge, deal.stock).catch(err => {
@@ -4770,6 +4770,21 @@ async function loadMovementMetrics(ticker) {
     }
     
     try {
+        const raw = String(ticker || '').trim().toUpperCase();
+        const dayKey = getUtcDayKey();
+        const cacheKey = `dm_movement_${raw}_${dayKey}`;
+
+        // Daily cache to reduce API calls for the same ticker.
+        try {
+            const cached = localStorage.getItem(cacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed) return parsed;
+            }
+        } catch {
+            // ignore cache errors
+        }
+
         console.log('Loading movement metrics for ticker:', ticker);
         const s = window.movementSettings || defaultMovementSettings;
         const lookback = s.lookback || 52;
@@ -4801,6 +4816,11 @@ async function loadMovementMetrics(ticker) {
         // Verify we have the expected fields
         if (data && (data.speedPct !== undefined || data.strengthPct !== undefined)) {
             console.log('Movement metrics data is valid');
+            try {
+                localStorage.setItem(cacheKey, JSON.stringify(data));
+            } catch {
+                // ignore storage quota issues
+            }
             return data;
         } else {
             console.warn('Movement metrics data missing expected fields:', data);
@@ -6478,6 +6498,23 @@ async function attachPinnedMetrics(containerEl, ticker) {
     }
 
     const raw = (ticker || '').trim().toUpperCase();
+    const dayKey = getUtcDayKey();
+    const cacheKey = `dm_pinned_metrics_${raw}_${dayKey}`;
+
+    // Daily cache: avoid repeated API calls for pinned tickers.
+    try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed) {
+                const html = formatMovementMetrics(parsed);
+                containerEl.innerHTML = html;
+                return;
+            }
+        }
+    } catch {
+        // ignore cache errors
+    }
 
     try {
         let metrics = null;
@@ -6498,6 +6535,12 @@ async function attachPinnedMetrics(containerEl, ticker) {
         if (!metrics) {
             containerEl.textContent = '';
             return;
+        }
+
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify(metrics));
+        } catch {
+            // ignore storage quota issues
         }
 
         const html = formatMovementMetrics(metrics);
