@@ -11,6 +11,7 @@ const stockFilterInput = document.getElementById('stockFilterInput');
 let stocks = [];
 let stocksLoaded = false;
 let stocksLoading = false;
+let reversalCheckInProgress = false;
 let expandedStockId = null; // Track which stock is currently expanded
 // warningsCache is declared in deals-inline.js - use that shared cache
 
@@ -103,7 +104,7 @@ async function loadStocks() {
         
         // Load warnings when loading stocks
         await loadWarnings();
-        
+        await checkReversalForStocks();
         renderStocks();
     } catch (e) {
         console.error(e);
@@ -114,6 +115,84 @@ async function loadStocks() {
         }
     } finally {
         stocksLoading = false;
+    }
+}
+
+async function checkReversalForStocks() {
+    if (reversalCheckInProgress) return;
+    if (!Array.isArray(stocks) || stocks.length === 0) return;
+    if (typeof detectWeeklyReversalRetestBreakout !== 'function') {
+        console.warn('Reversal detector is not available');
+        for (const s of stocks) {
+            s.reversalOk = false;
+        }
+        renderStocks();
+        return;
+    }
+
+    reversalCheckInProgress = true;
+    try {
+        const hits = [];
+        for (const s of stocks) {
+            s.reversalOk = false;
+        }
+        for (const s of stocks) {
+            const ticker = s?.ticker;
+            if (!ticker) continue;
+
+            try {
+                const [wRes, qRes] = await Promise.all([
+                    apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, { headers: authHeaders() }),
+                    apiFetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, { headers: authHeaders() })
+                ]);
+
+                const weeklyBars = wRes.ok ? await wRes.json() : null;
+                const quote = qRes.ok ? await qRes.json() : null;
+                const priceNow = Number(quote?.price);
+
+                const setup = Array.isArray(weeklyBars)
+                    ? detectWeeklyReversalRetestBreakout(weeklyBars, priceNow)
+                    : { hasSetup: false };
+
+                s.reversalOk = !!setup?.hasSetup;
+                if (s.reversalOk) {
+                    hits.push({ ticker, setup, priceNow });
+                }
+            } catch (e) {
+                console.warn('Failed to check reversal for', ticker, e);
+                s.reversalOk = false;
+            }
+        }
+
+        if (typeof showDealLimitModal === 'function' && hits.length > 0) {
+            const today = new Date().toISOString().slice(0, 10);
+            for (const hit of hits) {
+                const key = `reversalPopupDate:${hit.ticker}`;
+                const lastShown = localStorage.getItem(key);
+                if (lastShown === today) continue;
+
+                const lines = [];
+                lines.push(`Ticker: ${hit.ticker}`);
+                lines.push(`Weekly reversal: FOUND`);
+                if (Number.isFinite(hit.setup?.support)) lines.push(`Support S: ${hit.setup.support.toFixed(2)}`);
+                if (Number.isFinite(hit.setup?.entryHigh)) lines.push(`Entry high: ${hit.setup.entryHigh.toFixed(2)}`);
+                if (Number.isFinite(hit.setup?.entryTrigger)) lines.push(`Entry trigger: ${hit.setup.entryTrigger.toFixed(2)}`);
+                if (Number.isFinite(hit.setup?.stop)) lines.push(`Suggested stop: ${hit.setup.stop.toFixed(2)}`);
+                if (typeof hit.setup?.volumeOk === 'boolean') {
+                    lines.push(`Volume confirmation (last 2 weeks): ${hit.setup.volumeOk ? 'OK' : 'NOT confirmed'}`);
+                }
+                if (Number.isFinite(hit.priceNow)) lines.push(`Current price (quote): ${hit.priceNow.toFixed(2)}`);
+
+                await showDealLimitModal(
+                    lines.join('\n'),
+                    { title: 'Reversal detected', mode: 'info', okText: 'OK' }
+                );
+                localStorage.setItem(key, today);
+            }
+        }
+    } finally {
+        reversalCheckInProgress = false;
+        renderStocks();
     }
 }
 
@@ -580,7 +659,7 @@ function renderStocks() {
 
     if (!stocksLoaded) {
         if (emptyStockEl) {
-            emptyStockEl.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем акции...</span></div>';
+            emptyStockEl.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Loading shares...</span></div>';
             emptyStockEl.style.display = 'block';
         }
         // Update count to 0 while loading
@@ -671,6 +750,7 @@ function createStockRow(stock) {
     
     const row = document.createElement('div');
     row.className = `deal-row ${isExpanded ? 'expanded' : ''}`;
+    if (stock?.reversalOk) row.classList.add('reversal-ok');
     row.dataset.stockId = stockId;
     row.draggable = true;
 

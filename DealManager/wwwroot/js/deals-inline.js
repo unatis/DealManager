@@ -619,16 +619,7 @@ function escapeHtml(str) {
     }[s]));
 }
 
-// ===== Weekly setup detector: "reversal + retest + breakout above previous week high" (weekly + quote) =====
-// We interpret indices as:
-// b   = current week (in-progress) -> use quote P instead of close
-// r   = b-1 (last completed week)  -> previous week, defines breakout high
-// tau = b-2 (week before previous) -> defines support level S = L_tau
-//
-// Conditions (ATR-based buffers):
-// 1) Impulse after tau: H_r >= S + gamma
-// 2) Retest: |L_r - S| <= eps  AND  C_r >= S - eps  (optional: L_r >= L_tau)
-// 3) Breakout trigger (quote): P >= H_r + delta
+// ===== Weekly setup detector: universal reversal (downtrend + impulse + retrace + breakout) =====
 const weeklySetupDefaults = Object.freeze({
     atrPeriod: 14,
     epsAtrFrac: 0.25,      // ε = 0.25 * ATR
@@ -636,7 +627,15 @@ const weeklySetupDefaults = Object.freeze({
     deltaAtrFrac: 0.10,    // δ = 0.10 * ATR
     fallbackEpsPct: 0.005, // 0.5% of S
     fallbackDeltaPct: 0.002, // 0.2% of H_r
-    requireNoLowerLowOnRetest: true
+    pivotLeft: 1,
+    pivotRight: 1,
+    trendMinSwings: 2,
+    trendSlopeK: 0.25,
+    downtrendLookback: 26,
+    downtrendDrawdownPct: 0.20,
+    downtrendDropFromHighPct: 0.15,
+    retraceMin: 0.35,
+    retraceMax: 0.70
 });
 
 function toNum(v) {
@@ -673,16 +672,11 @@ function calcWeeklyAtr(weeklyBars, period = 14) {
     return Number.isFinite(avg) ? avg : null;
 }
 
-function detectWeeklyReversalRetestBreakout(weeklyBars, quotePrice, opts = {}) {
-    const cfg = { ...weeklySetupDefaults, ...(opts || {}) };
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
 
-    if (!Array.isArray(weeklyBars) || weeklyBars.length < 4) {
-        return { hasSetup: false, triggered: false, reason: 'Not enough weekly bars' };
-    }
-
-    // Decide whether the last candle represents the current in-progress week.
-    // In our backend `PricePoint.Date` is the candle date (usually week ending/trading day),
-    // so most of the time AlphaVantage weekly series does NOT include current week; last bar is last completed week.
+function getCompletedWeeklyBars(weeklyBars) {
     const last = weeklyBars[weeklyBars.length - 1];
     const lastDateRaw = last?.Date ?? last?.date;
     const lastDate = lastDateRaw ? new Date(lastDateRaw) : null;
@@ -694,55 +688,278 @@ function detectWeeklyReversalRetestBreakout(weeklyBars, quotePrice, opts = {}) {
     startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
 
     const lastIsCurrentWeek = !!(lastDate && lastDate >= startOfWeek);
+    return { bars: weeklyBars, lastIsCurrentWeek };
+}
 
-    // r = last completed week; tau = week before r
-    const rIdx = lastIsCurrentWeek ? (weeklyBars.length - 2) : (weeklyBars.length - 1);
-    const tauIdx = rIdx - 1;
-    if (tauIdx < 0) {
-        return { hasSetup: false, triggered: false, reason: 'Not enough bars for tau/r' };
+function findWeeklyPivots(weeklyBars, left = 1, right = 1) {
+    const pivots = [];
+    if (!Array.isArray(weeklyBars) || weeklyBars.length < left + right + 1) return pivots;
+
+    for (let i = left; i <= weeklyBars.length - right - 1; i++) {
+        const cur = normalizeWeekBar(weeklyBars[i]);
+        if (![cur.H, cur.L].every(Number.isFinite)) continue;
+
+        let isHigh = true;
+        let isLow = true;
+
+        for (let j = i - left; j <= i + right; j++) {
+            if (j === i) continue;
+            const b = normalizeWeekBar(weeklyBars[j]);
+            if (![b.H, b.L].every(Number.isFinite)) { isHigh = false; isLow = false; break; }
+
+            if (b.H > cur.H) isHigh = false;
+            if (b.L < cur.L) isLow = false;
+            if (!isHigh && !isLow) break;
+        }
+
+        if (isHigh) pivots.push({ index: i, price: cur.H, isHigh: true });
+        if (isLow) pivots.push({ index: i, price: cur.L, isHigh: false });
     }
 
-    const r = normalizeWeekBar(weeklyBars[rIdx]);     // last completed week
-    const tau = normalizeWeekBar(weeklyBars[tauIdx]); // week before last completed
+    return pivots;
+}
 
-    if (![r.O, r.H, r.L, r.C, tau.O, tau.H, tau.L, tau.C].every(Number.isFinite)) {
-        return { hasSetup: false, triggered: false, reason: 'Bad OHLC values' };
+function slopeDown(bars, window, atr, k) {
+    if (!Array.isArray(bars) || bars.length <= window || !atr) return false;
+    const last = normalizeWeekBar(bars[bars.length - 1]).C;
+    const prev = normalizeWeekBar(bars[bars.length - 1 - window]).C;
+    if (!Number.isFinite(last) || !Number.isFinite(prev)) return false;
+
+    const slope = (last - prev) / window;
+    return slope < -(k * atr);
+}
+
+function simpleDowntrend(bars, lookback, atr, lastClose) {
+    if (!Array.isArray(bars) || bars.length < lookback + 1) return false;
+    const eps = atr ? atr * 0.1 : (lastClose * 0.002);
+    const start = bars.length - (lookback + 1);
+    let prev = normalizeWeekBar(bars[start]).C;
+    if (!Number.isFinite(prev)) return false;
+    for (let i = start + 1; i < bars.length; i++) {
+        const cur = normalizeWeekBar(bars[i]).C;
+        if (!Number.isFinite(cur)) return false;
+        if (!(cur < prev - eps)) return false;
+        prev = cur;
+    }
+    return true;
+}
+
+function drawdownDowntrend(bars, lookback, minDrawdownPct) {
+    if (!Array.isArray(bars) || bars.length < lookback + 1) return false;
+    const start = Math.max(0, bars.length - lookback);
+    let maxClose = -Infinity;
+    let maxIdx = -1;
+    let minClose = Infinity;
+    let minIdx = -1;
+
+    for (let i = start; i < bars.length; i++) {
+        const c = normalizeWeekBar(bars[i]).C;
+        if (!Number.isFinite(c)) continue;
+        if (c > maxClose) { maxClose = c; maxIdx = i; }
+        if (c < minClose) { minClose = c; minIdx = i; }
     }
 
-    const S = tau.L;
-    // ATR: exclude current week bar only if it exists in the array
-    const atrBars = lastIsCurrentWeek ? weeklyBars.slice(0, weeklyBars.length - 1) : weeklyBars;
-    const atr = calcWeeklyAtr(atrBars, cfg.atrPeriod);
+    if (!Number.isFinite(maxClose) || !Number.isFinite(minClose)) return false;
+    if (maxClose <= 0) return false;
+
+    const drawdown = (maxClose - minClose) / maxClose;
+    return maxIdx >= 0 && minIdx >= 0 && maxIdx < minIdx && drawdown >= minDrawdownPct;
+}
+
+function dropFromHighDowntrend(bars, lookback, minDropPct) {
+    if (!Array.isArray(bars) || bars.length < lookback + 1) return false;
+    const start = Math.max(0, bars.length - lookback);
+    let maxClose = -Infinity;
+    for (let i = start; i < bars.length; i++) {
+        const c = normalizeWeekBar(bars[i]).C;
+        if (!Number.isFinite(c)) continue;
+        if (c > maxClose) maxClose = c;
+    }
+
+    const lastClose = normalizeWeekBar(bars[bars.length - 1]).C;
+    if (!Number.isFinite(lastClose) || !Number.isFinite(maxClose) || maxClose <= 0) return false;
+    const drop = (maxClose - lastClose) / maxClose;
+    return drop >= minDropPct;
+}
+
+function swingsDown(bars, left, right, minSwings, atr, lastClose) {
+    const pivots = findWeeklyPivots(bars, left, right);
+    const lows = pivots.filter(p => !p.isHigh).slice(-minSwings);
+    const highs = pivots.filter(p => p.isHigh).slice(-minSwings);
+    if (lows.length < minSwings || highs.length < minSwings) return false;
+
+    const eps = atr ? atr * 0.25 : (lastClose * 0.005);
+
+    for (let i = 1; i < lows.length; i++) {
+        if (!(lows[i - 1].price > lows[i].price + eps)) return false;
+    }
+    for (let i = 1; i < highs.length; i++) {
+        if (!(highs[i - 1].price > highs[i].price + eps)) return false;
+    }
+
+    return true;
+}
+
+function findLocalSupport(bars, left, right) {
+    const pivots = findWeeklyPivots(bars, left, right);
+    const lows = pivots.filter(p => !p.isHigh);
+    if (lows.length > 0) return lows[lows.length - 1].price;
+
+    const window = bars.slice(-Math.min(8, bars.length));
+    const lowsWindow = window
+        .map(b => normalizeWeekBar(b).L)
+        .filter(Number.isFinite);
+
+    return lowsWindow.length ? Math.min(...lowsWindow) : NaN;
+}
+
+function findImpulseAfterS(bars, S) {
+    const tol = Math.max(1e-6, Math.abs(S) * 0.0001);
+    let sIdx = -1;
+
+    for (let i = bars.length - 1; i >= 0; i--) {
+        const b = normalizeWeekBar(bars[i]);
+        if (!Number.isFinite(b.L)) continue;
+        if (b.L <= S + tol) {
+            sIdx = i;
+            break;
+        }
+    }
+
+    if (sIdx < 0) return null;
+
+    let maxH = -Infinity;
+    let idx = -1;
+    for (let i = sIdx; i < bars.length; i++) {
+        const b = normalizeWeekBar(bars[i]);
+        if (Number.isFinite(b.H) && b.H > maxH) {
+            maxH = b.H;
+            idx = i;
+        }
+    }
+
+    return idx >= 0 ? { index: idx, high: maxH, supportIndex: sIdx } : null;
+}
+
+function findBestRetest(bars, S, impulseIdx, eps, retraceMin, retraceMax, lookahead = 8) {
+    if (!Array.isArray(bars) || impulseIdx < 0 || impulseIdx >= bars.length) return null;
+
+    const H = normalizeWeekBar(bars[impulseIdx]).H;
+    const denom = H - S;
+    if (!Number.isFinite(H) || denom <= 0) return null;
+
+    let best = null;
+    let bestDist = Infinity;
+    const end = Math.min(bars.length, impulseIdx + 1 + lookahead);
+
+    for (let i = impulseIdx + 1; i < end; i++) {
+        const b = normalizeWeekBar(bars[i]);
+        if (!Number.isFinite(b.L) || !Number.isFinite(b.C)) continue;
+
+        const retracePct = (H - b.L) / denom;
+        if (retracePct < retraceMin || retracePct > retraceMax) continue;
+
+        if (b.L < (S - eps) || b.C < (S - eps)) continue;
+
+        const dist = Math.abs(b.L - S);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = { index: i, low: b.L, close: b.C, retracePct };
+        }
+    }
+
+    return best;
+}
+
+function isVolumeGrowingLast2(bars) {
+    if (!Array.isArray(bars) || bars.length < 2) return false;
+    const prev = bars[bars.length - 2];
+    const last = bars[bars.length - 1];
+    const vPrev = Number(prev?.volume ?? prev?.Volume);
+    const vLast = Number(last?.volume ?? last?.Volume);
+    if (!Number.isFinite(vPrev) || !Number.isFinite(vLast)) return false;
+    return vLast > vPrev;
+}
+
+function detectWeeklyReversalRetestBreakout(weeklyBars, quotePrice, opts = {}) {
+    const cfg = { ...weeklySetupDefaults, ...(opts || {}) };
+
+    if (!Array.isArray(weeklyBars) || weeklyBars.length < 8) {
+        return { hasSetup: false, triggered: false, reason: 'Not enough weekly bars' };
+    }
+
+    const { bars } = getCompletedWeeklyBars(weeklyBars);
+    if (bars.length < 8) {
+        return { hasSetup: false, triggered: false, reason: 'Not enough completed weeks' };
+    }
+
+    const atr = calcWeeklyAtr(bars, cfg.atrPeriod);
+    const lastClose = normalizeWeekBar(bars[bars.length - 1]).C;
+    const atrPct = (atr && lastClose) ? (atr / lastClose) : 0.02;
+    const W = clamp(Math.round(10 - atrPct * 50), 8, 20);
+
+    const downtrendOk =
+        slopeDown(bars, W, atr, cfg.trendSlopeK) ||
+        swingsDown(bars, cfg.pivotLeft, cfg.pivotRight, cfg.trendMinSwings, atr, lastClose) ||
+        simpleDowntrend(bars, 3, atr, lastClose) ||
+        drawdownDowntrend(bars, cfg.downtrendLookback, cfg.downtrendDrawdownPct) ||
+        dropFromHighDowntrend(bars, cfg.downtrendLookback, cfg.downtrendDropFromHighPct);
+
+    if (!downtrendOk) {
+        return { hasSetup: false, triggered: false, reason: 'No downtrend' };
+    }
+
+    const S = findLocalSupport(bars, cfg.pivotLeft, cfg.pivotRight);
+    if (!Number.isFinite(S)) {
+        return { hasSetup: false, triggered: false, reason: 'No support' };
+    }
+
     const eps = atr ? (atr * cfg.epsAtrFrac) : (Math.abs(S) * cfg.fallbackEpsPct);
     const gamma = atr ? (atr * cfg.gammaAtrFrac) : (Math.abs(S) * (cfg.fallbackEpsPct * 2));
-    const delta = atr ? (atr * cfg.deltaAtrFrac) : (Math.abs(r.H) * cfg.fallbackDeltaPct);
 
-    // 1) Impulse after tau: previous week high must be meaningfully above support S
-    const impulseOk = r.H >= (S + gamma);
+    const impulse = findImpulseAfterS(bars, S);
+    if (!impulse || impulse.high < (S + gamma)) {
+        return { hasSetup: false, triggered: false, reason: 'Weak impulse' };
+    }
 
-    // 2) Retest: low near S and close not below S (beyond eps)
-    const retestOk =
-        Math.abs(r.L - S) <= eps &&
-        r.C >= (S - eps) &&
-        (!cfg.requireNoLowerLowOnRetest || r.L >= tau.L);
+    const retest = findBestRetest(
+        bars,
+        S,
+        impulse.index,
+        eps,
+        cfg.retraceMin,
+        cfg.retraceMax
+    );
 
-    const hasSetup = impulseOk && retestOk;
-    const entryHigh = r.H;
+    if (!retest) {
+        return { hasSetup: false, triggered: false, reason: 'No retest' };
+    }
+
+    const entryHigh = impulse.high;
+    const delta = atr ? (atr * cfg.deltaAtrFrac) : (Math.abs(entryHigh) * cfg.fallbackDeltaPct);
     const entryTrigger = entryHigh + delta;
     const P = toNum(quotePrice);
-    const triggered = Number.isFinite(P) ? (P >= entryTrigger) : false;
+    const lastBar = normalizeWeekBar(bars[bars.length - 1]);
+    const lastBarClose = lastBar.C;
+    const lastBarOpen = lastBar.O;
+    const lastBarGreen = Number.isFinite(lastBarClose) && Number.isFinite(lastBarOpen)
+        ? lastBarClose >= lastBarOpen
+        : false;
+    const fallbackPrice = lastBarGreen ? lastBarClose : lastBarOpen;
+    const currentPrice = Number.isFinite(P) ? P : fallbackPrice;
+    const triggered = Number.isFinite(currentPrice) ? (currentPrice >= entryTrigger) : false;
 
-    // Suggested stop: under support with same delta buffer (simple, consistent)
-    const stop = S - delta;
+    const volumeOk = isVolumeGrowingLast2(bars);
 
     return {
-        hasSetup,
+        hasSetup: true,
         triggered,
+        volumeOk,
         support: S,
         entryHigh,
         entryTrigger,
-        stop,
-        debug: { atr, eps, gamma, delta, P, impulseOk, retestOk, rIdx, tauIdx }
+        stop: S - delta,
+        debug: { atr, eps, gamma, delta, P, W, impulse, retest, volumeOk }
     };
 }
 
@@ -1670,6 +1887,7 @@ async function loadDeals() {
         await loadStocksForDeals();
         await loadWarnings();
         
+        await checkStopLossOnLoad();
         renderAll();
 
         // IMPORTANT:
@@ -1683,6 +1901,59 @@ async function loadDeals() {
     } catch (e) {
         console.error('Load deals error', e);
         dealsLoaded = true;
+    }
+}
+
+async function checkStopLossOnLoad() {
+    if (!Array.isArray(deals) || deals.length === 0) return;
+    if (typeof getDailyQuote !== 'function') return;
+    if (typeof showDealLimitModal !== 'function') return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const openDeals = deals.filter(d => d && !d.closed && !d.planned_future);
+
+    for (const deal of openDeals) {
+        deal.stopLossHit = false;
+
+        const ticker = (deal.stock || '').trim().toUpperCase();
+        if (!ticker) continue;
+
+        const avgEntry = calculateAvgEntryFromDeal(deal)
+            || parseNumber(deal.avg_entry || '')
+            || parseNumber(deal.share_price || '');
+        const stopLossPct = parseNumber(deal.stop_loss_prcnt || '');
+        let stopLoss = Number.isFinite(avgEntry) && avgEntry > 0 && stopLossPct > 0
+            ? avgEntry * (1 - (stopLossPct / 100))
+            : parseNumber(deal.stop_loss);
+        if (!Number.isFinite(stopLoss) || stopLoss <= 0) continue;
+
+        const quote = await getDailyQuote(ticker);
+        const priceNow = parseNumber(quote?.price);
+        if (!Number.isFinite(priceNow)) continue;
+
+        if (priceNow < stopLoss) {
+            deal.stopLossHit = true;
+
+            const key = `stopLossPopupDate:${deal.id || ticker}`;
+            const lastShown = localStorage.getItem(key);
+            if (lastShown === today) continue;
+
+            const lines = [];
+            lines.push(`Ticker: ${ticker}`);
+            lines.push('Current price is below stop loss.');
+            lines.push(`Current price: ${priceNow.toFixed(2)}`);
+            if (Number.isFinite(avgEntry)) {
+                lines.push(`Avg entry: ${avgEntry.toFixed(2)}`);
+            }
+            lines.push(`Stop loss: ${stopLoss.toFixed(2)}`);
+
+            await showDealLimitModal(
+                lines.join('\n'),
+                { title: 'Time to sell', mode: 'info', okText: 'OK' }
+            );
+
+            localStorage.setItem(key, today);
+        }
     }
 }
 
@@ -2315,7 +2586,7 @@ function renderAll() {
     elements.openList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyOpen.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
+        elements.emptyOpen.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Loading deals...</span></div>';
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0 && !newDealRow) {
         elements.emptyOpen.textContent =
@@ -2390,7 +2661,7 @@ function renderAll() {
     elements.closedList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyClosed.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
+        elements.emptyClosed.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Loading deals...</span></div>';
         elements.emptyClosed.style.display = 'block';
     } else if (closed.length === 0) {
         elements.emptyClosed.style.display = 'block';
@@ -2415,6 +2686,7 @@ function createDealRow(deal, isNew) {
     
     const row = document.createElement('div');
     row.className = `deal-row ${isExpanded ? 'expanded' : ''}`;
+    if (deal?.stopLossHit) row.classList.add('stop-loss-hit');
     row.dataset.dealId = dealId;
 
     // Collapsed summary view
@@ -3137,6 +3409,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
 
                         const hasSetup = !!setup?.hasSetup;
                         const triggered = !!setup?.triggered;
+                        const volumeOk = !!setup?.volumeOk;
 
                         const lines = [];
                         lines.push(`Ticker: ${ticker}`);
@@ -3154,6 +3427,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                             if (Number.isFinite(setup.entryTrigger)) lines.push(`Entry trigger (H_r + δ): ${setup.entryTrigger.toFixed(2)}`);
                             if (Number.isFinite(setup.stop)) lines.push(`Suggested stop: ${setup.stop.toFixed(2)}`);
                             lines.push(`Breakout (quote): ${triggered ? 'TRIGGERED' : 'NOT triggered yet'}`);
+                            lines.push(`Volume confirmation (last 2 weeks): ${volumeOk ? 'OK' : 'NOT confirmed'}`);
                         }
 
                         if (Number.isFinite(priceNow)) lines.push(`Current price (quote): ${priceNow.toFixed(2)}`);
