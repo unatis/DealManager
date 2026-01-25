@@ -292,6 +292,11 @@ h3 {
     transition: all 0.2s ease;
 }
 
+.deal-row.reversal-ok {
+    border-color: rgba(46,204,113,0.7);
+    background: rgba(46,204,113,0.08);
+}
+
 .deal-row.expanded {
     border-color: var(--accent);
     box-shadow: 0 2px 8px rgba(6,182,212,0.1);
