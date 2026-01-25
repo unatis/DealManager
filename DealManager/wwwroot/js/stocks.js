@@ -659,7 +659,7 @@ function renderStocks() {
 
     if (!stocksLoaded) {
         if (emptyStockEl) {
-            emptyStockEl.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем акции...</span></div>';
+            emptyStockEl.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Loading shares...</span></div>';
             emptyStockEl.style.display = 'block';
         }
         // Update count to 0 while loading

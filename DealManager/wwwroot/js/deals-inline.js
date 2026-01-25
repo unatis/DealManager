@@ -1887,6 +1887,7 @@ async function loadDeals() {
         await loadStocksForDeals();
         await loadWarnings();
         
+        await checkStopLossOnLoad();
         renderAll();
 
         // IMPORTANT:
@@ -1900,6 +1901,59 @@ async function loadDeals() {
     } catch (e) {
         console.error('Load deals error', e);
         dealsLoaded = true;
+    }
+}
+
+async function checkStopLossOnLoad() {
+    if (!Array.isArray(deals) || deals.length === 0) return;
+    if (typeof getDailyQuote !== 'function') return;
+    if (typeof showDealLimitModal !== 'function') return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const openDeals = deals.filter(d => d && !d.closed && !d.planned_future);
+
+    for (const deal of openDeals) {
+        deal.stopLossHit = false;
+
+        const ticker = (deal.stock || '').trim().toUpperCase();
+        if (!ticker) continue;
+
+        const avgEntry = calculateAvgEntryFromDeal(deal)
+            || parseNumber(deal.avg_entry || '')
+            || parseNumber(deal.share_price || '');
+        const stopLossPct = parseNumber(deal.stop_loss_prcnt || '');
+        let stopLoss = Number.isFinite(avgEntry) && avgEntry > 0 && stopLossPct > 0
+            ? avgEntry * (1 - (stopLossPct / 100))
+            : parseNumber(deal.stop_loss);
+        if (!Number.isFinite(stopLoss) || stopLoss <= 0) continue;
+
+        const quote = await getDailyQuote(ticker);
+        const priceNow = parseNumber(quote?.price);
+        if (!Number.isFinite(priceNow)) continue;
+
+        if (priceNow < stopLoss) {
+            deal.stopLossHit = true;
+
+            const key = `stopLossPopupDate:${deal.id || ticker}`;
+            const lastShown = localStorage.getItem(key);
+            if (lastShown === today) continue;
+
+            const lines = [];
+            lines.push(`Ticker: ${ticker}`);
+            lines.push('Current price is below stop loss.');
+            lines.push(`Current price: ${priceNow.toFixed(2)}`);
+            if (Number.isFinite(avgEntry)) {
+                lines.push(`Avg entry: ${avgEntry.toFixed(2)}`);
+            }
+            lines.push(`Stop loss: ${stopLoss.toFixed(2)}`);
+
+            await showDealLimitModal(
+                lines.join('\n'),
+                { title: 'Time to sell', mode: 'info', okText: 'OK' }
+            );
+
+            localStorage.setItem(key, today);
+        }
     }
 }
 
@@ -2532,7 +2586,7 @@ function renderAll() {
     elements.openList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyOpen.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
+        elements.emptyOpen.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Loading deals...</span></div>';
         elements.emptyOpen.style.display = 'block';
     } else if (open.length === 0 && !newDealRow) {
         elements.emptyOpen.textContent =
@@ -2607,7 +2661,7 @@ function renderAll() {
     elements.closedList.innerHTML = '';
 
     if (!dealsLoaded) {
-        elements.emptyClosed.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Загружаем сделки...</span></div>';
+        elements.emptyClosed.innerHTML = '<div class="loading-container"><span class="loading-spinner"></span><span>Loading deals...</span></div>';
         elements.emptyClosed.style.display = 'block';
     } else if (closed.length === 0) {
         elements.emptyClosed.style.display = 'block';
@@ -2632,6 +2686,7 @@ function createDealRow(deal, isNew) {
     
     const row = document.createElement('div');
     row.className = `deal-row ${isExpanded ? 'expanded' : ''}`;
+    if (deal?.stopLossHit) row.classList.add('stop-loss-hit');
     row.dataset.dealId = dealId;
 
     // Collapsed summary view
