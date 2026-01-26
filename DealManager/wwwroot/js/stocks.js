@@ -102,10 +102,16 @@ async function loadStocks() {
         stocks = await res.json();
         stocksLoaded = true;
         
-        // Load warnings when loading stocks
-        await loadWarnings();
-        await checkReversalForStocks();
+        // Render list ASAP (do not block UI on warnings/reversal checks)
         renderStocks();
+
+        // Load warnings in background, then refresh icons
+        loadWarnings().then(() => {
+            renderStocks();
+        });
+
+        // Run reversal check after UI is rendered
+        checkReversalForStocks();
     } catch (e) {
         console.error(e);
         stocksLoaded = true;

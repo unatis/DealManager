@@ -1906,7 +1906,6 @@ async function loadDeals() {
 
 async function checkStopLossOnLoad() {
     if (!Array.isArray(deals) || deals.length === 0) return;
-    if (typeof getDailyQuote !== 'function') return;
     if (typeof showDealLimitModal !== 'function') return;
 
     const today = new Date().toISOString().slice(0, 10);
@@ -1918,20 +1917,13 @@ async function checkStopLossOnLoad() {
         const ticker = (deal.stock || '').trim().toUpperCase();
         if (!ticker) continue;
 
-        const avgEntry = calculateAvgEntryFromDeal(deal)
-            || parseNumber(deal.avg_entry || '')
-            || parseNumber(deal.share_price || '');
-        const stopLossPct = parseNumber(deal.stop_loss_prcnt || '');
-        let stopLoss = Number.isFinite(avgEntry) && avgEntry > 0 && stopLossPct > 0
-            ? avgEntry * (1 - (stopLossPct / 100))
-            : parseNumber(deal.stop_loss);
+        const stopLoss = parseNumber(deal.stop_loss);
         if (!Number.isFinite(stopLoss) || stopLoss <= 0) continue;
 
-        const quote = await getDailyQuote(ticker);
-        const priceNow = parseNumber(quote?.price);
-        if (!Number.isFinite(priceNow)) continue;
+        const sharePrice = parseNumber(deal.share_price);
+        if (!Number.isFinite(sharePrice) || sharePrice <= 0) continue;
 
-        if (priceNow < stopLoss) {
+        if (sharePrice < stopLoss) {
             deal.stopLossHit = true;
 
             const key = `stopLossPopupDate:${deal.id || ticker}`;
@@ -1940,11 +1932,8 @@ async function checkStopLossOnLoad() {
 
             const lines = [];
             lines.push(`Ticker: ${ticker}`);
-            lines.push('Current price is below stop loss.');
-            lines.push(`Current price: ${priceNow.toFixed(2)}`);
-            if (Number.isFinite(avgEntry)) {
-                lines.push(`Avg entry: ${avgEntry.toFixed(2)}`);
-            }
+            lines.push('Share price is below stop loss.');
+            lines.push(`Share price: ${sharePrice.toFixed(2)}`);
             lines.push(`Stop loss: ${stopLoss.toFixed(2)}`);
 
             await showDealLimitModal(
