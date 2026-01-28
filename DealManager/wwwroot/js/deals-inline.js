@@ -97,6 +97,78 @@ const elements = {
     logoutBtn: document.getElementById('logoutBtn')
 };
 
+const layoutElements = {
+    main: document.getElementById('mainLayout'),
+    leftPanel: document.getElementById('leftPanel'),
+    rightPanel: document.getElementById('rightPanel'),
+    toggleLeft: document.getElementById('toggleLeftPanel'),
+    toggleRight: document.getElementById('toggleRightPanel')
+};
+
+const layoutState = {
+    left: localStorage.getItem('leftPanelCollapsed') === '1',
+    right: localStorage.getItem('rightPanelCollapsed') === '1'
+};
+
+function applyLayoutState() {
+    if (!layoutElements.main) return;
+
+    layoutElements.main.classList.remove('left-collapsed', 'right-collapsed', 'both-collapsed');
+    if (layoutState.left && layoutState.right) {
+        layoutElements.main.classList.add('both-collapsed');
+    } else if (layoutState.left) {
+        layoutElements.main.classList.add('left-collapsed');
+    } else if (layoutState.right) {
+        layoutElements.main.classList.add('right-collapsed');
+    }
+
+    if (layoutElements.leftPanel) {
+        layoutElements.leftPanel.classList.toggle('collapsed', layoutState.left);
+    }
+    if (layoutElements.rightPanel) {
+        layoutElements.rightPanel.classList.toggle('collapsed', layoutState.right);
+    }
+
+    if (layoutElements.toggleLeft) {
+        const isCollapsed = layoutState.left;
+        layoutElements.toggleLeft.textContent = isCollapsed ? '>' : '<';
+        layoutElements.toggleLeft.title = isCollapsed ? 'Expand' : 'Collapse';
+        layoutElements.toggleLeft.setAttribute(
+            'aria-label',
+            isCollapsed ? 'Expand left panel' : 'Collapse left panel'
+        );
+    }
+    if (layoutElements.toggleRight) {
+        const isCollapsed = layoutState.right;
+        layoutElements.toggleRight.textContent = isCollapsed ? '<' : '>';
+        layoutElements.toggleRight.title = isCollapsed ? 'Expand' : 'Collapse';
+        layoutElements.toggleRight.setAttribute(
+            'aria-label',
+            isCollapsed ? 'Expand right panel' : 'Collapse right panel'
+        );
+    }
+}
+
+function setCollapsed(side, collapsed) {
+    layoutState[side] = collapsed;
+    localStorage.setItem(`${side}PanelCollapsed`, collapsed ? '1' : '0');
+    applyLayoutState();
+}
+
+if (layoutElements.toggleLeft) {
+    layoutElements.toggleLeft.addEventListener('click', () => {
+        setCollapsed('left', !layoutState.left);
+    });
+}
+
+if (layoutElements.toggleRight) {
+    layoutElements.toggleRight.addEventListener('click', () => {
+        setCollapsed('right', !layoutState.right);
+    });
+}
+
+applyLayoutState();
+
 function setPriceError(containerEl, message) {
     if (!containerEl) return;
     let errorEl = containerEl.querySelector('.price-error');

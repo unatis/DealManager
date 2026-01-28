@@ -45,6 +45,7 @@
             <div id="userInfo" class="user-info">
                 <span id="userNameDisplay">...</span>
             </div>
+            <button id="openAssistantBtn" class="secondary desktop-btn" title="AI assistant">AI</button>
             <button id="logoutBtn" class="secondary desktop-btn">Logout</button>
             <button id="settingsBtn" class="secondary desktop-btn" title="Settings">⚙</button>
             <!-- Hamburger menu button for mobile -->
@@ -70,13 +71,17 @@
         <button id="logoutBtnMobile" class="mobile-menu-btn secondary">Logout</button>
     </div>
 
-    <main>
+    <main id="mainLayout" class="layout-grid">
         <!-- Left: stocks list -->
-        <aside class="panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <aside id="leftPanel" class="panel side-panel left-panel">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <h3 style="margin: 0;">Stocks</h3>
-                <button id="addStockBtn" class="desktop-btn">Add stock</button>
+                <div class="panel-header-actions">
+                    <button id="addStockBtn" class="desktop-btn">Add stock</button>
+                    <button id="toggleLeftPanel" class="panel-toggle" aria-label="Collapse left panel" title="Collapse">&lt;</button>
+                </div>
             </div>
+            <div class="panel-body">
             <div class="filterRow">
                 <input id="stockFilterInput" placeholder="search" style="flex:1">
                 <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="stockCount">0</span></div>
@@ -84,6 +89,7 @@
             <div id="stockRiskStatus" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
             <div id="stockList" class="list"></div>
             <div id="emptyStock" class="empty" style="display: none;">No shares in list</div>
+            </div>
         </aside>
         <!-- CENTER: only open deals (with search) -->
         <section class="panel center">
@@ -101,13 +107,18 @@
         </section>
 
         <!-- RIGHT: closed deals -->
-        <aside class="panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <aside id="rightPanel" class="panel side-panel right-panel">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <h3 style="margin: 0;">Closed deals</h3>
-                <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="closedCount">0</span></div>
+                <div class="panel-header-actions">
+                    <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="closedCount">0</span></div>
+                    <button id="toggleRightPanel" class="panel-toggle" aria-label="Collapse right panel" title="Collapse">&gt;</button>
+                </div>
             </div>
+            <div class="panel-body">
             <div id="closedList" class="list"></div>
             <div id="emptyClosed" class="empty" style="display:none">No closed deals.</div>
+            </div>
         </aside>
     </main>
 
@@ -400,6 +411,34 @@
                 <textarea id="aiChatInput" rows="2" placeholder="Ask about the ticker... (Enter to send, Shift+Enter for newline)"></textarea>
                 <button id="aiChatSendBtn">Send</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Persistent AI assistant widget -->
+    <div id="aiAssistant" class="ai-assistant">
+        <button id="aiAssistantFab" class="ai-assistant-fab" aria-label="Open AI assistant" title="AI assistant">AI</button>
+        <div class="ai-assistant-wrap">
+            <div id="aiAssistantPanel" class="ai-assistant-panel">
+                <div id="aiAssistantHeader" class="ai-assistant-header">
+                    <div class="ai-assistant-title">
+                        <span>AI assistant</span>
+                    </div>
+                    <div class="ai-assistant-actions">
+                        <button id="aiAssistantClearBtn" class="secondary" title="Clear chat">Clear</button>
+                        <button id="aiAssistantMinBtn" class="secondary" aria-label="Collapse assistant" title="Collapse">_</button>
+                    </div>
+                </div>
+                <div id="aiAssistantBody" class="ai-assistant-body">
+                    <div id="aiAssistantStatus" class="ai-chat-status"></div>
+                    <div id="aiAssistantMessages" class="ai-chat-messages" aria-live="polite"></div>
+                    <div class="ai-chat-input-row">
+                        <textarea id="aiAssistantInput" rows="2" placeholder="Ask about your portfolio..."></textarea>
+                        <button id="aiAssistantSendBtn">Send</button>
+                    </div>
+                </div>
+            </div>
+            <img class="ai-assistant-hero" src="/img/wb1.png" alt="AI assistant" draggable="false" />
+            <div class="ai-assistant-hero-handle" aria-hidden="true"></div>
         </div>
     </div>
     
