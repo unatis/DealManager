@@ -2237,6 +2237,7 @@ label.inline-checkbox > input[type="checkbox"] {
 .ai-assistant-panel {
     position: relative;
     width: 360px;
+    min-width: 300px;
     max-width: calc(100vw - 32px);
     background: var(--card);
     border: 1px solid rgba(148, 163, 184, 0.35);
@@ -2245,7 +2246,9 @@ label.inline-checkbox > input[type="checkbox"] {
     display: flex;
     flex-direction: column;
     overflow: visible;
-    z-index: 2;
+    resize: horizontal;
+    overflow: auto;
+    z-index: 4;
 }
 
 .ai-assistant-wrap {
@@ -2255,7 +2258,7 @@ label.inline-checkbox > input[type="checkbox"] {
 .ai-assistant-hero {
     position: absolute;
     top: 0;
-    right: -22px;
+    right: -17px;
     width: 150px;
     height: auto;
     pointer-events: none;
@@ -2266,10 +2269,10 @@ label.inline-checkbox > input[type="checkbox"] {
 
 .ai-assistant-hero-handle {
     position: absolute;
-    top: 0;
-    right: -22px;
+    top: 36px;
+    right: -17px;
     width: 150px;
-    height: 140px;
+    height: 110px;
     transform: translateY(calc(-90% + 20px));
     cursor: grab;
     z-index: 3;
@@ -2287,6 +2290,8 @@ label.inline-checkbox > input[type="checkbox"] {
     border-bottom: 1px solid rgba(148, 163, 184, 0.35);
     cursor: move;
     user-select: none;
+    position: relative;
+    z-index: 4;
 }
 
 .ai-assistant-title {
@@ -2341,6 +2346,17 @@ label.inline-checkbox > input[type="checkbox"] {
 
 .ai-assistant.collapsed .ai-assistant-fab {
     display: flex;
+}
+
+.ai-assistant.collapsed .ai-assistant-hero,
+.ai-assistant.collapsed .ai-assistant-hero-handle {
+    display: none;
+}
+
+body.ai-dragging {
+    user-select: none;
+    caret-color: transparent;
+    cursor: grabbing;
 }
 
 /* ===== Close deal modal (required close price) ===== */

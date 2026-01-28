@@ -267,7 +267,6 @@
         } finally {
             isSending = false;
             sendBtn.disabled = false;
-            inputEl.focus();
         }
     }
 
@@ -611,6 +610,8 @@
     function onDragStart(e, source) {
         if (source === 'panel' && e.target && e.target.closest && e.target.closest('button, textarea, input, select, option')) return;
         if (source === 'header' && e.target && e.target.closest && e.target.closest('button')) return;
+        e.preventDefault();
+        document.body.classList.add('ai-dragging');
         dragging = true;
         draggingFromFab = source === 'fab';
         movedFromFab = false;
@@ -653,6 +654,7 @@
         dragging = false;
         e.currentTarget.releasePointerCapture(e.pointerId);
         draggingFromFab = false;
+        document.body.classList.remove('ai-dragging');
     }
 
     header.addEventListener('pointerdown', (e) => onDragStart(e, 'header'));
@@ -663,12 +665,14 @@
         if (!dragging) return;
         dragging = false;
         draggingFromFab = false;
+        document.body.classList.remove('ai-dragging');
     });
 
     window.addEventListener('pointercancel', () => {
         if (!dragging) return;
         dragging = false;
         draggingFromFab = false;
+        document.body.classList.remove('ai-dragging');
     });
 
     if (fab) {
@@ -706,7 +710,6 @@
     if (openBtn) {
         openBtn.addEventListener('click', () => {
             applyCollapsed(false);
-            inputEl.focus();
         });
     }
 
