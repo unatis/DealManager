@@ -606,7 +606,7 @@ function formatTotalSum(totalSum) {
     if (!totalSum) return null;
     const num = parseFloat(String(totalSum).replace(',', '.'));
     if (isNaN(num) || num <= 0) return null;
-    return `${num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+    return `$${num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
 
 // Function to escape HTML special characters
@@ -948,6 +948,13 @@ function detectWeeklyReversalRetestBreakout(weeklyBars, quotePrice, opts = {}) {
     const fallbackPrice = lastBarGreen ? lastBarClose : lastBarOpen;
     const currentPrice = Number.isFinite(P) ? P : fallbackPrice;
     const triggered = Number.isFinite(currentPrice) ? (currentPrice >= entryTrigger) : false;
+
+    const prevBar = normalizeWeekBar(bars[bars.length - 2]);
+    const lowPrev = prevBar.L;
+    const lowCurr = lastBar.L;
+    if (!(Number.isFinite(lowCurr) && Number.isFinite(lowPrev) && lowCurr > lowPrev)) {
+        return { hasSetup: false, triggered: false, reason: 'Last week low not higher than previous' };
+    }
 
     const volumeOk = isVolumeGrowingLast2(bars);
 
@@ -1327,7 +1334,7 @@ function renderTradingViewChart(containerId, symbol, interval) {
 function formatTotalSum(totalSum) {
     if (!totalSum) return '';
     const num = parseFloat(String(totalSum).replace(',', '.')) || 0;
-    return num > 0 ? `${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+    return num > 0 ? `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
 }
 
 // Helper function to check if ATR is high risk (> 10%) from ATR string
@@ -1884,11 +1891,18 @@ async function loadDeals() {
         dealsLoaded = true;
         
         // Load stocks and warnings to cache for volume indicator
-        await loadStocksForDeals();
-        await loadWarnings();
-        
-        await checkStopLossOnLoad();
         renderAll();
+
+        const backgroundChecks = async () => {
+            await loadStocksForDeals();
+            await loadWarnings();
+            
+            await checkStopLossOnLoad();
+            await checkWeeklyUptrendBreakOnLoad();
+            renderAll();
+        };
+
+        backgroundChecks();
 
         // IMPORTANT:
         // Server-side portfolio risk uses user.TotalSum as denominator.
@@ -1943,6 +1957,71 @@ async function checkStopLossOnLoad() {
 
             localStorage.setItem(key, today);
         }
+    }
+}
+
+function getWeeklyClose(bar) {
+    const v = Number(bar?.Close ?? bar?.close ?? null);
+    return Number.isFinite(v) ? v : null;
+}
+
+async function checkWeeklyUptrendBreakOnLoad() {
+    if (!Array.isArray(deals) || deals.length === 0) return;
+    if (typeof showDealLimitModal !== 'function') return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const openDeals = deals.filter(d => d && !d.closed && !d.planned_future);
+    const priceCache = new Map();
+
+    for (const deal of openDeals) {
+        deal.weeklyUptrendBreak = false;
+
+        const ticker = (deal.stock || '').trim().toUpperCase();
+        if (!ticker) continue;
+
+        let bars = priceCache.get(ticker);
+        if (!bars) {
+            const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}`, { headers: authHeaders() });
+            if (!res.ok) continue;
+            bars = await res.json();
+            priceCache.set(ticker, bars);
+        }
+
+        if (!Array.isArray(bars) || bars.length < 2) continue;
+
+        const prev = bars[bars.length - 2];
+        const curr = bars[bars.length - 1];
+        const lowPrev = getWeeklyLow(prev);
+        if (!(lowPrev > 0)) continue;
+
+        const lowCurr = getWeeklyLow(curr);
+        const closeCurr = getWeeklyClose(curr);
+
+        const broke =
+            (Number.isFinite(lowCurr) && lowCurr < lowPrev) ||
+            (Number.isFinite(closeCurr) && closeCurr < lowPrev);
+
+        if (!broke) continue;
+
+        deal.weeklyUptrendBreak = true;
+
+        const key = `weeklyBreakPopupDate:${deal.id || ticker}`;
+        const lastShown = localStorage.getItem(key);
+        if (lastShown === today) continue;
+
+        const lines = [];
+        lines.push(`Ticker: ${ticker}`);
+        lines.push('Weekly uptrend structure may be broken.');
+        lines.push(`Prev week low: ${lowPrev.toFixed(2)}`);
+        if (Number.isFinite(lowCurr)) lines.push(`Curr week low: ${lowCurr.toFixed(2)}`);
+        if (Number.isFinite(closeCurr)) lines.push(`Curr week close: ${closeCurr.toFixed(2)}`);
+
+        await showDealLimitModal(
+            lines.join('\n'),
+            { title: 'Weekly trend break', mode: 'info', okText: 'OK' }
+        );
+
+        localStorage.setItem(key, today);
     }
 }
 
@@ -2675,7 +2754,7 @@ function createDealRow(deal, isNew) {
     
     const row = document.createElement('div');
     row.className = `deal-row ${isExpanded ? 'expanded' : ''}`;
-    if (deal?.stopLossHit) row.classList.add('stop-loss-hit');
+    if (deal?.stopLossHit || deal?.weeklyUptrendBreak) row.classList.add('stop-loss-hit');
     row.dataset.dealId = dealId;
 
     // Collapsed summary view
@@ -2711,13 +2790,13 @@ function createDealRow(deal, isNew) {
                 sp500Indicator = `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`;
             }
             if (warning.atr_high_risk) {
-                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`;
+                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range 14 days): High risk (more than 10%)">!</span>`;
             }
             if (warning.sync_sp500_no) {
                 syncSp500Indicator = `<span class="volume-warning-icon" data-tooltip="Is share movement synchronized with S&amp;P500?: No">!</span>`;
             }
             if (warning.beta_volatility_high) {
-                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`;
+                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Beta category (vs SPY): High (more volatile)">!</span>`;
             }
         }
         
@@ -2734,7 +2813,7 @@ function createDealRow(deal, isNew) {
             }
             // Check ATR high risk
             if (isAtrHighRiskFromString(stock.atr || stock.Atr)) {
-                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`;
+                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range 14 days): High risk (more than 10%)">!</span>`;
             }
             // Check sync SP500
             if (stock.sync_sp500 === 'no' || stock.SyncSp500 === 'no') {
@@ -2742,7 +2821,7 @@ function createDealRow(deal, isNew) {
             }
             // Check beta volatility high
             if (stock.betaVolatility === '3' || stock.BetaVolatility === '3' || stock.betaVolatility === 3) {
-                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`;
+                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Beta category (vs SPY): High (more volatile)">!</span>`;
             }
         }
     }
@@ -2750,6 +2829,13 @@ function createDealRow(deal, isNew) {
     const avgEntryRaw = deal ? parseNumber(deal?.avg_entry || '') : 0;
     const avgEntryForBadge = deal ? (avgEntryRaw > 0 ? avgEntryRaw : calculateAvgEntryFromDeal(deal)) : null;
     const spBadgeValue = avgEntryForBadge ? avgEntryForBadge.toFixed(2) : (deal?.share_price || '-');
+    const cpBadgeValue = deal ? formatPriceForBadge(deal?.share_price) : '-';
+    const cpUpdated = deal?.share_price_updated_utc
+        ? formatLastUpdatedUtcForTooltip(deal.share_price_updated_utc)
+        : '';
+    const cpTooltip = cpUpdated
+        ? `Current price (deal, updated ${cpUpdated})`
+        : 'Current price (deal)';
 
     summary.innerHTML = `
         <div class="meta">
@@ -2759,7 +2845,7 @@ function createDealRow(deal, isNew) {
                         <strong>${escapeHtml(deal.stock)}${volumeIndicator}${sp500Indicator}${atrIndicator}${syncSp500Indicator}${betaVolatilityIndicator}</strong>
                     </div>
                     ${totalSumDisplay ? `<div class="total-sum-display">${totalSumDisplay}</div>` : ''}
-                    ${deal && !deal.closed ? `<div class="badge movement-metric-tooltip current-price-badge" data-tooltip="Current price (daily)" data-entry-price="${escapeHtml(deal.share_price || '')}">CP:-</div>` : ''}
+                    ${deal && !deal.closed ? `<div class="badge movement-metric-tooltip current-price-badge" data-tooltip="${escapeHtml(cpTooltip)}" data-entry-price="${escapeHtml(deal.share_price || '')}">CP:${escapeHtml(cpBadgeValue)}</div>` : ''}
                     ${deal && !deal.closed && deal.id ? `<div class="badge portfolio-display movement-metric-tooltip planned-risk-badge" data-deal-id="${deal.id}" data-tooltip="Planned deal: added risk if activated">+Risk:-</div>` : ''}
                     <div class="movement-metrics-container"></div>
                 </div>`
@@ -2767,6 +2853,7 @@ function createDealRow(deal, isNew) {
             }
             ${deal ? `<span class="small" style="margin-top:4px">${formatDate(deal.date)}${plannedFutureLabel}</span>` : ''}
             ${deal ? `<div class="small" style="margin-top:6px">${escapeHtml((deal.notes || '').slice(0, 140))}</div>` : ''}
+            ${deal && !deal.closed ? `<div class="small current-price-log" style="margin-top:4px;color:#64748b;"></div>` : ''}
         </div>
         ${deal ? `
         <div class="chips" style="min-width:140px;justify-content:flex-end">
@@ -2826,14 +2913,7 @@ function createDealRow(deal, isNew) {
         ` : ''}
     `;
 
-    // Add current price badge (CP) in the title for open + planned deals (not closed)
-    if (deal?.stock && deal?.id && !deal?.closed && !isNew && isExpanded) {
-        const cpBadge = summary.querySelector('.current-price-badge');
-        // Fire-and-forget; result is cached per UTC day
-        attachCurrentPriceBadge(cpBadge, deal.stock).catch(err => {
-            console.warn('attachCurrentPriceBadge failed', deal.stock, err);
-        });
-    }
+    // CP badge now uses stored share price; no async quote fetch here.
 
     // Planned deal: show "assumed/added risk if activated"
     if (deal?.id && deal?.planned_future && !deal?.closed && !isNew) {
@@ -3119,6 +3199,7 @@ async function setupDealRowHandlers(row, deal, isNew) {
                     const isPlannedDeal = isNew || !!(deal && deal.planned_future);
                     form.dataset.isPlannedDeal = isPlannedDeal ? '1' : '0';
                     setupSharePriceListener(form, isPlannedDeal);
+                    await autoRefreshSharePriceOnExpand(form, deal);
                     setupStopLossListener(form);
                     setupDealChart(row, form, deal, dealId);
                 } finally {
@@ -4911,6 +4992,111 @@ function formatPriceForBadge(price) {
     return n.toFixed(2);
 }
 
+function updateCurrentPriceBadge(row, price, updatedUtc) {
+    const badgeEl = row?.querySelector?.('.current-price-badge');
+    if (!badgeEl) return;
+
+    const priceText = formatPriceForBadge(price);
+    badgeEl.textContent = `CP:${priceText}`;
+    badgeEl.setAttribute('data-entry-price', String(price ?? ''));
+
+    const updated = updatedUtc ? formatLastUpdatedUtcForTooltip(updatedUtc) : '';
+    const tooltip = updated
+        ? `Current price (deal, updated ${updated})`
+        : 'Current price (deal)';
+    badgeEl.setAttribute('data-tooltip', tooltip);
+}
+
+function updateCurrentPriceBadgeFromForm(form, deal) {
+    if (!form) return;
+    const row = form.closest?.('.deal-row');
+    if (!row) return;
+
+    const input = form.querySelector('input[name="share_price"]');
+    const raw = input?.value;
+    const parsed = parseNumber(raw || '');
+    const fallback = parseNumber(deal?.share_price || '');
+    const price = Number.isFinite(parsed) && parsed > 0 ? parsed : (fallback > 0 ? fallback : '');
+    const updatedUtc = deal?.share_price_updated_utc || null;
+
+    updateCurrentPriceBadge(row, price, updatedUtc);
+}
+
+async function autoRefreshSharePriceOnExpand(form, deal) {
+    if (!form || !deal?.id || !deal?.stock) return;
+    if (form.dataset.sharePriceAutoRefresh === '1') return;
+    form.dataset.sharePriceAutoRefresh = '1';
+
+    const ticker = String(deal.stock || '').trim();
+    if (!ticker) {
+        form.dataset.sharePriceAutoRefresh = '0';
+        return;
+    }
+    if (/^TASE:/i.test(ticker)) {
+        form.dataset.sharePriceAutoRefresh = '0';
+        return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const refreshKey = `quoteRefreshDate:${ticker}`;
+    const lastRefresh = localStorage.getItem(refreshKey);
+    if (lastRefresh === today) {
+        form.dataset.sharePriceAutoRefresh = '0';
+        return;
+    }
+
+    try {
+        const res = await apiFetch(`/api/prices/${encodeURIComponent(ticker)}/quote`, {
+            headers: { ...authHeaders() }
+        });
+
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data || data.price == null) return;
+
+        localStorage.setItem(refreshKey, today);
+
+        const quotePx = String(data.price);
+        form.dataset.lastQuotePrice = quotePx;
+
+        const sharePriceInput = form.querySelector('input[name="share_price"]');
+        if (sharePriceInput) {
+            sharePriceInput.value = quotePx;
+            sharePriceInput.dispatchEvent(new Event('input', { bubbles: true }));
+            sharePriceInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        const current = parseNumber(deal.share_price || '');
+        const next = parseNumber(quotePx);
+        if (!(next > 0)) return;
+
+        const changed =
+            !(current > 0) || Math.abs(current - next) > 0.0001;
+
+        const updatedIso = new Date().toISOString();
+        updateCurrentPriceBadge(form.closest('.deal-row'), quotePx, updatedIso);
+
+        const logTarget = form.querySelector('.current-price-log');
+        if (logTarget) {
+            logTarget.textContent = `CP updated: ${formatLastUpdatedUtcForTooltip(updatedIso)}`;
+        }
+
+        if (!changed) return;
+
+        deal.share_price = quotePx;
+        deal.share_price_updated_utc = updatedIso;
+
+        const payload = { ...deal };
+        if (payload._ui) delete payload._ui;
+
+        await saveDealToServer(payload, true);
+    } catch (e) {
+        console.warn('autoRefreshSharePriceOnExpand failed', deal?.stock, e);
+    } finally {
+        form.dataset.sharePriceAutoRefresh = '0';
+    }
+}
+
 function formatLastUpdatedUtcForTooltip(lastUpdatedUtc) {
     if (!lastUpdatedUtc) return '';
     try {
@@ -5899,7 +6085,12 @@ function setupSharePriceListener(form, isPlannedDeal) {
         if (freshTakeProfitInput && freshTakeProfitInput.value && freshTakeProfitPrcntInput) {
             recalculateTakeProfitPercent(form);
         }
+
+        const d = getDealById(getDealIdFromForm(form));
+        updateCurrentPriceBadgeFromForm(form, d);
     };
+
+    updateCurrentPriceBadgeFromForm(form, getDealById(getDealIdFromForm(form)));
     
     // Add listeners for both 'input' (real-time) and 'change' (on blur)
     sharePriceInput.addEventListener('input', (e) => {

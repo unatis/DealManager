@@ -474,7 +474,7 @@ public class PricesController : ControllerBase
     }
 
     [HttpGet("{ticker}/atr")]
-    public async Task<IActionResult> GetAtr(string ticker, [FromQuery] int period = 14)
+    public async Task<IActionResult> GetAtr(string ticker, [FromQuery] int period = 14, [FromQuery] int daysBack = 60)
     {
         if (string.IsNullOrWhiteSpace(ticker))
             return BadRequest("Ticker is required");
@@ -482,10 +482,13 @@ public class PricesController : ControllerBase
         if (period <= 0 || period > 100)
             return BadRequest("Period must be between 1 and 100");
 
+        if (daysBack <= 0 || daysBack > 2000)
+            return BadRequest("daysBack must be between 1 and 2000");
+
         try
         {
-            _logger.LogInformation("Calculating ATR for {Ticker} with period {Period}", ticker, period);
-            var (priceData, source) = await GetWeeklyWithSourceAsync(ticker);
+            _logger.LogInformation("Calculating DAILY ATR for {Ticker} with period {Period}", ticker, period);
+            var (priceData, source) = await GetDailyWithSourceAsync(ticker, daysBack);
             SetPriceSourceHeader(source);
             
             if (priceData.Count == 0)
@@ -495,7 +498,7 @@ public class PricesController : ControllerBase
             var atrResult = AtrCalculator.CalculateAtr(priceData, period);
             
             _logger.LogInformation(
-                "ATR calculated for {Ticker}: ATR={AtrValue:F4}, ATR%={AtrPercent:F2}%, Period={Period}, CandlesUsed={CandlesUsed}",
+                "DAILY ATR calculated for {Ticker}: ATR={AtrValue:F4}, ATR%={AtrPercent:F2}%, Period={Period}, CandlesUsed={CandlesUsed}",
                 ticker, atrResult.AtrValue, atrResult.AtrPercent, atrResult.Period, atrResult.CandlesUsed);
 
             return Ok(new
@@ -523,6 +526,38 @@ public class PricesController : ControllerBase
             _logger.LogError(ex, "Failed to calculate ATR for {Ticker}. Exception: {ExceptionType}, Message: {Message}", 
                 ticker, ex.GetType().Name, ex.Message);
             return StatusCode(500, $"Internal error: {ex.Message}");
+        }
+    }
+
+    [HttpGet("{ticker}/daily")]
+    public async Task<IActionResult> GetDaily(string ticker, [FromQuery] int daysBack = 365)
+    {
+        if (string.IsNullOrWhiteSpace(ticker))
+            return BadRequest("Ticker is required");
+
+        if (daysBack <= 0 || daysBack > 2000)
+            return BadRequest("daysBack must be between 1 and 2000");
+
+        try
+        {
+            var (data, source) = await GetDailyWithSourceAsync(ticker, daysBack);
+            SetPriceSourceHeader(source);
+
+            if (data.Count == 0)
+                return NotFound("No data for this ticker");
+
+            return Ok(data);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Price data daily error for {Ticker}: {Message}", ticker, ex.Message);
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load daily prices for {Ticker}. Exception: {ExceptionType}, Message: {Message}, StackTrace: {StackTrace}",
+                ticker, ex.GetType().Name, ex.Message, ex.StackTrace);
+            return StatusCode(500, $"Internal error while loading daily prices: {ex.Message}");
         }
     }
 
@@ -1019,6 +1054,21 @@ public class PricesController : ControllerBase
         {
             _logger.LogWarning(ex, "Alpha Vantage failed for {Ticker}. Falling back to Marketstack.", ticker);
             var data = await _marketstack.GetWeeklyAsync(ticker, yearsBack: 2);
+            return (data, "marketstack");
+        }
+    }
+
+    private async Task<(IReadOnlyList<PricePoint> Data, string Source)> GetDailyWithSourceAsync(string ticker, int daysBack = 365)
+    {
+        try
+        {
+            var data = await _alpha.GetDailyAsync(ticker);
+            return (data, "alpha");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Alpha Vantage failed for {Ticker} (daily). Falling back to Marketstack.", ticker);
+            var data = await _marketstack.GetDailyAsync(ticker, daysBack);
             return (data, "marketstack");
         }
     }

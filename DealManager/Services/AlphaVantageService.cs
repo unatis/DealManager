@@ -24,6 +24,7 @@ namespace DealManager.Services
 
         private const string Function = "TIME_SERIES_WEEKLY";  // бесплатный endpoint
         private const string MonthlyFunction = "TIME_SERIES_MONTHLY";
+        private const string DailyFunction = "TIME_SERIES_DAILY";
 
         public sealed record QuoteSnapshot(decimal Price, DateTime LastUpdatedUtc);
 
@@ -187,6 +188,36 @@ namespace DealManager.Services
             var readonlyList = list.AsReadOnly();
             // Cache for 24 hours
             _cache.Set(cacheKey, readonlyList, TimeSpan.FromHours(24));
+            return readonlyList;
+        }
+
+        public async Task<IReadOnlyList<PricePoint>> GetDailyAsync(string symbol)
+        {
+            if (string.IsNullOrWhiteSpace(symbol))
+                throw new ArgumentException("Ticker is required", nameof(symbol));
+
+            symbol = symbol.Trim().ToUpperInvariant();
+
+            var cacheKey = $"av_daily_{symbol}";
+            if (_cache.TryGetValue(cacheKey, out IReadOnlyList<PricePoint>? cached) && cached != null)
+            {
+                return cached;
+            }
+
+            List<PricePoint> list;
+            try
+            {
+                list = await FetchDailyFromApi(symbol);
+                _logger.LogInformation("Successfully fetched {Count} daily price points from Alpha Vantage for {Symbol}", list.Count, symbol);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch daily prices from Alpha Vantage for {Symbol}: {Message}", symbol, ex.Message);
+                throw;
+            }
+
+            var readonlyList = list.AsReadOnly();
+            _cache.Set(cacheKey, readonlyList, TimeSpan.FromMinutes(5));
             return readonlyList;
         }
 
@@ -437,6 +468,131 @@ namespace DealManager.Services
                     throw new InvalidOperationException("No valid price points found in Alpha Vantage response");
 
                 list.Sort((a, b) => a.Date.CompareTo(b.Date));
+                return list;
+            }
+        }
+
+        private async Task<List<PricePoint>> FetchDailyFromApi(string symbol, bool useFullOutput = false)
+        {
+            var outputSize = useFullOutput ? "full" : "compact";
+            var url =
+                $"https://www.alphavantage.co/query?function={DailyFunction}" +
+                $"&symbol={Uri.EscapeDataString(symbol)}" +
+                $"&apikey={_settings.ApiKey}" +
+                $"&outputsize={outputSize}";
+
+            _logger.LogInformation("Fetching daily prices from Alpha Vantage for {Symbol} with outputsize={OutputSize}", symbol, outputSize);
+
+            using var resp = await _http.GetAsync(url);
+            var json = await resp.Content.ReadAsStringAsync();
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                _logger.LogError("Alpha Vantage returned empty response for {Symbol}", symbol);
+                throw new InvalidOperationException("Alpha Vantage returned empty response");
+            }
+
+            _logger.LogDebug("Alpha Vantage response for {Symbol} (first 500 chars): {Response}", symbol, json.Length > 500 ? json.Substring(0, 500) : json);
+
+            JsonDocument doc;
+            try
+            {
+                doc = JsonDocument.Parse(json);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to parse JSON response for {Symbol}. Response: {Response}", symbol, json);
+                throw new InvalidOperationException($"Failed to parse Alpha Vantage response: {ex.Message}");
+            }
+
+            using (doc)
+            {
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("Error Message", out var errProp))
+                {
+                    var errorMsg = errProp.GetString();
+                    _logger.LogWarning("Alpha Vantage error message for {Symbol}: {Error}", symbol, errorMsg);
+                    throw new InvalidOperationException("Alpha Vantage error: " + errorMsg);
+                }
+
+                if (root.TryGetProperty("Information", out var infoProp))
+                {
+                    var infoMsg = infoProp.GetString();
+                    _logger.LogWarning("Alpha Vantage information message for {Symbol}: {Info}", symbol, infoMsg);
+                    throw new InvalidOperationException("Alpha Vantage info: " + infoMsg);
+                }
+
+                if (!root.TryGetProperty("Time Series (Daily)", out var series))
+                {
+                    _logger.LogError("Alpha Vantage response for {Symbol} has no 'Time Series (Daily)'. Response keys: {Keys}",
+                        symbol, string.Join(", ", root.EnumerateObject().Select(p => p.Name)));
+                    throw new InvalidOperationException("Alpha Vantage response has no 'Time Series (Daily)'");
+                }
+
+                var list = new List<PricePoint>();
+
+                foreach (var obj in series.EnumerateObject())
+                {
+                    if (!DateTime.TryParse(obj.Name, out var date))
+                    {
+                        _logger.LogWarning("Failed to parse date: {DateString}", obj.Name);
+                        continue;
+                    }
+
+                    var p = obj.Value;
+
+                    if (!p.TryGetProperty("1. open", out var openProp) ||
+                        !decimal.TryParse(openProp.GetString(), out var open))
+                    {
+                        _logger.LogWarning("Failed to parse open price for date {Date}", obj.Name);
+                        continue;
+                    }
+
+                    if (!p.TryGetProperty("2. high", out var highProp) ||
+                        !decimal.TryParse(highProp.GetString(), out var high))
+                    {
+                        _logger.LogWarning("Failed to parse high price for date {Date}", obj.Name);
+                        continue;
+                    }
+
+                    if (!p.TryGetProperty("3. low", out var lowProp) ||
+                        !decimal.TryParse(lowProp.GetString(), out var low))
+                    {
+                        _logger.LogWarning("Failed to parse low price for date {Date}", obj.Name);
+                        continue;
+                    }
+
+                    if (!p.TryGetProperty("4. close", out var closeProp) ||
+                        !decimal.TryParse(closeProp.GetString(), out var close))
+                    {
+                        _logger.LogWarning("Failed to parse close price for date {Date}", obj.Name);
+                        continue;
+                    }
+
+                    if (!p.TryGetProperty("5. volume", out var volProp) ||
+                        !long.TryParse(volProp.GetString(), out var vol))
+                    {
+                        _logger.LogWarning("Failed to parse volume for date {Date}", obj.Name);
+                        continue;
+                    }
+
+                    list.Add(new PricePoint
+                    {
+                        Date = date,
+                        Open = open,
+                        High = high,
+                        Low = low,
+                        Close = close,
+                        Volume = vol
+                    });
+                }
+
+                if (list.Count == 0)
+                    throw new InvalidOperationException("No valid price points found in Alpha Vantage response");
+
+                list.Sort((a, b) => a.Date.CompareTo(b.Date));
+
                 return list;
             }
         }

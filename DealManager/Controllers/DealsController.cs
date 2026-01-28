@@ -265,6 +265,11 @@ namespace DealManager.Controllers
                 }
             }
 
+            if (TryParsePositiveDecimal(deal.SharePrice, out _))
+            {
+                deal.SharePriceUpdatedUtc = DateTime.UtcNow;
+            }
+
             // Create the deal
             await _service.CreateAsync(deal);
 
@@ -341,6 +346,25 @@ namespace DealManager.Controllers
                 {
                     deal.TotalSum = totalSumValue.Value.ToString(CultureInfo.InvariantCulture);
                 }
+            }
+
+            var hasExistingPrice = TryParsePositiveDecimal(existing.SharePrice, out var existingPrice);
+            var hasNewPrice = TryParsePositiveDecimal(deal.SharePrice, out var newPrice);
+            var sharePriceChanged = hasExistingPrice && hasNewPrice
+                ? existingPrice != newPrice
+                : !string.Equals(existing.SharePrice?.Trim(), deal.SharePrice?.Trim(), StringComparison.Ordinal);
+
+            if (hasNewPrice && sharePriceChanged)
+            {
+                deal.SharePriceUpdatedUtc = DateTime.UtcNow;
+            }
+            else if (!hasNewPrice)
+            {
+                deal.SharePriceUpdatedUtc = null;
+            }
+            else
+            {
+                deal.SharePriceUpdatedUtc = existing.SharePriceUpdatedUtc;
             }
 
             // Копируем технические поля

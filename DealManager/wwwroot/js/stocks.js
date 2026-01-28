@@ -11,6 +11,7 @@ const stockFilterInput = document.getElementById('stockFilterInput');
 let stocks = [];
 let stocksLoaded = false;
 let stocksLoading = false;
+let riskRefreshInProgress = false;
 let reversalCheckInProgress = false;
 let expandedStockId = null; // Track which stock is currently expanded
 // warningsCache is declared in deals-inline.js - use that shared cache
@@ -110,6 +111,9 @@ async function loadStocks() {
             renderStocks();
         });
 
+        // Refresh ATR + Beta once per day in the background
+        refreshRiskMetricsForStocksDaily();
+
         // Run reversal check after UI is rendered
         checkReversalForStocks();
     } catch (e) {
@@ -121,6 +125,104 @@ async function loadStocks() {
         }
     } finally {
         stocksLoading = false;
+    }
+}
+
+function formatAtrDisplay(atrValue, atrPercent) {
+    const v = String(atrValue ?? '').trim();
+    if (!v) return '';
+    const p = String(atrPercent ?? '').trim();
+    return p ? `${v} (${p}%)` : v;
+}
+
+async function refreshRiskMetricsForStocksDaily() {
+    if (riskRefreshInProgress) return;
+    if (!Array.isArray(stocks) || stocks.length === 0) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const key = 'riskMetricsRefreshDate';
+    if (localStorage.getItem(key) === today) return;
+
+    const statusEl = document.getElementById('stockRiskStatus');
+    if (statusEl) statusEl.textContent = 'Risk metrics: updating...';
+
+    riskRefreshInProgress = true;
+    localStorage.setItem(key, today);
+
+    try {
+        let updated = false;
+        let updatedCount = 0;
+        let errorCount = 0;
+        let checkedCount = 0;
+
+        for (const s of stocks) {
+            const ticker = String(s?.ticker || '').trim();
+            if (!ticker) continue;
+            if (/^TASE:/i.test(ticker)) continue;
+            checkedCount += 1;
+
+            try {
+                const [atrRes, betaRes] = await Promise.all([
+                    apiFetch(`/api/prices/${encodeURIComponent(ticker)}/atr?daysBack=60`, { headers: authHeaders() }),
+                    apiFetch(`/api/prices/${encodeURIComponent(ticker)}/beta`, { headers: authHeaders() })
+                ]);
+
+                let nextAtr = String(s.atr || s.Atr || '').trim();
+                let nextBeta = String(s.betaVolatility || s.BetaVolatility || '');
+
+                if (atrRes.ok) {
+                    const atrData = await atrRes.json();
+                    const atrText = formatAtrDisplay(atrData?.atr, atrData?.atrPercent);
+                    if (atrText) nextAtr = atrText;
+                }
+
+                if (betaRes.ok) {
+                    const betaData = await betaRes.json();
+                    const volatilityCategory = betaData?.volatilityCategory;
+                    if (volatilityCategory != null) {
+                        nextBeta = String(volatilityCategory);
+                    }
+                }
+
+                const currentAtr = String(s.atr || s.Atr || '').trim();
+                const currentBeta = String(s.betaVolatility || s.BetaVolatility || '');
+                if (nextAtr === currentAtr && nextBeta === currentBeta) continue;
+
+                s.atr = nextAtr;
+                s.betaVolatility = nextBeta;
+                updated = true;
+                updatedCount += 1;
+
+                await updateStockOnServer(s.id, {
+                    ticker: s.ticker,
+                    desc: s.desc || null,
+                    sp500Member: !!s.sp500Member,
+                    betaVolatility: nextBeta,
+                    regularVolume: s.regular_volume || s.RegularVolume || null,
+                    syncSp500: s.sync_sp500 || s.SyncSp500 || null,
+                    atr: nextAtr
+                });
+            } catch (err) {
+                errorCount += 1;
+                console.warn('Risk metrics refresh failed for', ticker, err);
+            }
+        }
+
+        if (updated) {
+            await loadWarnings();
+            renderStocks();
+        }
+        if (statusEl) {
+            if (errorCount > 0) {
+                statusEl.textContent = `Risk metrics: ${updatedCount}/${checkedCount} updated, ${errorCount} failed (${today})`;
+            } else if (updatedCount > 0) {
+                statusEl.textContent = `Risk metrics: ${updatedCount} updated (${today})`;
+            } else {
+                statusEl.textContent = `Risk metrics: up to date (${today})`;
+            }
+        }
+    } finally {
+        riskRefreshInProgress = false;
     }
 }
 
@@ -791,7 +893,7 @@ function createStockRow(stock) {
         : '';
 
     const atrWarningIcon = hasAtrWarningFallback
-        ? `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`
+        ? `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range 14 days): High risk (more than 10%)">!</span>`
         : '';
 
     const syncSp500WarningIcon = hasSyncSp500WarningFallback
@@ -799,7 +901,7 @@ function createStockRow(stock) {
         : '';
 
     const betaVolatilityWarningIcon = hasBetaVolatilityWarningFallback
-        ? `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`
+        ? `<span class="volume-warning-icon" data-tooltip="Beta category (vs SPY): High (more volatile)">!</span>`
         : '';
     
     summary.innerHTML = `
@@ -969,7 +1071,7 @@ function createStockDetailsHTML(stock) {
                 </label>
 
                 <label>
-                    Share beta volatility
+                    Beta category (vs SPY)
                     <input type="text" value="${getBetaVolatilityText(betaVolatilityValue)}" readonly class="${betaVolatilityClass}" style="background: #f6f8fb; cursor: default;" />
                 </label>
 
@@ -979,7 +1081,7 @@ function createStockDetailsHTML(stock) {
                 </label>
 
                 <label>
-                    ATR (Average True Range)
+                    ATR (Average True Range 14 days)
                     <input type="text" value="${escapeHtml(atrValue)}" readonly class="${atrClass}" style="background: #f6f8fb; cursor: default;" />
                 </label>
 
@@ -1236,7 +1338,7 @@ async function calculateAndSetAtr(ticker) {
     if (!atrInput) return;
 
     try {
-        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/atr?period=14`, {
+        const res = await fetch(`/api/prices/${encodeURIComponent(ticker.trim().toUpperCase())}/atr?period=14&daysBack=60`, {
             headers: authHeaders()
         });
 

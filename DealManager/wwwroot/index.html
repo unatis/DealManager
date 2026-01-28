@@ -81,6 +81,7 @@
                 <input id="stockFilterInput" placeholder="search" style="flex:1">
                 <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="stockCount">0</span></div>
             </div>
+            <div id="stockRiskStatus" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
             <div id="stockList" class="list"></div>
             <div id="emptyStock" class="empty" style="display: none;">No shares in list</div>
         </aside>
@@ -141,7 +142,7 @@
                     <!-- Beta volatility + tooltip -->
                     <div class="has-tooltip" data-tooltip="Slow – low beta, Same – around market, High – more volatile.">
                         <label>
-                            Share beta volatility
+                            Beta category (vs SPY)
                             <select name="betaVolatility" required>
                                 <option value="" selected disabled></option>
                                 <option value="1">Slow</option>
@@ -161,7 +162,7 @@
                     </label>
 
                     <label>
-                        ATR (Average True Range)
+                        ATR (Average True Range 14 days)
                         <input type="text" name="atr" readonly placeholder="Auto-calculated" style="background: #f6f8fb; cursor: default;" />
                     </label>
 
