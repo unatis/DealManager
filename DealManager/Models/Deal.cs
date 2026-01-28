@@ -60,6 +60,10 @@ namespace DealManager.Models
         [JsonPropertyName("share_price")]
         public string? SharePrice { get; set; }
 
+        [BsonElement("share_price_updated_utc")]
+        [JsonPropertyName("share_price_updated_utc")]
+        public DateTime? SharePriceUpdatedUtc { get; set; }
+
         [JsonPropertyName("avg_entry")]
         public string? AvgEntry { get; set; }
 
