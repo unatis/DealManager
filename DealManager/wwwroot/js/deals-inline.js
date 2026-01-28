@@ -5071,7 +5071,7 @@ async function autoRefreshSharePriceOnExpand(form, deal) {
 
         const logTarget = form.querySelector('.current-price-log');
         if (logTarget) {
-            logTarget.textContent = 'CP refreshed today';
+            logTarget.textContent = `CP updated: ${formatLastUpdatedUtcForTooltip(updatedIso)}`;
         }
 
         if (!changed) return;
