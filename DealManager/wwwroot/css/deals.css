@@ -217,13 +217,72 @@ button.secondary .loading-spinner {
     -ms-user-select: none;
 }
 
-main {
+main.layout-grid {
     display: grid;
     grid-template-columns: 25% 1fr 25%;
     gap: 16px;
     padding: 16px;
     align-items: start;
     min-height: auto;
+}
+
+main.layout-grid.left-collapsed {
+    grid-template-columns: 40px 1fr 25%;
+}
+
+main.layout-grid.right-collapsed {
+    grid-template-columns: 25% 1fr 40px;
+}
+
+main.layout-grid.both-collapsed {
+    grid-template-columns: 40px 1fr 40px;
+}
+
+.panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.panel-toggle {
+    border: 1px solid rgba(11,17,36,0.12);
+    background: #fff;
+    color: #0b1724;
+    border-radius: 8px;
+    padding: 4px 6px;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.panel-toggle:hover {
+    background: #f4f6fb;
+}
+
+.side-panel.collapsed {
+    padding: 8px 4px;
+}
+
+.side-panel.collapsed .panel-body {
+    display: none;
+}
+
+.side-panel.collapsed .panel-header {
+    margin-bottom: 0;
+    justify-content: center;
+}
+
+.side-panel.collapsed h3 {
+    display: none;
+}
+
+.side-panel.collapsed .panel-header-actions {
+    width: 100%;
+    justify-content: center;
+}
+
+.side-panel.collapsed .panel-header-actions > :not(.panel-toggle) {
+    display: none;
 }
 
 .panel {
@@ -1248,7 +1307,7 @@ label {
 }
 
 @media(max-width:980px) {
-    main {
+    main.layout-grid {
         grid-template-columns: 1fr;
     }
 

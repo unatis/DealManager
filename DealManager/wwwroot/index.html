@@ -70,13 +70,17 @@
         <button id="logoutBtnMobile" class="mobile-menu-btn secondary">Logout</button>
     </div>
 
-    <main>
+    <main id="mainLayout" class="layout-grid">
         <!-- Left: stocks list -->
-        <aside class="panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <aside id="leftPanel" class="panel side-panel left-panel">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <h3 style="margin: 0;">Stocks</h3>
-                <button id="addStockBtn" class="desktop-btn">Add stock</button>
+                <div class="panel-header-actions">
+                    <button id="addStockBtn" class="desktop-btn">Add stock</button>
+                    <button id="toggleLeftPanel" class="panel-toggle" aria-label="Collapse left panel" title="Collapse">&lt;</button>
+                </div>
             </div>
+            <div class="panel-body">
             <div class="filterRow">
                 <input id="stockFilterInput" placeholder="search" style="flex:1">
                 <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="stockCount">0</span></div>
@@ -84,6 +88,7 @@
             <div id="stockRiskStatus" style="font-size:12px;color:var(--muted);margin-bottom:6px;"></div>
             <div id="stockList" class="list"></div>
             <div id="emptyStock" class="empty" style="display: none;">No shares in list</div>
+            </div>
         </aside>
         <!-- CENTER: only open deals (with search) -->
         <section class="panel center">
@@ -101,13 +106,18 @@
         </section>
 
         <!-- RIGHT: closed deals -->
-        <aside class="panel">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <aside id="rightPanel" class="panel side-panel right-panel">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <h3 style="margin: 0;">Closed deals</h3>
-                <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="closedCount">0</span></div>
+                <div class="panel-header-actions">
+                    <div style="font-size:13px;color:var(--muted);padding-left:6px">Count: <span id="closedCount">0</span></div>
+                    <button id="toggleRightPanel" class="panel-toggle" aria-label="Collapse right panel" title="Collapse">&gt;</button>
+                </div>
             </div>
+            <div class="panel-body">
             <div id="closedList" class="list"></div>
             <div id="emptyClosed" class="empty" style="display:none">No closed deals.</div>
+            </div>
         </aside>
     </main>
 
