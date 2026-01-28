@@ -606,7 +606,7 @@ function formatTotalSum(totalSum) {
     if (!totalSum) return null;
     const num = parseFloat(String(totalSum).replace(',', '.'));
     if (isNaN(num) || num <= 0) return null;
-    return `${num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+    return `$${num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
 
 // Function to escape HTML special characters
@@ -1334,7 +1334,7 @@ function renderTradingViewChart(containerId, symbol, interval) {
 function formatTotalSum(totalSum) {
     if (!totalSum) return '';
     const num = parseFloat(String(totalSum).replace(',', '.')) || 0;
-    return num > 0 ? `${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+    return num > 0 ? `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
 }
 
 // Helper function to check if ATR is high risk (> 10%) from ATR string
@@ -2790,13 +2790,13 @@ function createDealRow(deal, isNew) {
                 sp500Indicator = `<span class="volume-warning-icon" data-tooltip="S&amp;P 500 member: Not a member">!</span>`;
             }
             if (warning.atr_high_risk) {
-                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`;
+                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range 14 days): High risk (more than 10%)">!</span>`;
             }
             if (warning.sync_sp500_no) {
                 syncSp500Indicator = `<span class="volume-warning-icon" data-tooltip="Is share movement synchronized with S&amp;P500?: No">!</span>`;
             }
             if (warning.beta_volatility_high) {
-                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`;
+                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Beta category (vs SPY): High (more volatile)">!</span>`;
             }
         }
         
@@ -2813,7 +2813,7 @@ function createDealRow(deal, isNew) {
             }
             // Check ATR high risk
             if (isAtrHighRiskFromString(stock.atr || stock.Atr)) {
-                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range): High risk (more than 10%)">!</span>`;
+                atrIndicator = `<span class="volume-warning-icon" data-tooltip="ATR (Average True Range 14 days): High risk (more than 10%)">!</span>`;
             }
             // Check sync SP500
             if (stock.sync_sp500 === 'no' || stock.SyncSp500 === 'no') {
@@ -2821,7 +2821,7 @@ function createDealRow(deal, isNew) {
             }
             // Check beta volatility high
             if (stock.betaVolatility === '3' || stock.BetaVolatility === '3' || stock.betaVolatility === 3) {
-                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Share beta volatility: High (more volatile)">!</span>`;
+                betaVolatilityIndicator = `<span class="volume-warning-icon" data-tooltip="Beta category (vs SPY): High (more volatile)">!</span>`;
             }
         }
     }

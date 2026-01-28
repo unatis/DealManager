@@ -100,6 +100,42 @@ namespace DealManager.Services
             return monthly.AsReadOnly();
         }
 
+        public async Task<IReadOnlyList<PricePoint>> GetDailyAsync(string symbol, int daysBack = 365)
+        {
+            if (string.IsNullOrWhiteSpace(symbol))
+                throw new ArgumentException("Ticker is required", nameof(symbol));
+
+            if (daysBack <= 0)
+                throw new ArgumentException("Days back must be positive", nameof(daysBack));
+
+            symbol = symbol.Trim().ToUpperInvariant();
+
+            var dateTo = DateTime.UtcNow.Date;
+            var dateFrom = dateTo.AddDays(-daysBack);
+
+            var daily = await FetchDailyFromApi(symbol, dateFrom, dateTo);
+            if (daily.Count == 0)
+                throw new InvalidOperationException("Marketstack returned no daily data");
+
+            var list = daily
+                .OrderBy(d => d.Date)
+                .Select(d => new PricePoint
+                {
+                    Date = d.Date,
+                    Open = d.Open,
+                    High = d.High,
+                    Low = d.Low,
+                    Close = d.Close,
+                    Volume = d.Volume
+                })
+                .ToList();
+
+            if (list.Count == 0)
+                throw new InvalidOperationException("No daily data after mapping");
+
+            return list.AsReadOnly();
+        }
+
         public async Task<QuoteSnapshot?> GetCurrentQuoteAsync(string symbol)
         {
             if (string.IsNullOrWhiteSpace(symbol))
