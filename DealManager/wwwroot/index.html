@@ -45,6 +45,7 @@
             <div id="userInfo" class="user-info">
                 <span id="userNameDisplay">...</span>
             </div>
+            <button id="openAssistantBtn" class="secondary desktop-btn" title="AI assistant">AI</button>
             <button id="logoutBtn" class="secondary desktop-btn">Logout</button>
             <button id="settingsBtn" class="secondary desktop-btn" title="Settings">⚙</button>
             <!-- Hamburger menu button for mobile -->
@@ -410,6 +411,34 @@
                 <textarea id="aiChatInput" rows="2" placeholder="Ask about the ticker... (Enter to send, Shift+Enter for newline)"></textarea>
                 <button id="aiChatSendBtn">Send</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Persistent AI assistant widget -->
+    <div id="aiAssistant" class="ai-assistant">
+        <button id="aiAssistantFab" class="ai-assistant-fab" aria-label="Open AI assistant" title="AI assistant">AI</button>
+        <div class="ai-assistant-wrap">
+            <div id="aiAssistantPanel" class="ai-assistant-panel">
+                <div id="aiAssistantHeader" class="ai-assistant-header">
+                    <div class="ai-assistant-title">
+                        <span>AI assistant</span>
+                    </div>
+                    <div class="ai-assistant-actions">
+                        <button id="aiAssistantClearBtn" class="secondary" title="Clear chat">Clear</button>
+                        <button id="aiAssistantMinBtn" class="secondary" aria-label="Collapse assistant" title="Collapse">_</button>
+                    </div>
+                </div>
+                <div id="aiAssistantBody" class="ai-assistant-body">
+                    <div id="aiAssistantStatus" class="ai-chat-status"></div>
+                    <div id="aiAssistantMessages" class="ai-chat-messages" aria-live="polite"></div>
+                    <div class="ai-chat-input-row">
+                        <textarea id="aiAssistantInput" rows="2" placeholder="Ask about your portfolio..."></textarea>
+                        <button id="aiAssistantSendBtn">Send</button>
+                    </div>
+                </div>
+            </div>
+            <img class="ai-assistant-hero" src="/img/wb1.png" alt="AI assistant" draggable="false" />
+            <div class="ai-assistant-hero-handle" aria-hidden="true"></div>
         </div>
     </div>
     

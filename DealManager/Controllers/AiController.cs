@@ -25,6 +25,7 @@ public class AiController : ControllerBase
     private readonly StocksService _stocksService;
     private readonly GroqChatClient _groq;
     private const string PriceSourceHeader = "X-Price-Source";
+    private const string PortfolioTicker = "__PORTFOLIO__";
 
     public AiController(
         AlphaVantageService alpha,
@@ -58,6 +59,8 @@ public class AiController : ControllerBase
         decimal? EntryPrice = null,
         decimal? StopLossPrice = null,
         decimal? TakeProfitPrice = null);
+
+    public sealed record PortfolioChatRequest(string Message);
 
     // AI response schema (strict JSON)
     private sealed class AiAdvice
@@ -235,6 +238,322 @@ public class AiController : ControllerBase
         var userId = GetUserId();
         await _history.ClearAsync(userId, t, stockId);
         return NoContent();
+    }
+
+    [HttpGet("portfolio-chat/history")]
+    public async Task<IActionResult> GetPortfolioHistory([FromQuery] int limit = 100)
+    {
+        var userId = GetUserId();
+        var messages = await _history.GetMessagesAsync(userId, PortfolioTicker, null, limit);
+        return Ok(new
+        {
+            ticker = PortfolioTicker,
+            messages = messages.Select(m => new { role = m.Role, content = m.Content, createdAtUtc = m.CreatedAtUtc })
+        });
+    }
+
+    [HttpPost("portfolio-chat/clear")]
+    public async Task<IActionResult> ClearPortfolioHistory()
+    {
+        var userId = GetUserId();
+        await _history.ClearAsync(userId, PortfolioTicker, null);
+        return NoContent();
+    }
+
+    [HttpPost("portfolio-chat")]
+    public async Task<IActionResult> PortfolioChat([FromBody] PortfolioChatRequest req, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.Message))
+            return BadRequest("Message is required");
+
+        var userId = GetUserId();
+
+        await _history.AppendAsync(
+            userId,
+            PortfolioTicker,
+            null,
+            new DealManager.Models.AiChatMessage { Role = "user", Content = req.Message });
+
+        var deals = await _dealsService.GetByUserAsync(userId);
+        var stocks = await _stocksService.GetAllForOwnerAsync(userId);
+
+        var cash = await _usersService.GetPortfolioAsync(userId);
+        var totalSum = await _usersService.GetTotalSumAsync(userId);
+        var inShares = await _usersService.GetInSharesAsync(userId);
+        var portfolioRiskPercent = await _riskService.CalculatePortfolioRiskPercentAsync(userId);
+        var inSharesRiskPercent = await _riskService.CalculateInSharesRiskPercentAsync(userId);
+
+        var openDeals = deals.Where(d => !d.Closed && !d.PlannedFuture).ToList();
+        var plannedDeals = deals.Where(d => d.PlannedFuture && !d.Closed).ToList();
+        var closedDeals = deals.Where(d => d.Closed).ToList();
+
+        decimal ParseDecimalSafe(string? s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return 0m;
+            var normalized = s.Trim().Replace(',', '.');
+            return decimal.TryParse(
+                normalized,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value)
+                ? value
+                : 0m;
+        }
+
+        decimal? AvgOrNull(List<decimal> values) =>
+            values.Count == 0 ? null : values.Average();
+
+        (decimal shares, decimal cost) SumStages(Deal d)
+        {
+            if (d.Amount_tobuy_stages == null || d.BuyPriceStages == null)
+                return (0m, 0m);
+
+            var count = Math.Min(d.Amount_tobuy_stages.Count, d.BuyPriceStages.Count);
+            decimal shares = 0m;
+            decimal cost = 0m;
+
+            for (var i = 0; i < count; i++)
+            {
+                var stageShares = ParseDecimalSafe(d.Amount_tobuy_stages[i]);
+                var stagePrice = ParseDecimalSafe(d.BuyPriceStages[i]);
+                if (stageShares <= 0m || stagePrice <= 0m) continue;
+                shares += stageShares;
+                cost += stageShares * stagePrice;
+            }
+
+            return (shares, cost);
+        }
+
+        var plannedTotalSum = plannedDeals.Sum(d => ParseDecimalSafe(d.TotalSum));
+        var plannedStopLossList = plannedDeals
+            .Select(d => ParseDecimalSafe(d.StopLossPercent))
+            .Where(v => v > 0m)
+            .ToList();
+        var plannedTakeProfitList = plannedDeals
+            .Select(d => ParseDecimalSafe(d.TakeProfitPercent))
+            .Where(v => v > 0m)
+            .ToList();
+        var plannedByTicker = plannedDeals
+            .Where(d => !string.IsNullOrWhiteSpace(d.Stock))
+            .GroupBy(d => d.Stock.Trim().ToUpperInvariant())
+            .Select(g => new
+            {
+                ticker = g.Key,
+                count = g.Count(),
+                totalSum = g.Sum(x => ParseDecimalSafe(x.TotalSum))
+            })
+            .OrderByDescending(x => x.totalSum)
+            .ToList();
+
+        var plannedStageTotals = plannedDeals
+            .Select(SumStages)
+            .Aggregate((shares: 0m, cost: 0m), (acc, x) => (acc.shares + x.shares, acc.cost + x.cost));
+
+        var plannedTopRisk = plannedDeals
+            .Select(d =>
+            {
+                var total = ParseDecimalSafe(d.TotalSum);
+                var sl = ParseDecimalSafe(d.StopLossPercent);
+                var riskUsd = (sl > 0m && total > 0m) ? Math.Round(total * sl / 100m, 2) : 0m;
+                return new { deal = d, total, sl, riskUsd };
+            })
+            .Where(x => x.riskUsd > 0m)
+            .OrderByDescending(x => x.riskUsd)
+            .Take(3)
+            .Select(x => new
+            {
+                id = x.deal.Id,
+                ticker = x.deal.Stock,
+                totalSum = x.total,
+                stopLossPercent = x.sl,
+                riskUsd = x.riskUsd
+            })
+            .ToList();
+
+        var openTotalSum = openDeals.Sum(d => ParseDecimalSafe(d.TotalSum));
+        var openStopLossList = openDeals
+            .Select(d => ParseDecimalSafe(d.StopLossPercent))
+            .Where(v => v > 0m)
+            .ToList();
+        var openTakeProfitList = openDeals
+            .Select(d => ParseDecimalSafe(d.TakeProfitPercent))
+            .Where(v => v > 0m)
+            .ToList();
+        var openStageTotals = openDeals
+            .Select(SumStages)
+            .Aggregate((shares: 0m, cost: 0m), (acc, x) => (acc.shares + x.shares, acc.cost + x.cost));
+
+        object MapDeal(Deal d) => new
+        {
+            id = d.Id,
+            stock = d.Stock,
+            date = d.Date,
+            closed = d.Closed,
+            planned_future = d.PlannedFuture,
+            activatedAt = d.ActivatedAt,
+            closedAt = d.ClosedAt,
+            share_price = d.SharePrice,
+            avg_entry = d.AvgEntry,
+            stop_loss = d.StopLoss,
+            stop_loss_prcnt = d.StopLossPercent,
+            take_profit = d.TakeProfit,
+            take_profit_prcnt = d.TakeProfitPercent,
+            total_sum = d.TotalSum,
+            amount_tobuy_stages = d.Amount_tobuy_stages,
+            buy_price_stages = d.BuyPriceStages,
+            notes = d.Notes,
+            reward_to_risk = d.RewardToRisk
+        };
+
+        var context = new
+        {
+            userMessage = req.Message,
+            portfolio = new
+            {
+                cash,
+                totalSum,
+                inShares,
+                portfolioRiskPercent,
+                inSharesRiskPercent
+            },
+            counts = new
+            {
+                openDeals = openDeals.Count,
+                plannedDeals = plannedDeals.Count,
+                closedDeals = closedDeals.Count,
+                stocks = stocks.Count
+            },
+            plannedAggregates = new
+            {
+                totalSum = plannedTotalSum,
+                avgStopLossPercent = AvgOrNull(plannedStopLossList),
+                avgTakeProfitPercent = AvgOrNull(plannedTakeProfitList),
+                byTicker = plannedByTicker,
+                stages = new
+                {
+                    totalShares = plannedStageTotals.shares,
+                    totalCost = plannedStageTotals.cost
+                },
+                topRisk = plannedTopRisk
+            },
+            openAggregates = new
+            {
+                totalSum = openTotalSum,
+                avgStopLossPercent = AvgOrNull(openStopLossList),
+                avgTakeProfitPercent = AvgOrNull(openTakeProfitList),
+                stages = new
+                {
+                    totalShares = openStageTotals.shares,
+                    totalCost = openStageTotals.cost
+                }
+            },
+            deals = new
+            {
+                open = openDeals.Select(MapDeal).ToList(),
+                planned = plannedDeals.Select(MapDeal).ToList(),
+                closed = closedDeals.Select(MapDeal).ToList()
+            },
+            stocks = stocks.Select(s => new
+            {
+                id = s.Id,
+                ticker = s.Ticker,
+                desc = s.Desc,
+                sp500Member = s.Sp500Member,
+                betaVolatility = s.BetaVolatility,
+                regular_volume = s.RegularVolume,
+                sync_sp500 = s.SyncSp500,
+                atr = s.Atr,
+                order = s.Order
+            }).ToList()
+        };
+
+        var systemPrompt =
+@"You are a portfolio assistant focused on risk-aware guidance.
+Return STRICT JSON only (no markdown, no extra text).
+Schema:
+{
+  ""assistantText"": string,
+  ""policy"": {
+    ""summary"": string,
+    ""action"": ""wait""|""buy""|""add""|""trim""|""sell"",
+    ""why"": string[],
+    ""conditions"": string[],
+    ""buyLevels"": number[],
+    ""sellLevels"": number[],
+    ""stop"": { ""recommended"": number|null, ""why"": string },
+    ""add"": { ""maxShares"": number|null, ""stage1Shares"": number|null, ""stage2Shares"": number|null, ""note"": string },
+    ""riskNotes"": string[],
+    ""questions"": string[]
+  }
+}
+Rules:
+1) Use ONLY the provided context values; never invent prices or positions.
+2) If data is missing to answer, add it to questions.
+3) Be conservative and focus on risk notes and conditions.
+4) If plannedAggregates.topRisk is provided, mention it when asked about planned deal risk.
+";
+
+        var userContent = JsonSerializer.Serialize(context);
+        string llm;
+        try
+        {
+            llm = await _groq.ChatAsync(systemPrompt, userContent, ct);
+        }
+        catch (Exception ex)
+        {
+            var errMsg = $"AI request failed: {ex.Message}";
+            await _history.AppendAsync(
+                userId,
+                PortfolioTicker,
+                null,
+                new DealManager.Models.AiChatMessage { Role = "assistant", Content = errMsg });
+            throw;
+        }
+
+        var env = TryParseAiEnvelope(llm);
+        var advice = env?.Policy ?? TryParseAiAdvice(llm) ?? new AiAdvice
+        {
+            Summary = "AI response was not valid JSON. Please retry.",
+            Action = "wait",
+            RiskNotes = new List<string> { "Model did not return parsable JSON." },
+            Questions = new List<string> { "Try again, or ask a simpler question." }
+        };
+
+        advice.Action = NormalizeAction(advice.Action);
+        advice.Why ??= new List<string>();
+        advice.Conditions ??= new List<string>();
+        advice.RiskNotes ??= new List<string>();
+        advice.Questions ??= new List<string>();
+        advice.Stop ??= new AiStop();
+        advice.Add ??= new AiAdd();
+        advice.BuyLevels ??= new List<decimal>();
+        advice.SellLevels ??= new List<decimal>();
+
+        var assistantText = (env?.AssistantText ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(assistantText))
+        {
+            var s = (advice.Summary ?? "").Trim();
+            assistantText = string.IsNullOrWhiteSpace(s)
+                ? $"Action: {advice.Action}"
+                : s;
+        }
+
+        var enforcedEnvelopeJson = SerializeEnvelope(new AiEnvelope
+        {
+            AssistantText = assistantText,
+            Policy = advice
+        });
+
+        await _history.AppendAsync(
+            userId,
+            PortfolioTicker,
+            null,
+            new DealManager.Models.AiChatMessage { Role = "assistant", Content = enforcedEnvelopeJson });
+
+        return Ok(new
+        {
+            responseJson = enforcedEnvelopeJson
+        });
     }
 
     [HttpPost("stock-chat")]
