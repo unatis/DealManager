@@ -949,6 +949,13 @@ function detectWeeklyReversalRetestBreakout(weeklyBars, quotePrice, opts = {}) {
     const currentPrice = Number.isFinite(P) ? P : fallbackPrice;
     const triggered = Number.isFinite(currentPrice) ? (currentPrice >= entryTrigger) : false;
 
+    const prevBar = normalizeWeekBar(bars[bars.length - 2]);
+    const lowPrev = prevBar.L;
+    const lowCurr = lastBar.L;
+    if (!(Number.isFinite(lowCurr) && Number.isFinite(lowPrev) && lowCurr > lowPrev)) {
+        return { hasSetup: false, triggered: false, reason: 'Last week low not higher than previous' };
+    }
+
     const volumeOk = isVolumeGrowingLast2(bars);
 
     return {
