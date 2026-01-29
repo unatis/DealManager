@@ -709,7 +709,8 @@
 
     if (openBtn) {
         openBtn.addEventListener('click', () => {
-            applyCollapsed(false);
+            const isCollapsed = assistant.classList.contains('collapsed');
+            applyCollapsed(!isCollapsed);
         });
     }
 
@@ -727,7 +728,8 @@
 
     loadPosition();
     requestAnimationFrame(initDefaultPosition);
-    applyCollapsed(localStorage.getItem(storageCollapsed) === '1');
+    const savedCollapsed = localStorage.getItem(storageCollapsed);
+    applyCollapsed(savedCollapsed == null ? true : savedCollapsed === '1');
     loadHistory();
 })();
 
