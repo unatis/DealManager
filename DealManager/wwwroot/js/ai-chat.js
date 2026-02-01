@@ -318,6 +318,7 @@
 // ===== Persistent portfolio assistant =====
 (function () {
     const assistant = document.getElementById('aiAssistant');
+    const wrap = assistant ? assistant.querySelector('.ai-assistant-wrap') : null;
     const panel = document.getElementById('aiAssistantPanel');
     const header = document.getElementById('aiAssistantHeader');
     const heroHandle = panel ? panel.parentElement?.querySelector?.('.ai-assistant-hero-handle') : null;
@@ -334,6 +335,7 @@
         return;
     }
 
+    const storageVisible = 'aiAssistantVisible';
     const storageCollapsed = 'aiAssistantCollapsed';
     const storagePos = 'aiAssistantPos';
     let isSending = false;
@@ -544,13 +546,24 @@
             minBtn.title = isCollapsed ? 'Expand' : 'Collapse';
             minBtn.setAttribute('aria-label', isCollapsed ? 'Expand assistant' : 'Collapse assistant');
         }
+        if (wrap) {
+            wrap.style.display = isCollapsed ? 'none' : 'block';
+        }
         if (fab) {
             fab.style.display = isCollapsed ? 'flex' : 'none';
         }
-        if (panel) {
-            panel.style.display = isCollapsed ? 'none' : 'flex';
-        }
         localStorage.setItem(storageCollapsed, isCollapsed ? '1' : '0');
+    }
+
+    function applyVisible(isVisible) {
+        if (!isVisible) {
+            if (wrap) wrap.style.display = 'none';
+            if (fab) fab.style.display = 'none';
+        } else {
+            const collapsedSaved = localStorage.getItem(storageCollapsed) === '1';
+            applyCollapsed(collapsedSaved);
+        }
+        localStorage.setItem(storageVisible, isVisible ? '1' : '0');
     }
 
     function loadPosition() {
@@ -709,8 +722,9 @@
 
     if (openBtn) {
         openBtn.addEventListener('click', () => {
-            const isCollapsed = assistant.classList.contains('collapsed');
-            applyCollapsed(!isCollapsed);
+            const isVisible = wrap && wrap.style.display !== 'none';
+            applyVisible(!isVisible);
+            if (!isVisible) inputEl.focus();
         });
     }
 
@@ -728,8 +742,8 @@
 
     loadPosition();
     requestAnimationFrame(initDefaultPosition);
-    const savedCollapsed = localStorage.getItem(storageCollapsed);
-    applyCollapsed(savedCollapsed == null ? true : savedCollapsed === '1');
+    const savedVisible = localStorage.getItem(storageVisible);
+    applyVisible(savedVisible === '1');
     loadHistory();
 })();
 

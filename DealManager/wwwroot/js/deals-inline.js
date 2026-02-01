@@ -2786,15 +2786,13 @@ function renderAll() {
     // CLOSED deals
     let closed = deals.filter(d => d.closed);
 
-    // Sort closed deals by id (descending) - most recent first
+    // Sort closed deals by closedAt (descending) - most recent first
     closed = closed.sort((a, b) => {
-        const idA = a.id || '';
-        const idB = b.id || '';
-        if (idA && idB) {
-            return idB.localeCompare(idA); // Descending order (newest first)
-        }
-        if (idA && !idB) return -1;
-        if (!idA && idB) return 1;
+        const da = a?.closedAt ? Date.parse(a.closedAt) : 0;
+        const db = b?.closedAt ? Date.parse(b.closedAt) : 0;
+        if (da && db) return db - da;
+        if (da && !db) return -1;
+        if (!da && db) return 1;
         return 0;
     });
 
